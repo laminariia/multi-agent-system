@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "@remix-run/react";
+import { useNavigate, Link } from "@remix-run/react";
 import { Button } from "~/components/ui/button";
 import {
   Card,
@@ -30,7 +30,7 @@ export default function LoginRoute() {
     try {
       const data = await apiLogin(email, password);
       loginStore(data);
-      navigate("/hitl", { replace: true });
+      navigate("/dashboard", { replace: true });
     } catch (err) {
       setError(
         err instanceof Error
@@ -44,7 +44,7 @@ export default function LoginRoute() {
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-md border-slate-700/50">
+      <Card className="w-full max-w-md border-border/50 animate-slide-up">
         <CardHeader className="text-center space-y-2">
           <div className="mx-auto mb-2">
             <span className="text-3xl font-bold tracking-tight text-primary">
@@ -66,7 +66,7 @@ export default function LoginRoute() {
               <Input
                 id="email"
                 type="email"
-                placeholder="admin@test.com"
+                placeholder="admin@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -125,6 +125,16 @@ export default function LoginRoute() {
               )}
             </Button>
           </form>
+
+          <p className="text-center text-sm text-muted-foreground mt-4">
+            Don't have an account?{" "}
+            <Link
+              to="/register"
+              className="text-primary hover:underline font-medium"
+            >
+              Register
+            </Link>
+          </p>
         </CardContent>
       </Card>
     </div>

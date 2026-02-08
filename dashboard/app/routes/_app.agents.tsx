@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
-import { StatusBadge } from "~/components/status-badge";
+import { Card, CardContent } from "~/components/ui/card";
+import { Skeleton } from "~/components/ui/skeleton";
+import { AgentCard } from "~/components/agent-card";
 import { fetchAgentStatus } from "~/lib/api";
-import { relativeTime } from "~/lib/utils";
-import { cn } from "~/lib/utils";
+import { relativeTime, cn } from "~/lib/utils";
 
 const healthConfig: Record<string, { bg: string; border: string; text: string; label: string }> = {
   healthy: {
@@ -36,6 +36,10 @@ export default function AgentsPage() {
   const health = data?.system_health
     ? healthConfig[data.system_health] ?? healthConfig.critical
     : null;
+
+  const pipelineA = data?.agents.filter((a) => a.pipeline === "A") ?? [];
+  const pipelineB = data?.agents.filter((a) => a.pipeline === "B") ?? [];
+  const other = data?.agents.filter((a) => !a.pipeline) ?? [];
 
   return (
     <div className="space-y-6">
@@ -79,33 +83,16 @@ export default function AgentsPage() {
         </Card>
       )}
 
-      {/* Loading state */}
+      {/* Loading */}
       {isLoading && (
-        <div className="flex items-center justify-center py-12">
-          <svg
-            className="h-6 w-6 animate-spin text-primary"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-            />
-          </svg>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-[160px]" />
+          ))}
         </div>
       )}
 
-      {/* Error state */}
+      {/* Error */}
       {error && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
           Failed to load agent status:{" "}
@@ -113,111 +100,53 @@ export default function AgentsPage() {
         </div>
       )}
 
-      {/* Agents table */}
+      {/* Agent cards by pipeline */}
       {data && data.agents.length > 0 && (
-        <Card className="border-slate-700/50">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium">Agents</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-700/50">
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Pipeline
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Agent
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Current Task
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Last Heartbeat
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Restarts
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-700/30">
-                  {data.agents.map((agent) => (
-                    <tr
-                      key={agent.name}
-                      className="hover:bg-accent/50 transition-colors"
-                    >
-                      <td className="px-6 py-3.5 text-sm">
-                        {agent.pipeline ? (
-                          <span className="inline-flex items-center justify-center h-6 w-6 rounded bg-slate-700/50 text-xs font-medium text-muted-foreground">
-                            {agent.pipeline}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground/50">--</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <div>
-                          <p className="text-sm font-medium text-foreground">
-                            {agent.display_name || agent.name}
-                          </p>
-                          {agent.display_name && (
-                            <p className="text-xs text-muted-foreground">
-                              {agent.name}
-                            </p>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <StatusBadge status={agent.status} />
-                        {agent.error_message && (
-                          <p className="mt-1 text-xs text-destructive line-clamp-1">
-                            {agent.error_message}
-                          </p>
-                        )}
-                      </td>
-                      <td className="px-6 py-3.5 text-sm text-muted-foreground max-w-[200px]">
-                        {agent.current_task ? (
-                          <span className="line-clamp-1">{agent.current_task}</span>
-                        ) : (
-                          <span className="text-muted-foreground/40">--</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-3.5 text-sm text-muted-foreground">
-                        {agent.last_heartbeat ? (
-                          relativeTime(agent.last_heartbeat)
-                        ) : (
-                          <span className="text-muted-foreground/40">Never</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-3.5 text-sm text-right">
-                        <span
-                          className={cn(
-                            agent.restart_count > 3
-                              ? "text-destructive"
-                              : agent.restart_count > 0
-                              ? "text-amber-400"
-                              : "text-muted-foreground"
-                          )}
-                        >
-                          {agent.restart_count}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <div className="space-y-8">
+          {pipelineA.length > 0 && (
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground/60 mb-4">
+                Pipeline A — Freelance
+              </h2>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {pipelineA.map((agent) => (
+                  <AgentCard key={agent.name} agent={agent} />
+                ))}
+              </div>
             </div>
-          </CardContent>
-        </Card>
+          )}
+
+          {pipelineB.length > 0 && (
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground/60 mb-4">
+                Pipeline B — Outreach
+              </h2>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {pipelineB.map((agent) => (
+                  <AgentCard key={agent.name} agent={agent} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {other.length > 0 && (
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground/60 mb-4">
+                Other
+              </h2>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {other.map((agent) => (
+                  <AgentCard key={agent.name} agent={agent} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
-      {/* Empty state */}
+      {/* Empty */}
       {data && data.agents.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="flex flex-col items-center justify-center py-16 text-center animate-fade-in">
           <p className="text-muted-foreground text-lg font-medium">
             No agents registered
           </p>

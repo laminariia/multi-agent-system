@@ -53,7 +53,7 @@ export function HITLCard({ item, onResolve }: HITLCardProps) {
   };
 
   return (
-    <Card className="relative overflow-hidden border-slate-700/50 hover:border-slate-600/70 transition-colors">
+    <Card className="relative overflow-hidden border-border/50 hover:border-primary/30 transition-colors animate-fade-in">
       {/* Priority indicator stripe */}
       {item.priority === "urgent" && (
         <div className="absolute top-0 left-0 right-0 h-0.5 bg-red-500" />

@@ -29,8 +29,8 @@ const statusConfig: Record<
   },
   paused: {
     label: "Paused",
-    className: "bg-slate-500/15 text-slate-400 border-slate-500/30",
-    dotClass: "bg-slate-400",
+    className: "bg-muted text-muted-foreground border-muted-foreground/30",
+    dotClass: "bg-muted-foreground",
   },
 };
 

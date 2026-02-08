@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "~/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import { Skeleton } from "~/components/ui/skeleton";
 import { HITLCard } from "~/components/hitl-card";
 import { fetchHITLPending, resolveHITL, fetchHITLStats } from "~/lib/api";
 import { toast } from "~/hooks/use-toast";
@@ -45,7 +46,6 @@ export default function HITLPage() {
         description: `${action} - ${result.next_action || "Done"}`,
         variant: "success",
       });
-      // Invalidate queries to refresh the list
       queryClient.invalidateQueries({ queryKey: ["hitl-pending"] });
       queryClient.invalidateQueries({ queryKey: ["hitl-pending-count"] });
       queryClient.invalidateQueries({ queryKey: ["hitl-stats"] });
@@ -83,19 +83,18 @@ export default function HITLPage() {
           )}
         </div>
 
-        {/* Stats summary */}
         {stats && (
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
             <span>
               Today: {stats.today.resolved} resolved
             </span>
-            <span className="text-slate-600">|</span>
+            <span className="text-border">|</span>
             <span>
               Avg: {stats.avg_resolution_time_minutes.toFixed(0)}m
             </span>
             {stats.today.expired > 0 && (
               <>
-                <span className="text-slate-600">|</span>
+                <span className="text-border">|</span>
                 <span className="text-destructive">
                   {stats.today.expired} expired
                 </span>
@@ -121,27 +120,10 @@ export default function HITLPage() {
 
       {/* Loading state */}
       {isLoading && (
-        <div className="flex items-center justify-center py-12">
-          <svg
-            className="h-6 w-6 animate-spin text-primary"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-            />
-          </svg>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-[200px]" />
+          ))}
         </div>
       )}
 
@@ -155,25 +137,27 @@ export default function HITLPage() {
 
       {/* Empty state */}
       {!isLoading && !error && items.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <svg
-            className="h-12 w-12 text-muted-foreground/30 mb-4"
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-            <polyline points="22 4 12 14.01 9 11.01" />
-          </svg>
-          <p className="text-muted-foreground text-lg font-medium">
+        <div className="flex flex-col items-center justify-center py-16 text-center animate-fade-in">
+          <div className="rounded-full bg-success/10 p-4 mb-4">
+            <svg
+              className="h-8 w-8 text-success"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
+            </svg>
+          </div>
+          <p className="text-foreground text-lg font-medium">
             All clear
           </p>
-          <p className="text-muted-foreground/70 text-sm mt-1">
-            No pending items in the queue
+          <p className="text-muted-foreground text-sm mt-1 max-w-sm">
+            No pending items in the queue. You'll be notified when something needs your attention.
           </p>
         </div>
       )}

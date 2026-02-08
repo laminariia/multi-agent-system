@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,25 +6,29 @@
 
 @layer base {
   :root {
-    --background: 222 47% 11%;
+    --background: 220 60% 4%;
     --foreground: 210 40% 96%;
-    --card: 217 33% 17%;
+    --card: 215 50% 8%;
     --card-foreground: 210 40% 96%;
-    --popover: 217 33% 17%;
+    --popover: 215 50% 8%;
     --popover-foreground: 210 40% 96%;
-    --primary: 217 91% 60%;
+    --primary: 190 95% 40%;
     --primary-foreground: 210 40% 98%;
-    --secondary: 217 33% 17%;
+    --secondary: 215 40% 12%;
     --secondary-foreground: 210 40% 96%;
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 217 33% 22%;
+    --muted: 215 40% 12%;
+    --muted-foreground: 215 20% 55%;
+    --accent: 215 40% 15%;
     --accent-foreground: 210 40% 96%;
-    --destructive: 0 84% 60%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217 33% 25%;
-    --input: 217 33% 25%;
-    --ring: 217 91% 60%;
+    --success: 160 84% 39%;
+    --success-foreground: 210 40% 98%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 9%;
+    --border: 215 40% 16%;
+    --input: 215 40% 16%;
+    --ring: 190 95% 40%;
     --radius: 0.5rem;
   }
 }
@@ -49,12 +53,12 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: hsl(222 47% 11%);
+  background: hsl(220 60% 4%);
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(217 33% 25%);
+  background: hsl(215 40% 16%);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(217 33% 35%);
+  background: hsl(215 40% 25%);
 }

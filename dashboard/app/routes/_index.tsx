@@ -8,7 +8,7 @@ export default function IndexRoute() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      navigate("/hitl", { replace: true });
+      navigate("/dashboard", { replace: true });
     } else {
       navigate("/login", { replace: true });
     }
