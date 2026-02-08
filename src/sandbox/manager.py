@@ -1,7 +1,8 @@
 """Sandbox manager -- smart routing between Docker and E2B executors.
 
-The manager tries Docker first (default) and falls back to E2B when Docker is
-unavailable *and* an E2B API key is configured.  If both are unavailable the
+The manager tries E2B first (default, for Railway compatibility) and falls
+back to Docker when E2B is unavailable.  Set ``prefer_docker=True`` to
+reverse the order for local dev or VPS deploys.  If both are unavailable the
 caller receives an :class:`ExecutionResult` with a descriptive error.
 """
 
@@ -24,8 +25,8 @@ class SandboxManager:
     Parameters
     ----------
     prefer_docker:
-        When ``True`` (the default) Docker is tried first.  Set to ``False``
-        to prefer E2B for all executions.
+        When ``True`` Docker is tried first.  Defaults to ``False`` so that
+        E2B is preferred (required on Railway where Docker daemon is unavailable).
     e2b_api_key:
         Explicit E2B API key.  Falls back to ``E2B_API_KEY`` env var.
     docker_image:
@@ -34,7 +35,7 @@ class SandboxManager:
 
     def __init__(
         self,
-        prefer_docker: bool = True,
+        prefer_docker: bool = False,
         e2b_api_key: str | None = None,
         docker_image: str = "mas-sandbox:latest",
     ) -> None:

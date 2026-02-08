@@ -423,9 +423,9 @@ class TestE2BExecutor:
 class TestSandboxManager:
     """Tests for SandboxManager routing logic."""
 
-    def test_default_prefers_docker(self):
+    def test_default_prefers_e2b(self):
         mgr = SandboxManager()
-        assert mgr._prefer_docker is True
+        assert mgr._prefer_docker is False
 
     def test_choose_order_docker_first(self):
         mgr = SandboxManager(prefer_docker=True, e2b_api_key="key")

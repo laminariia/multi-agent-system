@@ -156,6 +156,7 @@ class DevAgent(ConstrainedAgent):
             except Exception as exc:
                 self._log.warning("sandbox_unavailable", error=str(exc))
                 artifacts["_dev_execution"] = {"error": str(exc), "success": False}
+                artifacts["_sandbox_skipped"] = True
 
         code_artifact_id = str(uuid.uuid4())
         serialized = json.dumps(parsed, default=str, ensure_ascii=False)

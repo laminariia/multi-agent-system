@@ -19,6 +19,4 @@ RUN pip install --no-cache-dir --upgrade pip \
 # Copy application source
 COPY src/ ./src/
 
-EXPOSE 8000
-
-CMD ["litestar", "--app", "src.api.main:app", "run", "--host", "0.0.0.0"]
+CMD ["sh", "-c", "litestar --app src.api.main:app run --host 0.0.0.0 --port ${PORT:-8000}"]
