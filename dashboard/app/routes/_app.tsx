@@ -57,8 +57,12 @@ export default function AppLayout() {
   const connectWs = useCallback(() => {
     if (!accessToken) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws/events`;
+    const apiUrl = window.ENV?.API_URL;
+    const wsHost = apiUrl
+      ? new URL(apiUrl).host
+      : window.location.host;
+    const protocol = (apiUrl?.startsWith("https") || window.location.protocol === "https:") ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${wsHost}/ws/events`;
 
     try {
       const ws = new WebSocket(wsUrl);
