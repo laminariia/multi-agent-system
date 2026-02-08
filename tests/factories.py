@@ -7,6 +7,7 @@ produce and consume, without requiring a live database.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 from typing import Any
 
 
@@ -168,7 +169,7 @@ class ProjectFactory:
     def create(cls, **overrides: Any) -> dict[str, Any]:
         """Return a single project context dict with sensible defaults."""
         cls._counter += 1
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         defaults: dict[str, Any] = {
             "project_id": f"proj-{cls._counter:03d}",
@@ -177,7 +178,7 @@ class ProjectFactory:
             "client": {"name": f"Client #{cls._counter}", "rating": 4.5},
             "requirements": "Build a responsive landing page",
             "budget": 500.0,
-            "deadline": datetime(2026, 6, 1, tzinfo=timezone.utc),
+            "deadline": datetime(2026, 6, 1, tzinfo=UTC),
         }
         defaults.update(overrides)
         return defaults

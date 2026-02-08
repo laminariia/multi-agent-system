@@ -443,9 +443,9 @@ async def scout_node(state: AgentState) -> AgentState:
     # Browser-based adapters (conditionally enabled when proxy is configured).
     pool = None
     if settings.BRIGHTDATA_USERNAME:
-        from src.browser.pool import BrowserPool, PoolConfig  # noqa: PLC0415
-        from src.adapters.upwork import UpworkClient  # noqa: PLC0415
         from src.adapters.kwork import KworkClient  # noqa: PLC0415
+        from src.adapters.upwork import UpworkClient  # noqa: PLC0415
+        from src.browser.pool import BrowserPool, PoolConfig  # noqa: PLC0415
 
         pool = BrowserPool(config=PoolConfig(
             max_browsers=settings.BROWSER_POOL_MAX,

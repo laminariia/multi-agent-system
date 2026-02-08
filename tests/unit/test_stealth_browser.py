@@ -10,7 +10,6 @@ import pytest
 
 from src.browser.stealth import StealthBrowser, StealthConfig, StealthContext, StealthPage
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

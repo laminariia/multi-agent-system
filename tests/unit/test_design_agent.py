@@ -6,17 +6,15 @@ All LLM calls and database operations are mocked.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from langchain_core.messages import AIMessage
 
 from src.agents.design import DesignAgent
 from src.core.llm_client import CallMetrics
 from src.core.state import AgentState, create_initial_state
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -32,7 +30,7 @@ def _build_state(**overrides: Any) -> AgentState:
         "client": {"name": "Test Client"},
         "requirements": "Build a responsive landing page with modern design",
         "budget": 500.0,
-        "deadline": datetime(2026, 3, 15, tzinfo=timezone.utc),
+        "deadline": datetime(2026, 3, 15, tzinfo=UTC),
     }
     state = create_initial_state(project=project, first_agent="design", thread_id="thread-design-test")
     state.update(overrides)  # type: ignore[typeddict-item]

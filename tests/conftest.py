@@ -6,7 +6,7 @@ and pre-built state objects so that unit tests never touch real services.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,7 +17,6 @@ from src.core.heartbeat import HeartbeatConfig, HeartbeatMonitor
 from src.core.llm_client import CallMetrics, CostTracker, LLMClient
 from src.core.loop_detector import LoopDetector
 from src.core.state import AgentState, ProjectContext, create_initial_state
-
 
 # ---------------------------------------------------------------------------
 # Infrastructure mocks
@@ -44,7 +43,7 @@ def mock_valkey() -> AsyncMock:
     # scan_iter returns an async iterator yielding nothing by default.
     async def _empty_scan(*_args: Any, **_kwargs: Any):
         return
-        yield  # noqa: unreachable — makes this an async generator
+        yield  # noqa: F841 — makes this an async generator
 
     valkey.scan_iter = _empty_scan
 
@@ -150,7 +149,7 @@ def sample_project() -> ProjectContext:
         },
         requirements="Build a responsive landing page with React and Tailwind CSS",
         budget=500.0,
-        deadline=datetime(2026, 3, 15, tzinfo=timezone.utc),
+        deadline=datetime(2026, 3, 15, tzinfo=UTC),
     )
 
 

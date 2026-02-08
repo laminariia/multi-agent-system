@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import sys
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -289,7 +288,10 @@ SEED_HITL = [
             "security_issues": 2,
             "security_details": [
                 {"severity": "low", "rule": "S105", "file": "config.py", "message": "Possible hardcoded password"},
-                {"severity": "low", "rule": "B108", "file": "utils.py", "message": "Probable insecure usage of temp file"},
+                {
+                    "severity": "low", "rule": "B108", "file": "utils.py",
+                    "message": "Probable insecure usage of temp file",
+                },
             ],
             "test_coverage": 0.84,
         },
@@ -401,7 +403,7 @@ async def _seed(force: bool = False) -> None:
         await session.commit()
 
         print("Seed data created successfully:")
-        print(f"  Users:            1  (admin@test.com / admin123)")
+        print("  Users:            1  (admin@test.com / admin123)")
         print(f"  Jobs:            {len(SEED_JOBS):2d}")
         print(f"  HITL items:       {len(SEED_HITL)}")
         print(f"  Agent heartbeats: {len(SEED_HEARTBEATS)}")

@@ -10,7 +10,6 @@ import pytest
 from src.core.exceptions import LoopDetectedError
 from src.core.loop_detector import LoopDetector
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

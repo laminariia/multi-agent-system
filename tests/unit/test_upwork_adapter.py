@@ -5,17 +5,16 @@ All Playwright interactions are mocked — no real browser is launched.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
-from src.adapters.upwork import UpworkClient, _SUBMIT_GUARD
+from src.adapters.upwork import _SUBMIT_GUARD, UpworkClient
 from src.core.exceptions import (
     CaptchaDetectedError,
     CloudflareBlockError,
     PlatformBannedError,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -121,7 +120,10 @@ class TestUpworkFetchJobs:
     @pytest.mark.asyncio
     async def test_fetch_jobs_returns_normalised_jobs(self) -> None:
         cards = [
-            {"title": "React Developer Needed", "href": "/jobs/~01abc123", "description": "Build UI", "budget": "$500 - $1,000"},
+            {
+                "title": "React Developer Needed", "href": "/jobs/~01abc123",
+                "description": "Build UI", "budget": "$500 - $1,000",
+            },
             {"title": "Python Backend", "href": "/jobs/~02def456", "description": "API work", "budget": "$2,000"},
         ]
         page = _mock_page(cards=cards)

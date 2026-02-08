@@ -12,15 +12,14 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
+from typing import Any
 
-import pytest
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from src.core.state import AgentState, ProjectContext, create_initial_state
-
+from src.core.state import ProjectContext, create_initial_state
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -38,7 +37,7 @@ def _make_project() -> ProjectContext:
         client={"name": "Integration Client", "rating": 4.7, "reviews": 30, "hire_rate": 0.80},
         requirements="Build a responsive landing page with React and Tailwind CSS",
         budget=800.0,
-        deadline=datetime(2026, 5, 1, tzinfo=timezone.utc),
+        deadline=datetime(2026, 5, 1, tzinfo=UTC),
     )
 
 
@@ -166,7 +165,9 @@ def _build_pipeline_graph(
         route_after_critic,
         {"packager_node": "packager_node", "hitl_review_node": "hitl_review_node", "dev_node": "dev_node", END: END},
     )
-    graph.add_conditional_edges("packager_node", route_after_packager, {"hitl_review_node": "hitl_review_node", END: END})
+    graph.add_conditional_edges(
+        "packager_node", route_after_packager, {"hitl_review_node": "hitl_review_node", END: END},
+    )
     graph.add_conditional_edges("hitl_review_node", route_after_hitl_review, {END: END})
 
     return graph.compile()
@@ -254,7 +255,7 @@ async def test_full_pipeline_no_jobs_ends_early():
 
 
 async def test_pipeline_planner_to_packager_happy_path():
-    """Happy path: Scout -> Bid -> HITL(approve) -> Planner -> Dev -> Content -> Design -> Critic(APPROVE) -> Packager -> HITL review."""
+    """Happy path: Scout -> Bid -> HITL(approve) -> Planner -> Dev -> Content -> Design -> Critic -> Packager."""
 
     plan_json = json.dumps({"tasks": [{"id": "t1", "title": "Create landing page"}]})
     dev_json = json.dumps({"files": [{"path": "index.html", "content": "<h1>Hello</h1>"}]})
@@ -295,12 +296,18 @@ async def test_pipeline_planner_to_packager_happy_path():
     async def mock_critic(state: dict[str, Any]) -> dict[str, Any]:
         artifacts = dict(state.get("artifacts") or {})
         artifacts["critic"] = [critic_json]
-        return {**state, "next_agent": "packager", "current_agent": "critic", "status": "active", "requires_hitl": False, "artifacts": artifacts}
+        return {
+            **state, "next_agent": "packager", "current_agent": "critic",
+            "status": "active", "requires_hitl": False, "artifacts": artifacts,
+        }
 
     async def mock_packager(state: dict[str, Any]) -> dict[str, Any]:
         artifacts = dict(state.get("artifacts") or {})
         artifacts["packager"] = [packager_json]
-        return {**state, "requires_hitl": True, "hitl_request_id": "hitl-review-final-001", "status": "paused", "current_agent": "packager", "next_agent": None, "artifacts": artifacts}
+        return {
+            **state, "requires_hitl": True, "hitl_request_id": "hitl-review-final-001",
+            "status": "paused", "current_agent": "packager", "next_agent": None, "artifacts": artifacts,
+        }
 
     graph = _build_pipeline_graph({
         "scout_node": mock_scout,
@@ -377,14 +384,23 @@ async def test_pipeline_critic_revision_loop():
         artifacts = dict(state.get("artifacts") or {})
         if call_counts["critic"] == 1:
             artifacts["critic"] = [critic_revise_json]
-            return {**state, "next_agent": "dev", "current_agent": "critic", "status": "active", "requires_hitl": False, "artifacts": artifacts}
+            return {
+                **state, "next_agent": "dev", "current_agent": "critic",
+                "status": "active", "requires_hitl": False, "artifacts": artifacts,
+            }
         artifacts["critic"] = [critic_approve_json]
-        return {**state, "next_agent": "packager", "current_agent": "critic", "status": "active", "requires_hitl": False, "artifacts": artifacts}
+        return {
+            **state, "next_agent": "packager", "current_agent": "critic",
+            "status": "active", "requires_hitl": False, "artifacts": artifacts,
+        }
 
     async def mock_packager(state: dict[str, Any]) -> dict[str, Any]:
         artifacts = dict(state.get("artifacts") or {})
         artifacts["packager"] = [packager_json]
-        return {**state, "requires_hitl": True, "status": "paused", "current_agent": "packager", "next_agent": None, "artifacts": artifacts}
+        return {
+            **state, "requires_hitl": True, "status": "paused",
+            "current_agent": "packager", "next_agent": None, "artifacts": artifacts,
+        }
 
     graph = _build_pipeline_graph({
         "scout_node": mock_scout,
@@ -448,7 +464,10 @@ async def test_pipeline_critic_reject_to_hitl():
     async def mock_critic(state: dict[str, Any]) -> dict[str, Any]:
         artifacts = dict(state.get("artifacts") or {})
         artifacts["critic"] = [critic_reject_json]
-        return {**state, "next_agent": None, "current_agent": "critic", "status": "paused", "requires_hitl": True, "hitl_request_id": "hitl-critic-reject-001", "artifacts": artifacts}
+        return {
+            **state, "next_agent": None, "current_agent": "critic", "status": "paused",
+            "requires_hitl": True, "hitl_request_id": "hitl-critic-reject-001", "artifacts": artifacts,
+        }
 
     async def mock_packager(state: dict[str, Any]) -> dict[str, Any]:
         nonlocal packager_called
@@ -488,7 +507,10 @@ async def test_pipeline_scout_failure_ends_graph():
     bid_called = False
 
     async def mock_scout(state: dict[str, Any]) -> dict[str, Any]:
-        return {**state, "status": "failed", "current_agent": "scout", "next_agent": None, "errors": ["All adapters failed"]}
+        return {
+            **state, "status": "failed", "current_agent": "scout",
+            "next_agent": None, "errors": ["All adapters failed"],
+        }
 
     async def mock_bid(state: dict[str, Any]) -> dict[str, Any]:
         nonlocal bid_called
@@ -517,7 +539,10 @@ async def test_pipeline_artifacts_accumulate_across_agents():
     async def mock_bid(state: dict[str, Any]) -> dict[str, Any]:
         artifacts = dict(state.get("artifacts") or {})
         artifacts["bid"] = ["bid-1"]
-        return {**state, "requires_hitl": True, "status": "paused", "current_agent": "bid", "next_agent": None, "artifacts": artifacts}
+        return {
+            **state, "requires_hitl": True, "status": "paused",
+            "current_agent": "bid", "next_agent": None, "artifacts": artifacts,
+        }
 
     async def mock_hitl_bid(state: dict[str, Any]) -> dict[str, Any]:
         return {**state, "requires_hitl": False, "status": "active", "next_agent": "planner"}
@@ -545,12 +570,18 @@ async def test_pipeline_artifacts_accumulate_across_agents():
     async def mock_critic(state: dict[str, Any]) -> dict[str, Any]:
         artifacts = dict(state.get("artifacts") or {})
         artifacts["critic"] = ["review-1"]
-        return {**state, "next_agent": "packager", "current_agent": "critic", "status": "active", "requires_hitl": False, "artifacts": artifacts}
+        return {
+            **state, "next_agent": "packager", "current_agent": "critic",
+            "status": "active", "requires_hitl": False, "artifacts": artifacts,
+        }
 
     async def mock_packager(state: dict[str, Any]) -> dict[str, Any]:
         artifacts = dict(state.get("artifacts") or {})
         artifacts["packager"] = ["package-1"]
-        return {**state, "status": "completed", "current_agent": "packager", "next_agent": None, "requires_hitl": False, "artifacts": artifacts}
+        return {
+            **state, "status": "completed", "current_agent": "packager",
+            "next_agent": None, "requires_hitl": False, "artifacts": artifacts,
+        }
 
     graph = _build_pipeline_graph({
         "scout_node": mock_scout,

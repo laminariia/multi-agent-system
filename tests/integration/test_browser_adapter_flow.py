@@ -6,13 +6,12 @@ fetch_jobs() to normalised job dicts — all with mocked Playwright.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
 from src.adapters.kwork import KworkClient
 from src.adapters.upwork import UpworkClient
-
 
 # ---------------------------------------------------------------------------
 # Helpers — shared mock infrastructure

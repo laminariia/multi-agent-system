@@ -11,10 +11,7 @@ from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from src.core.checkpoints import HybridCheckpointSaver
-
 
 # ---------------------------------------------------------------------------
 # Helpers

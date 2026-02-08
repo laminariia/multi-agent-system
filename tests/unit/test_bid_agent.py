@@ -6,19 +6,16 @@ All LLM calls and database operations are mocked.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-import pytest
 from langchain_core.messages import AIMessage
 
 from src.agents.bid import BidAgent
 from src.core.llm_client import CallMetrics
 from src.core.state import AgentState, create_initial_state
-
 from tests.factories import JobFactory, ProposalFactory
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -34,7 +31,7 @@ def _build_state(**overrides: Any) -> AgentState:
         "client": {"name": "Test Client"},
         "requirements": "Build a landing page",
         "budget": 500.0,
-        "deadline": datetime(2026, 3, 15, tzinfo=timezone.utc),
+        "deadline": datetime(2026, 3, 15, tzinfo=UTC),
     }
     state = create_initial_state(project=project, first_agent="bid", thread_id="thread-bid-test")
     state.update(overrides)  # type: ignore[typeddict-item]

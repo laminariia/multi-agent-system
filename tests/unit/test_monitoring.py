@@ -38,8 +38,8 @@ def _reset_metrics_singleton():
     for c in set(to_remove):
         try:
             REGISTRY.unregister(c)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception:  # noqa: BLE001, S110
+            pass  # Silently ignore already-unregistered collectors
 
     yield
 

@@ -6,13 +6,11 @@ before even consulting the LLM for a review verdict.
 from __future__ import annotations
 
 import json
-from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.security.semgrep_gate import ScanResult, SemgrepFinding, SemgrepGate
-
+from src.security.semgrep_gate import SemgrepGate
 
 # ---------------------------------------------------------------------------
 # Test: SemgrepGate blocks os.system()

@@ -8,20 +8,17 @@ propagation, and HITL gating work correctly end-to-end.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from langchain_core.messages import AIMessage
 
 from src.agents.bid import BidAgent
 from src.agents.scout import ScoutAgent
 from src.core.llm_client import CallMetrics
 from src.core.state import AgentState, create_initial_state
-
 from tests.factories import JobFactory, ProposalFactory
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -37,7 +34,7 @@ def _build_pipeline_state(**overrides: Any) -> AgentState:
         "client": {"name": "Pipeline Client", "rating": 4.5, "reviews": 10, "hire_rate": 0.7},
         "requirements": "Full-stack web application with React frontend",
         "budget": 1500.0,
-        "deadline": datetime(2026, 4, 1, tzinfo=timezone.utc),
+        "deadline": datetime(2026, 4, 1, tzinfo=UTC),
     }
     state = create_initial_state(project=project, first_agent="scout", thread_id="thread-pipeline-001")
     state.update(overrides)  # type: ignore[typeddict-item]

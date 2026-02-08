@@ -13,7 +13,6 @@ import pytest
 from src.core.exceptions import HeartbeatTimeoutError
 from src.core.heartbeat import HeartbeatConfig, HeartbeatMonitor
 
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------

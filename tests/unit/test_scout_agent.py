@@ -6,19 +6,18 @@ All LLM calls, DB operations, and platform adapters are mocked.
 from __future__ import annotations
 
 import json
+from datetime import UTC
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage
 
-from src.agents.scout import ScoutAgent, _SCORE_BID_THRESHOLD, _SCORE_REVIEW_THRESHOLD
+from src.agents.scout import ScoutAgent
 from src.core.exceptions import LLMInvalidResponseError
 from src.core.llm_client import CallMetrics
 from src.core.state import AgentState, create_initial_state
-
 from tests.factories import JobFactory
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -32,8 +31,7 @@ def _make_scored_json(jobs: list[dict[str, Any]]) -> str:
 
 def _build_state(**overrides: Any) -> AgentState:
     """Build a test AgentState with sensible defaults."""
-    from tests.conftest import sample_project  # avoid circular; inline the fixture
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     project = {
         "project_id": "proj-test-001",
@@ -42,7 +40,7 @@ def _build_state(**overrides: Any) -> AgentState:
         "client": {"name": "Test Client"},
         "requirements": "Build a landing page",
         "budget": 500.0,
-        "deadline": datetime(2026, 3, 15, tzinfo=timezone.utc),
+        "deadline": datetime(2026, 3, 15, tzinfo=UTC),
     }
     state = create_initial_state(project=project, first_agent="scout", thread_id="thread-scout-test")
     state.update(overrides)  # type: ignore[typeddict-item]
@@ -171,7 +169,6 @@ async def test_scout_borderline_creates_hitl_review(
         adapters=adapters,
     )
 
-    mock_hitl = AsyncMock()
     state = _build_state()
     with (
         patch.object(agent, "_deduplicate", new_callable=AsyncMock, return_value=raw_jobs),

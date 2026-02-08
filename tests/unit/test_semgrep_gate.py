@@ -9,8 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.security.semgrep_gate import ScanResult, SemgrepFinding, SemgrepGate
-
+from src.security.semgrep_gate import ScanResult, SemgrepGate
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -140,7 +139,11 @@ class TestScanFiles:
         gate = SemgrepGate()
         # This is the format DevAgent produces: {"path": "...", "content": "...", "language": "..."}
         files = [
-            {"path": "src/components/Hero.tsx", "content": "export default function Hero() {}", "language": "typescript"},
+            {
+                "path": "src/components/Hero.tsx",
+                "content": "export default function Hero() {}",
+                "language": "typescript",
+            },
         ]
         stdout = _semgrep_output(results=[])
 

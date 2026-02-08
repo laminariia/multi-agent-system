@@ -4,13 +4,11 @@ All browser launch, context, and session operations are mocked.
 """
 from __future__ import annotations
 
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from src.browser.pool import BrowserPool, PoolConfig
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -97,7 +95,7 @@ class TestAcquireRelease:
 
             page1 = await pool.acquire("upwork")
             await pool.release("upwork", page1)
-            page2 = await pool.acquire("upwork")
+            await pool.acquire("upwork")  # page2 — just triggers reuse
 
         # StealthBrowser should be created only once.
         assert MockBrowser.call_count == 1

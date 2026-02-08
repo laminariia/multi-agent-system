@@ -9,13 +9,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.adapters.kwork import KworkClient, _MIN_DELAY, _MAX_DELAY
+from src.adapters.kwork import _MAX_DELAY, _MIN_DELAY, KworkClient
 from src.core.exceptions import (
     CaptchaDetectedError,
     CloudflareBlockError,
     PlatformBannedError,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -100,7 +99,10 @@ class TestKworkFetchJobs:
     @pytest.mark.asyncio
     async def test_fetch_jobs_returns_normalised_jobs(self) -> None:
         cards = [
-            {"title": "Разработка сайта", "href": "/projects/12345", "description": "Нужен сайт", "budget": "10 000 руб"},
+            {
+                "title": "Разработка сайта", "href": "/projects/12345",
+                "description": "Нужен сайт", "budget": "10 000 руб",
+            },
             {"title": "Логотип компании", "href": "/projects/67890", "description": "Дизайн", "budget": "3 000 руб"},
         ]
         page = _mock_page(cards=cards)
