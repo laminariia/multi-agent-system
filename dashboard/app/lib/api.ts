@@ -339,3 +339,9 @@ export async function deleteUser(id: string): Promise<{ message: string }> {
     method: "DELETE",
   });
 }
+
+export async function transferOwnership(userId: string): Promise<{ message: string }> {
+  return apiFetch<{ message: string }>(`/users/${userId}/transfer-ownership`, {
+    method: "POST",
+  });
+}

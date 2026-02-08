@@ -48,6 +48,7 @@ function getInitials(user: User): string {
 
 const roleBadgeVariant: Record<string, "default" | "secondary" | "outline"> = {
   owner: "default",
+  co_owner: "default",
   moderator: "secondary",
   viewer: "outline",
 };
@@ -62,31 +63,46 @@ const statusBadgeVariant: Record<string, "default" | "warning" | "destructive" |
 interface UserCardProps {
   user: User;
   currentUserId: string;
+  currentUserRole?: string;
   onApprove?: (userId: string, role: string) => void;
   onReject?: (userId: string) => void;
   onRoleChange?: (userId: string, role: string) => void;
   onSuspend?: (userId: string) => void;
   onReactivate?: (userId: string) => void;
   onDelete?: (userId: string) => void;
+  onTransfer?: (userId: string) => void;
   isLoading?: boolean;
 }
 
 export function UserCard({
   user,
   currentUserId,
+  currentUserRole,
   onApprove,
   onReject,
   onRoleChange,
   onSuspend,
   onReactivate,
   onDelete,
+  onTransfer,
   isLoading,
 }: UserCardProps) {
   const [approveRole, setApproveRole] = useState("viewer");
   const [approveOpen, setApproveOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
   const isSelf = user.id === currentUserId;
   const isOwner = user.role === "owner";
+  const isCoOwner = user.role === "co_owner";
+  const callerIsOwner = currentUserRole === "owner";
+  const callerIsCoOwner = currentUserRole === "co_owner";
+
+  // Determine if current user can act on this card
+  const canAct = !isSelf && (() => {
+    if (isOwner) return false;
+    if (isCoOwner && !callerIsOwner) return false;
+    return true;
+  })();
 
   return (
     <div className="flex items-center justify-between rounded-lg border border-border/50 bg-card/50 p-4">
@@ -102,7 +118,7 @@ export function UserCard({
               {user.name || user.email}
             </p>
             <Badge variant={roleBadgeVariant[user.role] ?? "outline"} className="text-[10px]">
-              {user.role}
+              {user.role === "co_owner" ? "co-owner" : user.role}
             </Badge>
             <Badge
               variant={statusBadgeVariant[user.status] ?? "outline"}
@@ -118,7 +134,7 @@ export function UserCard({
       </div>
 
       {/* Actions — vary by status */}
-      {!isSelf && !isOwner && (
+      {canAct && (
         <div className="flex items-center gap-2">
           {/* Pending: Approve + Reject */}
           {user.status === "pending_approval" && (
@@ -143,6 +159,9 @@ export function UserCard({
                     <SelectContent>
                       <SelectItem value="viewer">Viewer</SelectItem>
                       <SelectItem value="moderator">Moderator</SelectItem>
+                      {callerIsOwner && (
+                        <SelectItem value="co_owner">Co-Owner</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                   <DialogFooter>
@@ -169,7 +188,7 @@ export function UserCard({
             </>
           )}
 
-          {/* Active: Role select + Suspend */}
+          {/* Active: Role select + Suspend + Transfer */}
           {user.status === "active" && (
             <>
               <Select
@@ -183,6 +202,9 @@ export function UserCard({
                 <SelectContent>
                   <SelectItem value="viewer">Viewer</SelectItem>
                   <SelectItem value="moderator">Moderator</SelectItem>
+                  {callerIsOwner && (
+                    <SelectItem value="co_owner">Co-Owner</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
               <Button
@@ -193,6 +215,39 @@ export function UserCard({
               >
                 Suspend
               </Button>
+              {callerIsOwner && onTransfer && (
+                <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="sm" variant="outline" disabled={isLoading}>
+                      Transfer Ownership
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Transfer Ownership</DialogTitle>
+                      <DialogDescription>
+                        Transfer full ownership to {user.name || user.email}. You will become a co-owner.
+                        This action cannot be easily undone.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setTransferOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        onClick={() => {
+                          onTransfer(user.id);
+                          setTransferOpen(false);
+                        }}
+                        disabled={isLoading}
+                      >
+                        Transfer
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              )}
             </>
           )}
 
@@ -279,6 +334,13 @@ export function UserCard({
       {/* Self indicator */}
       {isSelf && (
         <span className="text-xs text-muted-foreground italic">You</span>
+      )}
+
+      {/* Owner/co_owner that current co_owner can't manage */}
+      {!isSelf && !canAct && (
+        <span className="text-xs text-muted-foreground italic">
+          {isOwner ? "Owner" : "Co-Owner"}
+        </span>
       )}
     </div>
   );

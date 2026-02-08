@@ -13,16 +13,22 @@ import {
   updateUserRole,
   updateUserStatus,
   deleteUser,
+  transferOwnership,
 } from "~/lib/api";
+
+function isAdmin(role?: string): boolean {
+  return role === "owner" || role === "co_owner";
+}
 
 export default function UsersRoute() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const setUser = useAuthStore((s) => s.setUser);
 
-  // Owner-only guard
+  // Admin-only guard (owner or co_owner)
   useEffect(() => {
-    if (user && user.role !== "owner") {
+    if (user && !isAdmin(user.role)) {
       navigate("/dashboard", { replace: true });
     }
   }, [user, navigate]);
@@ -31,19 +37,19 @@ export default function UsersRoute() {
   const pending = useQuery({
     queryKey: ["users", "pending_approval"],
     queryFn: () => fetchUsers({ status: "pending_approval" }),
-    enabled: user?.role === "owner",
+    enabled: isAdmin(user?.role),
   });
 
   const active = useQuery({
     queryKey: ["users", "active"],
     queryFn: () => fetchUsers({ status: "active" }),
-    enabled: user?.role === "owner",
+    enabled: isAdmin(user?.role),
   });
 
   const suspended = useQuery({
     queryKey: ["users", "suspended"],
     queryFn: () => fetchUsers({ status: "suspended" }),
-    enabled: user?.role === "owner",
+    enabled: isAdmin(user?.role),
   });
 
   const invalidateAll = () => {
@@ -108,15 +114,29 @@ export default function UsersRoute() {
     onError: (e) => toast({ title: "Error", description: String(e) }),
   });
 
+  const transferMut = useMutation({
+    mutationFn: (id: string) => transferOwnership(id),
+    onSuccess: () => {
+      toast({ title: "Ownership transferred" });
+      // Update local user state to co_owner
+      if (user) {
+        setUser({ ...user, role: "co_owner" });
+      }
+      invalidateAll();
+    },
+    onError: (e) => toast({ title: "Error", description: String(e) }),
+  });
+
   const isAnyLoading =
     approveMut.isPending ||
     rejectMut.isPending ||
     roleMut.isPending ||
     suspendMut.isPending ||
     reactivateMut.isPending ||
-    deleteMut.isPending;
+    deleteMut.isPending ||
+    transferMut.isPending;
 
-  if (!user || user.role !== "owner") {
+  if (!user || !isAdmin(user.role)) {
     return null;
   }
 
@@ -158,6 +178,7 @@ export default function UsersRoute() {
                 key={u.id}
                 user={u}
                 currentUserId={user.id}
+                currentUserRole={user.role}
                 onApprove={(id, role) => approveMut.mutate({ id, role })}
                 onReject={(id) => rejectMut.mutate(id)}
                 isLoading={isAnyLoading}
@@ -177,8 +198,10 @@ export default function UsersRoute() {
                 key={u.id}
                 user={u}
                 currentUserId={user.id}
+                currentUserRole={user.role}
                 onRoleChange={(id, role) => roleMut.mutate({ id, role })}
                 onSuspend={(id) => suspendMut.mutate(id)}
+                onTransfer={(id) => transferMut.mutate(id)}
                 isLoading={isAnyLoading}
               />
             ))
@@ -196,6 +219,7 @@ export default function UsersRoute() {
                 key={u.id}
                 user={u}
                 currentUserId={user.id}
+                currentUserRole={user.role}
                 onReactivate={(id) => reactivateMut.mutate(id)}
                 onDelete={(id) => deleteMut.mutate(id)}
                 isLoading={isAnyLoading}

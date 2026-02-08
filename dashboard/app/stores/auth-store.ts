@@ -9,6 +9,7 @@ interface AuthState {
   isAuthenticated: boolean;
   login: (data: LoginResponse) => void;
   logout: () => void;
+  setUser: (user: User) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -35,6 +36,10 @@ export const useAuthStore = create<AuthState>()(
           user: null,
           isAuthenticated: false,
         });
+      },
+
+      setUser: (user: User) => {
+        set({ user });
       },
     }),
     {

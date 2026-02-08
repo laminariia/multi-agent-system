@@ -86,7 +86,7 @@ class UserResponseSchema(_BaseSchema):
     id: uuid.UUID = Field(..., description="User unique identifier")
     email: str = Field(..., examples=["user@example.com"])
     name: str | None = Field(default=None, examples=["John"])
-    role: str = Field(..., examples=["owner"], description="User role: owner | viewer | moderator")
+    role: str = Field(..., examples=["owner"], description="User role: owner | co_owner | viewer | moderator")
     status: str = Field(default="active", examples=["active"], description="Account status: active | pending_approval | rejected | suspended")
     telegram_chat_id: int | None = Field(default=None, description="Linked Telegram chat ID")
     created_at: datetime = Field(..., description="Account creation timestamp")
@@ -120,8 +120,8 @@ class UserApproveRequestSchema(_BaseSchema):
 
     role: str = Field(
         default="viewer",
-        pattern=r"^(viewer|moderator)$",
-        description="Role to assign: viewer | moderator",
+        pattern=r"^(viewer|moderator|co_owner)$",
+        description="Role to assign: viewer | moderator | co_owner",
     )
 
 
@@ -130,8 +130,8 @@ class UserRoleUpdateSchema(_BaseSchema):
 
     role: str = Field(
         ...,
-        pattern=r"^(viewer|moderator)$",
-        description="New role: viewer | moderator",
+        pattern=r"^(viewer|moderator|co_owner)$",
+        description="New role: viewer | moderator | co_owner",
     )
 
 
@@ -143,6 +143,12 @@ class UserStatusUpdateSchema(_BaseSchema):
         pattern=r"^(active|suspended)$",
         description="New status: active | suspended",
     )
+
+
+class OwnerTransferRequestSchema(_BaseSchema):
+    """Body for transferring ownership to another user."""
+
+    new_owner_id: uuid.UUID = Field(..., description="UUID of the user who will become the new owner")
 
 
 class TokenRefreshSchema(_BaseSchema):

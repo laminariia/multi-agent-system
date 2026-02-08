@@ -1,7 +1,8 @@
-"""User management routes (owner-only).
+"""User management routes (owner / co_owner).
 
 Provides CRUD operations for user accounts including approval of
-pending registrations, role changes, and account suspension.
+pending registrations, role changes, account suspension, and
+ownership transfer.
 """
 from __future__ import annotations
 
@@ -30,11 +31,11 @@ logger = structlog.get_logger(__name__)
 
 
 class UserController(Controller):
-    """Owner-only endpoints for managing user accounts."""
+    """Owner / co_owner endpoints for managing user accounts."""
 
     path = "/api/v1/users"
     tags = ["users"]
-    guards = [require_role("owner")]
+    guards = [require_role("owner", "co_owner")]
 
     # -----------------------------------------------------------------
     # GET /api/v1/users
@@ -85,15 +86,24 @@ class UserController(Controller):
         self,
         user_id: uuid.UUID,
         data: UserApproveRequestSchema,
+        request: Request[User, Token, Any],
         db_session: AsyncSession,
     ) -> UserResponseSchema:
         """Set a pending user's status to active and assign the given role."""
+        caller = request.user
         user = await self._get_user(db_session, user_id)
 
         if user.status != "pending_approval":
             raise ClientException(
                 detail=f"User is not pending approval (current status: {user.status})",
                 status_code=409,
+            )
+
+        # Only owner can assign co_owner role
+        if data.role == "co_owner" and caller.role != "owner":
+            raise ClientException(
+                detail="Only the owner can assign the co_owner role",
+                status_code=403,
             )
 
         user.status = "active"
@@ -146,12 +156,33 @@ class UserController(Controller):
         request: Request[User, Token, Any],
         db_session: AsyncSession,
     ) -> UserResponseSchema:
-        """Change the role of an existing user. Cannot change the owner's role."""
+        """Change the role of an existing user.
+
+        Restrictions:
+        - Cannot change the owner's role.
+        - Co-owner cannot change another co_owner or owner.
+        - Only owner can assign co_owner role.
+        """
+        caller = request.user
         user = await self._get_user(db_session, user_id)
 
         if user.role == "owner":
             raise ClientException(
                 detail="Cannot change the owner's role",
+                status_code=403,
+            )
+
+        # Co-owner cannot touch other co_owners
+        if caller.role == "co_owner" and user.role == "co_owner":
+            raise ClientException(
+                detail="Co-owners cannot change another co-owner's role",
+                status_code=403,
+            )
+
+        # Only owner can assign co_owner
+        if data.role == "co_owner" and caller.role != "owner":
+            raise ClientException(
+                detail="Only the owner can assign the co_owner role",
                 status_code=403,
             )
 
@@ -176,8 +207,16 @@ class UserController(Controller):
         request: Request[User, Token, Any],
         db_session: AsyncSession,
     ) -> UserResponseSchema:
-        """Suspend or reactivate a user. Cannot modify yourself."""
-        if user_id == request.user.id:
+        """Suspend or reactivate a user.
+
+        Restrictions:
+        - Cannot modify yourself.
+        - Cannot suspend the owner.
+        - Co-owner cannot suspend owner or other co_owners.
+        """
+        caller = request.user
+
+        if user_id == caller.id:
             raise ClientException(
                 detail="Cannot change your own status",
                 status_code=403,
@@ -188,6 +227,13 @@ class UserController(Controller):
         if user.role == "owner":
             raise ClientException(
                 detail="Cannot suspend the owner account",
+                status_code=403,
+            )
+
+        # Co-owner cannot touch other co_owners
+        if caller.role == "co_owner" and user.role == "co_owner":
+            raise ClientException(
+                detail="Co-owners cannot change another co-owner's status",
                 status_code=403,
             )
 
@@ -212,8 +258,16 @@ class UserController(Controller):
         request: Request[User, Token, Any],
         db_session: AsyncSession,
     ) -> MessageSchema:
-        """Permanently delete a user account. Cannot delete yourself."""
-        if user_id == request.user.id:
+        """Permanently delete a user account.
+
+        Restrictions:
+        - Cannot delete yourself.
+        - Cannot delete the owner.
+        - Co-owner cannot delete owner or other co_owners.
+        """
+        caller = request.user
+
+        if user_id == caller.id:
             raise ClientException(
                 detail="Cannot delete your own account",
                 status_code=403,
@@ -227,11 +281,73 @@ class UserController(Controller):
                 status_code=403,
             )
 
+        # Co-owner cannot delete other co_owners
+        if caller.role == "co_owner" and user.role == "co_owner":
+            raise ClientException(
+                detail="Co-owners cannot delete another co-owner",
+                status_code=403,
+            )
+
         await db_session.delete(user)
         await db_session.flush()
 
         logger.info("users.deleted", user_id=str(user_id), email=user.email)
         return MessageSchema(message=f"User {user.email} deleted")
+
+    # -----------------------------------------------------------------
+    # POST /api/v1/users/{user_id}/transfer-ownership
+    # -----------------------------------------------------------------
+
+    @post(
+        "/{user_id:uuid}/transfer-ownership",
+        summary="Transfer ownership to another user",
+    )
+    async def transfer_ownership(
+        self,
+        user_id: uuid.UUID,
+        request: Request[User, Token, Any],
+        db_session: AsyncSession,
+    ) -> MessageSchema:
+        """Transfer owner role to another active user.
+
+        Only the current owner can transfer ownership.
+        The current owner is demoted to co_owner.
+        """
+        caller = request.user
+
+        if caller.role != "owner":
+            raise ClientException(
+                detail="Only the owner can transfer ownership",
+                status_code=403,
+            )
+
+        target = await self._get_user(db_session, user_id)
+
+        if target.id == caller.id:
+            raise ClientException(
+                detail="Cannot transfer ownership to yourself",
+                status_code=400,
+            )
+
+        if target.status != "active":
+            raise ClientException(
+                detail="Target user must be active to receive ownership",
+                status_code=400,
+            )
+
+        # Atomic swap: target becomes owner, caller becomes co_owner
+        target.role = "owner"
+        caller.role = "co_owner"
+        await db_session.flush()
+
+        logger.info(
+            "users.ownership_transferred",
+            from_user=str(caller.id),
+            to_user=str(user_id),
+        )
+        return MessageSchema(
+            message=f"Ownership transferred to {target.email}. You are now co_owner.",
+        )
 
     # -----------------------------------------------------------------
     # Helpers

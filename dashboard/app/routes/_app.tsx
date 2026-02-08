@@ -43,7 +43,7 @@ export default function AppLayout() {
     queryKey: ["pending-users-count"],
     queryFn: () => fetchUsers({ status: "pending_approval", limit: 1 }),
     refetchInterval: 60_000,
-    enabled: isAuthenticated && user?.role === "owner",
+    enabled: isAuthenticated && (user?.role === "owner" || user?.role === "co_owner"),
   });
 
   // Auth guard

@@ -91,6 +91,7 @@ _reject_user_fn = _get_handler_fn(UserController.reject_user)
 _update_role_fn = _get_handler_fn(UserController.update_role)
 _update_status_fn = _get_handler_fn(UserController.update_status)
 _delete_user_fn = _get_handler_fn(UserController.delete_user)
+_transfer_ownership_fn = _get_handler_fn(UserController.transfer_ownership)
 
 
 # ===========================================================================
@@ -524,9 +525,10 @@ class TestUserController:
         session.flush = AsyncMock()
 
         data = UserApproveRequestSchema(role="moderator")
+        request = _mock_request(_make_user(role="owner"))
 
         self_obj = object.__new__(UserController)
-        result = await _approve_user_fn(self_obj, user_id=user.id, data=data, db_session=session)
+        result = await _approve_user_fn(self_obj, user_id=user.id, data=data, request=request, db_session=session)
 
         assert result.status == "active"
         assert result.role == "moderator"
@@ -544,10 +546,11 @@ class TestUserController:
         session.execute = AsyncMock(return_value=r)
 
         data = UserApproveRequestSchema(role="viewer")
+        request = _mock_request(_make_user(role="owner"))
 
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
-            await _approve_user_fn(self_obj, user_id=user.id, data=data, db_session=session)
+            await _approve_user_fn(self_obj, user_id=user.id, data=data, request=request, db_session=session)
 
         assert exc_info.value.status_code == 409
 
@@ -866,3 +869,412 @@ class TestSchemaValidation:
         )
         assert schema.message == "Awaiting approval"
         assert schema.status == "pending_approval"
+
+    def test_approve_schema_accepts_co_owner(self):
+        """UserApproveRequestSchema accepts co_owner role."""
+        schema = UserApproveRequestSchema(role="co_owner")
+        assert schema.role == "co_owner"
+
+    def test_role_update_schema_accepts_co_owner(self):
+        """UserRoleUpdateSchema accepts co_owner role."""
+        schema = UserRoleUpdateSchema(role="co_owner")
+        assert schema.role == "co_owner"
+
+    def test_approve_schema_still_rejects_owner(self):
+        """UserApproveRequestSchema still rejects owner role."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            UserApproveRequestSchema(role="owner")
+
+    def test_role_update_schema_still_rejects_owner(self):
+        """UserRoleUpdateSchema still rejects owner role."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            UserRoleUpdateSchema(role="owner")
+
+
+# ===========================================================================
+# Co-owner access and restriction tests
+# ===========================================================================
+
+
+class TestCoOwnerAccess:
+    """Test co_owner permissions — can manage viewers/moderators but not owner/co_owners."""
+
+    @pytest.mark.anyio
+    async def test_co_owner_can_list_users(self):
+        """Co-owner can call list_users (guard allows co_owner)."""
+        u1 = _make_user(email="a@test.com")
+
+        session = AsyncMock()
+        r_count = MagicMock()
+        r_count.scalar_one.return_value = 1
+        r_users = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [u1]
+        r_users.scalars.return_value = scalars_mock
+
+        session.execute = AsyncMock(side_effect=[r_count, r_users])
+
+        self_obj = object.__new__(UserController)
+        result = await _list_users_fn(self_obj, db_session=session)
+
+        assert result.total == 1
+
+    @pytest.mark.anyio
+    async def test_co_owner_can_approve_pending(self):
+        """Co-owner can approve a pending user as viewer/moderator."""
+        user = _make_user(status="pending_approval", role="viewer", email="new@test.com")
+
+        session = AsyncMock()
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = user
+        session.execute = AsyncMock(return_value=r)
+        session.flush = AsyncMock()
+
+        data = UserApproveRequestSchema(role="moderator")
+        request = _mock_request(_make_user(role="co_owner"))
+
+        self_obj = object.__new__(UserController)
+        result = await _approve_user_fn(self_obj, user_id=user.id, data=data, request=request, db_session=session)
+
+        assert result.status == "active"
+        assert result.role == "moderator"
+
+    @pytest.mark.anyio
+    async def test_co_owner_can_change_viewer_role(self):
+        """Co-owner can change a viewer's role to moderator."""
+        user = _make_user(role="viewer", email="v@test.com")
+
+        session = AsyncMock()
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = user
+        session.execute = AsyncMock(return_value=r)
+        session.flush = AsyncMock()
+
+        data = UserRoleUpdateSchema(role="moderator")
+        request = _mock_request(_make_user(role="co_owner"))
+
+        self_obj = object.__new__(UserController)
+        result = await _update_role_fn(
+            self_obj, user_id=user.id, data=data, request=request, db_session=session,
+        )
+
+        assert result.role == "moderator"
+
+    @pytest.mark.anyio
+    async def test_co_owner_cannot_assign_co_owner_role(self):
+        """Co-owner cannot promote someone to co_owner (403)."""
+        user = _make_user(role="viewer", email="v@test.com")
+
+        session = AsyncMock()
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = user
+        session.execute = AsyncMock(return_value=r)
+
+        data = UserRoleUpdateSchema(role="co_owner")
+        request = _mock_request(_make_user(role="co_owner"))
+
+        self_obj = object.__new__(UserController)
+        with pytest.raises(ClientException) as exc_info:
+            await _update_role_fn(
+                self_obj, user_id=user.id, data=data, request=request, db_session=session,
+            )
+
+        assert exc_info.value.status_code == 403
+        assert "owner" in str(exc_info.value.detail).lower()
+
+    @pytest.mark.anyio
+    async def test_co_owner_cannot_change_owner_role(self):
+        """Co-owner cannot change the owner's role (403)."""
+        owner = _make_user(role="owner", email="owner@test.com")
+
+        session = AsyncMock()
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = owner
+        session.execute = AsyncMock(return_value=r)
+
+        data = UserRoleUpdateSchema(role="viewer")
+        request = _mock_request(_make_user(role="co_owner"))
+
+        self_obj = object.__new__(UserController)
+        with pytest.raises(ClientException) as exc_info:
+            await _update_role_fn(
+                self_obj, user_id=owner.id, data=data, request=request, db_session=session,
+            )
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.anyio
+    async def test_co_owner_cannot_change_co_owner_role(self):
+        """Co-owner cannot change another co_owner's role (403)."""
+        other = _make_user(role="co_owner", email="coo@test.com")
+
+        session = AsyncMock()
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = other
+        session.execute = AsyncMock(return_value=r)
+
+        data = UserRoleUpdateSchema(role="viewer")
+        request = _mock_request(_make_user(role="co_owner"))
+
+        self_obj = object.__new__(UserController)
+        with pytest.raises(ClientException) as exc_info:
+            await _update_role_fn(
+                self_obj, user_id=other.id, data=data, request=request, db_session=session,
+            )
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.anyio
+    async def test_co_owner_cannot_suspend_owner(self):
+        """Co-owner cannot suspend the owner (403)."""
+        owner = _make_user(role="owner", email="owner@test.com")
+
+        session = AsyncMock()
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = owner
+        session.execute = AsyncMock(return_value=r)
+
+        data = UserStatusUpdateSchema(status="suspended")
+        request = _mock_request(_make_user(role="co_owner"))
+
+        self_obj = object.__new__(UserController)
+        with pytest.raises(ClientException) as exc_info:
+            await _update_status_fn(
+                self_obj, user_id=owner.id, data=data, request=request, db_session=session,
+            )
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.anyio
+    async def test_co_owner_cannot_suspend_co_owner(self):
+        """Co-owner cannot suspend another co_owner (403)."""
+        other = _make_user(role="co_owner", email="coo@test.com")
+
+        session = AsyncMock()
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = other
+        session.execute = AsyncMock(return_value=r)
+
+        data = UserStatusUpdateSchema(status="suspended")
+        request = _mock_request(_make_user(role="co_owner"))
+
+        self_obj = object.__new__(UserController)
+        with pytest.raises(ClientException) as exc_info:
+            await _update_status_fn(
+                self_obj, user_id=other.id, data=data, request=request, db_session=session,
+            )
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.anyio
+    async def test_co_owner_cannot_delete_owner(self):
+        """Co-owner cannot delete the owner (403)."""
+        owner = _make_user(role="owner", email="owner@test.com")
+
+        session = AsyncMock()
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = owner
+        session.execute = AsyncMock(return_value=r)
+
+        request = _mock_request(_make_user(role="co_owner"))
+
+        self_obj = object.__new__(UserController)
+        with pytest.raises(ClientException) as exc_info:
+            await _delete_user_fn(
+                self_obj, user_id=owner.id, request=request, db_session=session,
+            )
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.anyio
+    async def test_co_owner_cannot_delete_co_owner(self):
+        """Co-owner cannot delete another co_owner (403)."""
+        other = _make_user(role="co_owner", email="coo@test.com")
+
+        session = AsyncMock()
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = other
+        session.execute = AsyncMock(return_value=r)
+
+        request = _mock_request(_make_user(role="co_owner"))
+
+        self_obj = object.__new__(UserController)
+        with pytest.raises(ClientException) as exc_info:
+            await _delete_user_fn(
+                self_obj, user_id=other.id, request=request, db_session=session,
+            )
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.anyio
+    async def test_co_owner_can_suspend_viewer(self):
+        """Co-owner can suspend a viewer."""
+        user = _make_user(role="viewer", status="active", email="v@test.com")
+
+        session = AsyncMock()
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = user
+        session.execute = AsyncMock(return_value=r)
+        session.flush = AsyncMock()
+
+        data = UserStatusUpdateSchema(status="suspended")
+        request = _mock_request(_make_user(role="co_owner"))
+
+        self_obj = object.__new__(UserController)
+        result = await _update_status_fn(
+            self_obj, user_id=user.id, data=data, request=request, db_session=session,
+        )
+
+        assert result.status == "suspended"
+
+    @pytest.mark.anyio
+    async def test_co_owner_can_delete_viewer(self):
+        """Co-owner can delete a viewer."""
+        user = _make_user(role="viewer", email="del@test.com")
+
+        session = AsyncMock()
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = user
+        session.execute = AsyncMock(return_value=r)
+        session.flush = AsyncMock()
+        session.delete = AsyncMock()
+
+        request = _mock_request(_make_user(role="co_owner"))
+
+        self_obj = object.__new__(UserController)
+        result = await _delete_user_fn(
+            self_obj, user_id=user.id, request=request, db_session=session,
+        )
+
+        assert user.email in result.message
+        session.delete.assert_called_once_with(user)
+
+    @pytest.mark.anyio
+    async def test_co_owner_cannot_approve_as_co_owner(self):
+        """Co-owner cannot approve a pending user as co_owner role (403)."""
+        user = _make_user(status="pending_approval", role="viewer", email="new@test.com")
+
+        session = AsyncMock()
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = user
+        session.execute = AsyncMock(return_value=r)
+
+        data = UserApproveRequestSchema(role="co_owner")
+        request = _mock_request(_make_user(role="co_owner"))
+
+        self_obj = object.__new__(UserController)
+        with pytest.raises(ClientException) as exc_info:
+            await _approve_user_fn(self_obj, user_id=user.id, data=data, request=request, db_session=session)
+
+        assert exc_info.value.status_code == 403
+
+
+# ===========================================================================
+# Ownership transfer tests
+# ===========================================================================
+
+
+class TestOwnershipTransfer:
+    """Test UserController.transfer_ownership()."""
+
+    @pytest.mark.anyio
+    async def test_owner_can_transfer(self):
+        """Owner transfers to active user — both roles update."""
+        owner = _make_user(role="owner", email="owner@test.com")
+        target = _make_user(role="viewer", status="active", email="target@test.com")
+
+        session = AsyncMock()
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = target
+        session.execute = AsyncMock(return_value=r)
+        session.flush = AsyncMock()
+
+        request = _mock_request(owner)
+
+        self_obj = object.__new__(UserController)
+        result = await _transfer_ownership_fn(
+            self_obj, user_id=target.id, request=request, db_session=session,
+        )
+
+        assert "transferred" in result.message.lower()
+        assert target.role == "owner"
+        assert owner.role == "co_owner"
+
+    @pytest.mark.anyio
+    async def test_co_owner_cannot_transfer(self):
+        """Co-owner cannot transfer ownership (403)."""
+        co_owner = _make_user(role="co_owner", email="co@test.com")
+        target = _make_user(role="viewer", status="active", email="target@test.com")
+
+        session = AsyncMock()
+        request = _mock_request(co_owner)
+
+        self_obj = object.__new__(UserController)
+        with pytest.raises(ClientException) as exc_info:
+            await _transfer_ownership_fn(
+                self_obj, user_id=target.id, request=request, db_session=session,
+            )
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.anyio
+    async def test_viewer_cannot_transfer(self):
+        """Viewer cannot transfer ownership (403)."""
+        viewer = _make_user(role="viewer", email="v@test.com")
+        target = _make_user(role="moderator", status="active", email="target@test.com")
+
+        session = AsyncMock()
+        request = _mock_request(viewer)
+
+        self_obj = object.__new__(UserController)
+        with pytest.raises(ClientException) as exc_info:
+            await _transfer_ownership_fn(
+                self_obj, user_id=target.id, request=request, db_session=session,
+            )
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.anyio
+    async def test_cannot_transfer_to_self(self):
+        """Owner cannot transfer ownership to themselves (400)."""
+        owner = _make_user(role="owner", email="owner@test.com")
+
+        session = AsyncMock()
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = owner
+        session.execute = AsyncMock(return_value=r)
+
+        request = _mock_request(owner)
+
+        self_obj = object.__new__(UserController)
+        with pytest.raises(ClientException) as exc_info:
+            await _transfer_ownership_fn(
+                self_obj, user_id=owner.id, request=request, db_session=session,
+            )
+
+        assert exc_info.value.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_cannot_transfer_to_inactive_user(self):
+        """Owner cannot transfer ownership to a suspended user (400)."""
+        owner = _make_user(role="owner", email="owner@test.com")
+        target = _make_user(role="viewer", status="suspended", email="sus@test.com")
+
+        session = AsyncMock()
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = target
+        session.execute = AsyncMock(return_value=r)
+
+        request = _mock_request(owner)
+
+        self_obj = object.__new__(UserController)
+        with pytest.raises(ClientException) as exc_info:
+            await _transfer_ownership_fn(
+                self_obj, user_id=target.id, request=request, db_session=session,
+            )
+
+        assert exc_info.value.status_code == 400
