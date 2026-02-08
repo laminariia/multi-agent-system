@@ -1,0 +1,51 @@
+# Environment files (may contain secrets)
+.env
+.env.*
+
+# Version control
+.git
+.gitignore
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+
+# Node / Dashboard (built separately)
+dashboard/
+node_modules/
+
+# Documentation & screenshots
+docs/
+*.md
+*.png
+*.jpg
+*.jpeg
+
+# Docker-in-docker
+docker-compose*.yml
+Dockerfile
+
+# Config files not needed in image
+.dockerignore
+railway.toml
+.github/
+.serena/
+
+# Tests (not needed in production image)
+tests/

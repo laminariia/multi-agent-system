@@ -24,4 +24,5 @@ COPY alembic.ini ./
 COPY alembic/ ./alembic/
 
 # Run migrations then start the server
-CMD ["sh", "-c", "python -m alembic upgrade head && litestar --app src.api.main:app run --host 0.0.0.0 --port ${PORT:-8000}"]
+# Retry alembic up to 5 times (PostgreSQL may not be ready immediately)
+CMD ["sh", "-c", "for i in 1 2 3 4 5; do python -m alembic upgrade head && break || echo \"Alembic attempt $i failed, retrying in 5s...\" && sleep 5; done && litestar --app src.api.main:app run --host 0.0.0.0 --port ${PORT:-8000}"]
