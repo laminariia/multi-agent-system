@@ -45,7 +45,7 @@ class AgentState(TypedDict):
 
     # Identity
     thread_id: str
-    checkpoint_id: str
+    mas_checkpoint_id: str
 
     # Project context
     project: ProjectContext
@@ -99,7 +99,7 @@ def create_initial_state(
     tid = thread_id or uuid.uuid4().hex
     return AgentState(
         thread_id=tid,
-        checkpoint_id=uuid.uuid4().hex,
+        mas_checkpoint_id=uuid.uuid4().hex,
         project=project,
         current_agent=first_agent,
         current_task=None,
@@ -134,9 +134,9 @@ def update_state(
     """
     merged: dict[str, Any] = {**state, **overrides}
     merged["updated_at"] = datetime.now(tz=UTC)
-    # Ensure checkpoint_id is refreshed on every state transition
-    if "checkpoint_id" not in overrides:
-        merged["checkpoint_id"] = uuid.uuid4().hex
+    # Ensure mas_checkpoint_id is refreshed on every state transition
+    if "mas_checkpoint_id" not in overrides:
+        merged["mas_checkpoint_id"] = uuid.uuid4().hex
     return AgentState(**merged)  # type: ignore[typeddict-item]
 
 

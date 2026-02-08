@@ -162,3 +162,91 @@ def sample_state(sample_project: ProjectContext) -> AgentState:
         first_agent="scout",
         thread_id="thread-test-001",
     )
+
+
+# ---------------------------------------------------------------------------
+# Agent-specific state fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def planner_state(sample_project: ProjectContext) -> AgentState:
+    """AgentState ready for the Planner Agent (after bid approval)."""
+    state = create_initial_state(
+        project=sample_project,
+        first_agent="planner",
+        thread_id="thread-planner-test",
+    )
+    # Simulate bid artifacts from the Bid Agent
+    state["artifacts"] = {"scout": ["job-id-1"], "bid": ["bid-id-1"]}  # type: ignore[typeddict-item]
+    state["current_agent"] = "planner"
+    return state
+
+
+@pytest.fixture()
+def dev_state(sample_project: ProjectContext) -> AgentState:
+    """AgentState ready for the Dev Agent (after planning)."""
+    import json
+
+    state = create_initial_state(
+        project=sample_project,
+        first_agent="dev",
+        thread_id="thread-dev-test",
+    )
+    plan = json.dumps({
+        "tasks": [
+            {"id": "t1", "title": "Create landing page", "type": "code", "estimated_hours": 2},
+            {"id": "t2", "title": "Write CSS styles", "type": "code", "estimated_hours": 1},
+        ],
+        "total_estimated_hours": 3,
+        "phases": [{"name": "Build", "tasks": ["t1", "t2"]}],
+    })
+    state["artifacts"] = {  # type: ignore[typeddict-item]
+        "scout": ["job-id-1"],
+        "bid": ["bid-id-1"],
+        "planner": [plan],
+    }
+    state["current_agent"] = "dev"
+    return state
+
+
+@pytest.fixture()
+def critic_state(sample_project: ProjectContext) -> AgentState:
+    """AgentState ready for the Critic Agent (after dev+content+design)."""
+    import json
+
+    state = create_initial_state(
+        project=sample_project,
+        first_agent="critic",
+        thread_id="thread-critic-test",
+    )
+    state["artifacts"] = {  # type: ignore[typeddict-item]
+        "scout": ["job-id-1"],
+        "bid": ["bid-id-1"],
+        "planner": [json.dumps({"tasks": [{"id": "t1", "title": "Build page"}]})],
+        "dev": [json.dumps({"files": [{"path": "index.html", "content": "<h1>Hello</h1>"}]})],
+        "content": [json.dumps({"deliverables": [{"type": "heading", "content": "Welcome"}]})],
+        "design": [json.dumps({"specs": [{"component": "hero", "colors": {"primary": "#3B82F6"}}]})],
+    }
+    state["current_agent"] = "critic"
+    return state
+
+
+@pytest.fixture()
+def packager_state(sample_project: ProjectContext) -> AgentState:
+    """AgentState ready for the Packager Agent (after critic approval)."""
+    import json
+
+    state = create_initial_state(
+        project=sample_project,
+        first_agent="packager",
+        thread_id="thread-packager-test",
+    )
+    state["artifacts"] = {  # type: ignore[typeddict-item]
+        "dev": [json.dumps({"files": [{"path": "index.html", "content": "<h1>Hello</h1>"}]})],
+        "content": [json.dumps({"deliverables": [{"type": "heading", "content": "Welcome"}]})],
+        "design": [json.dumps({"specs": [{"component": "hero"}]})],
+        "critic": [json.dumps({"verdict": "APPROVE", "score": 0.92})],
+    }
+    state["current_agent"] = "packager"
+    return state

@@ -110,3 +110,74 @@ class HITLFactory:
         }
         defaults.update(overrides)
         return defaults
+
+
+class TaskFactory:
+    """Create task dicts matching the shape the Planner Agent produces."""
+
+    _counter: int = 0
+
+    @classmethod
+    def create(cls, **overrides: Any) -> dict[str, Any]:
+        """Return a single task dict with sensible defaults."""
+        cls._counter += 1
+        defaults: dict[str, Any] = {
+            "id": f"task_{cls._counter}",
+            "description": f"Implement feature #{cls._counter}",
+            "assigned_to": "dev",
+            "estimated_hours": 2.0,
+            "dependencies": [],
+            "deliverables": [f"feature_{cls._counter}.py"],
+            "status": "pending",
+        }
+        defaults.update(overrides)
+        return defaults
+
+    @classmethod
+    def create_batch(cls, count: int = 3, **overrides: Any) -> list[dict[str, Any]]:
+        """Return a list of *count* task dicts."""
+        return [cls.create(**overrides) for _ in range(count)]
+
+
+class ArtifactFactory:
+    """Create artifact dicts for code/content/design outputs."""
+
+    _counter: int = 0
+
+    @classmethod
+    def create(cls, artifact_type: str = "code", **overrides: Any) -> dict[str, Any]:
+        """Return a single artifact dict with sensible defaults."""
+        cls._counter += 1
+        defaults: dict[str, Any] = {
+            "id": str(uuid.uuid4()),
+            "type": artifact_type,
+            "name": f"artifact_{cls._counter}",
+            "content": f"Sample {artifact_type} content #{cls._counter}",
+            "metadata": {},
+        }
+        defaults.update(overrides)
+        return defaults
+
+
+class ProjectFactory:
+    """Create project context dicts for testing."""
+
+    _counter: int = 0
+
+    @classmethod
+    def create(cls, **overrides: Any) -> dict[str, Any]:
+        """Return a single project context dict with sensible defaults."""
+        cls._counter += 1
+        from datetime import datetime, timezone
+
+        defaults: dict[str, Any] = {
+            "project_id": f"proj-{cls._counter:03d}",
+            "job_id": f"job-{cls._counter:03d}",
+            "platform": "freelancer",
+            "client": {"name": f"Client #{cls._counter}", "rating": 4.5},
+            "requirements": "Build a responsive landing page",
+            "budget": 500.0,
+            "deadline": datetime(2026, 6, 1, tzinfo=timezone.utc),
+        }
+        defaults.update(overrides)
+        return defaults

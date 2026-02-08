@@ -1,24 +1,36 @@
-"""LangGraph StateGraph wiring for the Scout -> Bid -> HITL pipeline.
+"""LangGraph StateGraph wiring for the full multi-agent pipeline.
 
-Defines the Phase 1 graph: Scout discovers qualified jobs, Bid generates
-proposals, and the HITL node pauses execution for human approval before
-any bid is submitted.
+Defines the production graph covering the complete Phase 1 flow::
+
+    Scout -> Bid -> HITL(bid_approval) -> Planner
+      -> Dev -> Content -> Design (sequential, MVP)
+      -> Critic -> HITL(final_review) -> Packager -> END
+             ^  (REVISE: back to Dev, max 3 cycles)
+
+Also retains the legacy ``build_scout_bid_graph()`` for backward
+compatibility with tests and scripts that only need the Scout -> Bid
+sub-pipeline.
 
 Usage::
 
-    # One-shot (no persistence)
-    graph = build_scout_bid_graph()
+    # Full pipeline (no persistence)
+    graph = build_full_pipeline_graph()
     result = await graph.ainvoke(initial_state)
 
     # With persistence (Valkey + PostgreSQL)
     graph = create_graph_with_persistence(valkey, db_pool)
-    result = await graph.ainvoke(initial_state, config={"configurable": {"thread_id": "abc"}})
+    result = await graph.ainvoke(
+        initial_state, config={"configurable": {"thread_id": "abc"}}
+    )
 
-    # Convenience runner
-    result = await run_scout_bid_pipeline(project_context)
+    # Convenience runners
+    result = await run_full_pipeline(project_context)
+    result = await run_scout_bid_pipeline(project_context)   # legacy
 
-    # Resume after HITL approval
-    result = await resume_from_hitl(thread_id, {"action": "approve", "bid_ids": [...]})
+    # Resume after HITL approval (bid or final review)
+    result = await resume_from_hitl(
+        thread_id, {"action": "approve"}, hitl_type="bid_approval"
+    )
 """
 
 from __future__ import annotations
@@ -29,10 +41,16 @@ from typing import Any
 import asyncpg
 import structlog
 from langgraph.graph import END, StateGraph
-from langgraph.graph.graph import CompiledGraph
+from langgraph.graph.state import CompiledStateGraph as CompiledGraph
 from redis.asyncio import Redis as AsyncRedis
 
 from src.agents.bid import bid_node
+from src.agents.content import content_node
+from src.agents.critic import critic_node
+from src.agents.design import design_node
+from src.agents.dev import dev_node
+from src.agents.packager import packager_node
+from src.agents.planner import planner_node
 from src.agents.scout import scout_node
 from src.core.checkpoints import HybridCheckpointSaver
 from src.core.config import get_settings
@@ -40,22 +58,74 @@ from src.core.state import AgentState, ProjectContext, create_initial_state, upd
 
 logger = structlog.get_logger(__name__)
 
+# Maximum number of Critic -> Dev revision cycles before escalation.
+MAX_REVISION_CYCLES: int = 3
+
 
 # ---------------------------------------------------------------------------
-# Node functions
+# HITL node functions
+# ---------------------------------------------------------------------------
+
+async def hitl_bid_node(state: AgentState) -> AgentState:
+    """HITL interrupt node for bid approval.
+
+    Pauses the workflow so a human can review and approve/reject the
+    generated bid proposal before it is submitted.  On resume the graph
+    continues to the Planner node (approve) or terminates (reject).
+    """
+    logger.info(
+        "hitl_bid_node_entered",
+        thread_id=state["thread_id"],
+        hitl_request_id=state.get("hitl_request_id"),
+        status=state["status"],
+    )
+
+    if state["status"] != "paused":
+        return update_state(
+            state,
+            status="paused",
+            requires_hitl=True,
+            current_agent="hitl_bid",
+        )
+
+    return state
+
+
+async def hitl_review_node(state: AgentState) -> AgentState:
+    """HITL interrupt node for final delivery review.
+
+    Pauses the workflow so a human can inspect the packaged deliverables
+    before the project is marked as completed.  On resume: approve marks
+    the workflow complete; reject marks it failed.
+    """
+    logger.info(
+        "hitl_review_node_entered",
+        thread_id=state["thread_id"],
+        hitl_request_id=state.get("hitl_request_id"),
+        status=state["status"],
+    )
+
+    if state["status"] != "paused":
+        return update_state(
+            state,
+            status="paused",
+            requires_hitl=True,
+            current_agent="hitl_review",
+        )
+
+    return state
+
+
+# ---------------------------------------------------------------------------
+# Legacy HITL node (kept for backward compatibility with build_scout_bid_graph)
 # ---------------------------------------------------------------------------
 
 async def hitl_node(state: AgentState) -> AgentState:
-    """Human-in-the-Loop interrupt node.
+    """Generic HITL interrupt node (legacy, Scout -> Bid pipeline only).
 
-    This node marks the workflow as paused and returns the state unchanged.
-    The actual "interrupt" behaviour is external: the caller inspects
-    ``state["requires_hitl"]`` / ``state["status"] == "paused"`` and stops
-    streaming.  Resumption is handled by loading the checkpoint and
-    re-injecting the state via :func:`resume_from_hitl`.
-
-    In later phases this node may fan out to additional agents (e.g.
-    Planner, Dev, Content) after the human approves.
+    Marks the workflow as paused and returns state unchanged.  The caller
+    inspects ``state["requires_hitl"]`` and stops streaming.  Resumption
+    is handled externally via :func:`resume_from_hitl`.
     """
     logger.info(
         "hitl_node_entered",
@@ -64,8 +134,6 @@ async def hitl_node(state: AgentState) -> AgentState:
         status=state["status"],
     )
 
-    # Ensure the paused flag is set (bid_node already does this, but be
-    # defensive in case the node is reached via a different path).
     if state["status"] != "paused":
         return update_state(state, status="paused", requires_hitl=True)
 
@@ -73,7 +141,7 @@ async def hitl_node(state: AgentState) -> AgentState:
 
 
 # ---------------------------------------------------------------------------
-# Routing functions
+# Routing functions -- Scout/Bid (shared between legacy and full pipeline)
 # ---------------------------------------------------------------------------
 
 def _route_after_scout(state: AgentState) -> str:
@@ -99,7 +167,7 @@ def _route_after_bid(state: AgentState) -> str:
     """Determine the next node after the Bid Agent completes.
 
     Returns:
-        ``"hitl_node"`` when HITL approval is required (the normal path),
+        ``"hitl_bid_node"`` when HITL approval is required (normal path),
         ``END`` on failure or when no HITL is needed (defensive).
     """
     if state.get("status") == "failed":
@@ -107,8 +175,8 @@ def _route_after_bid(state: AgentState) -> str:
         return END
 
     if state.get("requires_hitl"):
-        logger.info("bid_route_to_hitl", thread_id=state["thread_id"])
-        return "hitl_node"
+        logger.info("bid_route_to_hitl_bid", thread_id=state["thread_id"])
+        return "hitl_bid_node"
 
     # Defensive: Bid Agent should ALWAYS require HITL, but handle gracefully.
     logger.warning(
@@ -120,11 +188,235 @@ def _route_after_bid(state: AgentState) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Graph builder
+# Routing functions -- legacy (Scout -> Bid -> HITL only)
 # ---------------------------------------------------------------------------
 
-def build_scout_bid_graph(checkpointer: Any | None = None) -> CompiledGraph:
-    """Build and compile the Scout -> Bid -> HITL StateGraph.
+def _route_after_bid_legacy(state: AgentState) -> str:
+    """Route after Bid in the legacy Scout -> Bid -> HITL graph."""
+    if state.get("status") == "failed":
+        logger.warning("bid_route_to_end_failed", thread_id=state["thread_id"])
+        return END
+
+    if state.get("requires_hitl"):
+        logger.info("bid_route_to_hitl", thread_id=state["thread_id"])
+        return "hitl_node"
+
+    logger.warning(
+        "bid_route_to_end_no_hitl",
+        thread_id=state["thread_id"],
+        msg="Bid completed without HITL flag -- this is unexpected",
+    )
+    return END
+
+
+# ---------------------------------------------------------------------------
+# Routing functions -- Full pipeline
+# ---------------------------------------------------------------------------
+
+def _route_after_hitl_bid(state: AgentState) -> str:
+    """Route after the bid-approval HITL node.
+
+    Returns:
+        ``"planner_node"`` if the bid was approved (status not failed),
+        ``END`` if the bid was rejected or workflow failed.
+    """
+    if state.get("status") == "failed":
+        logger.info("hitl_bid_route_to_end_failed", thread_id=state["thread_id"])
+        return END
+
+    logger.info("hitl_bid_route_to_planner", thread_id=state["thread_id"])
+    return "planner_node"
+
+
+def _route_after_planner(state: AgentState) -> str:
+    """Route after the Planner Agent.
+
+    Returns:
+        ``"dev_node"`` to begin implementation,
+        ``"hitl_review_node"`` if HITL plan review is requested (optional),
+        ``END`` on failure.
+    """
+    if state.get("status") == "failed":
+        logger.warning("planner_route_to_end_failed", thread_id=state["thread_id"])
+        return END
+
+    if state.get("requires_hitl"):
+        logger.info("planner_route_to_hitl_review", thread_id=state["thread_id"])
+        return "hitl_review_node"
+
+    if state.get("next_agent") == "dev":
+        logger.info("planner_route_to_dev", thread_id=state["thread_id"])
+        return "dev_node"
+
+    logger.warning("planner_route_to_end_no_next", thread_id=state["thread_id"])
+    return END
+
+
+def _route_after_dev(state: AgentState) -> str:
+    """Route after the Dev Agent.
+
+    Returns:
+        ``"content_node"`` to proceed to Content Agent,
+        ``END`` on failure.
+    """
+    if state.get("status") == "failed":
+        logger.warning("dev_route_to_end_failed", thread_id=state["thread_id"])
+        return END
+
+    if state.get("next_agent") == "content":
+        logger.info("dev_route_to_content", thread_id=state["thread_id"])
+        return "content_node"
+
+    logger.warning("dev_route_to_end_no_next", thread_id=state["thread_id"])
+    return END
+
+
+def _route_after_content(state: AgentState) -> str:
+    """Route after the Content Agent.
+
+    Returns:
+        ``"design_node"`` to proceed to Design Agent,
+        ``END`` on failure.
+    """
+    if state.get("status") == "failed":
+        logger.warning("content_route_to_end_failed", thread_id=state["thread_id"])
+        return END
+
+    if state.get("next_agent") == "design":
+        logger.info("content_route_to_design", thread_id=state["thread_id"])
+        return "design_node"
+
+    logger.warning("content_route_to_end_no_next", thread_id=state["thread_id"])
+    return END
+
+
+def _route_after_design(state: AgentState) -> str:
+    """Route after the Design Agent.
+
+    Returns:
+        ``"critic_node"`` to proceed to quality review,
+        ``END`` on failure.
+    """
+    if state.get("status") == "failed":
+        logger.warning("design_route_to_end_failed", thread_id=state["thread_id"])
+        return END
+
+    if state.get("next_agent") == "critic":
+        logger.info("design_route_to_critic", thread_id=state["thread_id"])
+        return "critic_node"
+
+    logger.warning("design_route_to_end_no_next", thread_id=state["thread_id"])
+    return END
+
+
+def _route_after_critic(state: AgentState) -> str:
+    """Route after the Critic Agent -- the most complex routing point.
+
+    The Critic may:
+    - Approve and forward to Packager (``next_agent == "packager"``)
+    - Request revisions from Dev (``next_agent == "dev"``, max 3 cycles)
+    - Escalate to HITL review (``requires_hitl``)
+    - Fail / terminate (fallback)
+
+    Returns:
+        ``"packager_node"`` on approval,
+        ``"dev_node"`` on revision (up to ``MAX_REVISION_CYCLES``),
+        ``"hitl_review_node"`` when human review is needed,
+        ``END`` on failure or when revision limit is exceeded.
+    """
+    if state.get("status") == "failed":
+        logger.warning("critic_route_to_end_failed", thread_id=state["thread_id"])
+        return END
+
+    # APPROVED -- forward to Packager
+    if state.get("next_agent") == "packager":
+        logger.info("critic_route_to_packager", thread_id=state["thread_id"])
+        return "packager_node"
+
+    # REVISION -- send back to Dev, respecting the cycle limit
+    if state.get("next_agent") == "dev":
+        revision_count = state.get("retry_count", 0)
+        if revision_count < MAX_REVISION_CYCLES:
+            logger.info(
+                "critic_route_to_dev_revision",
+                thread_id=state["thread_id"],
+                revision_count=revision_count,
+                max_revisions=MAX_REVISION_CYCLES,
+            )
+            return "dev_node"
+        # Exceeded revision limit -- escalate to HITL
+        logger.warning(
+            "critic_revision_limit_exceeded",
+            thread_id=state["thread_id"],
+            revision_count=revision_count,
+        )
+        return "hitl_review_node"
+
+    # HITL escalation requested by Critic
+    if state.get("requires_hitl"):
+        logger.info("critic_route_to_hitl_review", thread_id=state["thread_id"])
+        return "hitl_review_node"
+
+    logger.warning("critic_route_to_end_no_next", thread_id=state["thread_id"])
+    return END
+
+
+def _route_after_packager(state: AgentState) -> str:
+    """Route after the Packager Agent.
+
+    Packager ALWAYS requires HITL for final delivery review.
+
+    Returns:
+        ``"hitl_review_node"`` (normal path),
+        ``END`` on failure (defensive).
+    """
+    if state.get("status") == "failed":
+        logger.warning("packager_route_to_end_failed", thread_id=state["thread_id"])
+        return END
+
+    if state.get("requires_hitl"):
+        logger.info("packager_route_to_hitl_review", thread_id=state["thread_id"])
+        return "hitl_review_node"
+
+    # Defensive: Packager should ALWAYS require HITL.
+    logger.warning(
+        "packager_route_to_end_no_hitl",
+        thread_id=state["thread_id"],
+        msg="Packager completed without HITL flag -- this is unexpected",
+    )
+    return END
+
+
+def _route_after_hitl_review(state: AgentState) -> str:
+    """Route after the final-review HITL node.
+
+    In Phase 1 this always terminates the graph.  The state will have
+    been updated by ``resume_from_hitl`` to reflect approval or rejection
+    before the graph is re-invoked.
+
+    Returns:
+        ``END`` always (Phase 1).
+    """
+    logger.info(
+        "hitl_review_route_to_end",
+        thread_id=state["thread_id"],
+        status=state.get("status"),
+    )
+    return END
+
+
+# ---------------------------------------------------------------------------
+# Graph builders
+# ---------------------------------------------------------------------------
+
+def build_full_pipeline_graph(checkpointer: Any | None = None) -> CompiledGraph:
+    """Build and compile the full Phase 1 pipeline graph.
+
+    The graph topology is::
+
+        scout -> bid -> hitl_bid -> planner -> dev -> content -> design
+          -> critic -> packager -> hitl_review -> END
+                ^--- (revision loop, max 3 cycles) ---|
 
     Args:
         checkpointer: An optional ``BaseCheckpointSaver`` instance (e.g.
@@ -134,7 +426,149 @@ def build_scout_bid_graph(checkpointer: Any | None = None) -> CompiledGraph:
     Returns:
         A compiled LangGraph ready for ``ainvoke`` / ``astream``.
     """
-    graph = StateGraph(AgentState)
+    graph = StateGraph(dict)
+
+    # -- Add nodes ----------------------------------------------------------
+    graph.add_node("scout_node", scout_node)
+    graph.add_node("bid_node", bid_node)
+    graph.add_node("hitl_bid_node", hitl_bid_node)
+    graph.add_node("planner_node", planner_node)
+    graph.add_node("dev_node", dev_node)
+    graph.add_node("content_node", content_node)
+    graph.add_node("design_node", design_node)
+    graph.add_node("critic_node", critic_node)
+    graph.add_node("packager_node", packager_node)
+    graph.add_node("hitl_review_node", hitl_review_node)
+
+    # -- Set entry point ----------------------------------------------------
+    graph.set_entry_point("scout_node")
+
+    # -- Conditional edges --------------------------------------------------
+
+    # Scout -> Bid | END
+    graph.add_conditional_edges(
+        "scout_node",
+        _route_after_scout,
+        {
+            "bid_node": "bid_node",
+            END: END,
+        },
+    )
+
+    # Bid -> HITL(bid) | END
+    graph.add_conditional_edges(
+        "bid_node",
+        _route_after_bid,
+        {
+            "hitl_bid_node": "hitl_bid_node",
+            END: END,
+        },
+    )
+
+    # HITL(bid) -> Planner | END
+    graph.add_conditional_edges(
+        "hitl_bid_node",
+        _route_after_hitl_bid,
+        {
+            "planner_node": "planner_node",
+            END: END,
+        },
+    )
+
+    # Planner -> Dev | HITL(review) | END
+    graph.add_conditional_edges(
+        "planner_node",
+        _route_after_planner,
+        {
+            "dev_node": "dev_node",
+            "hitl_review_node": "hitl_review_node",
+            END: END,
+        },
+    )
+
+    # Dev -> Content | END
+    graph.add_conditional_edges(
+        "dev_node",
+        _route_after_dev,
+        {
+            "content_node": "content_node",
+            END: END,
+        },
+    )
+
+    # Content -> Design | END
+    graph.add_conditional_edges(
+        "content_node",
+        _route_after_content,
+        {
+            "design_node": "design_node",
+            END: END,
+        },
+    )
+
+    # Design -> Critic | END
+    graph.add_conditional_edges(
+        "design_node",
+        _route_after_design,
+        {
+            "critic_node": "critic_node",
+            END: END,
+        },
+    )
+
+    # Critic -> Packager | Dev (revision) | HITL(review) | END
+    graph.add_conditional_edges(
+        "critic_node",
+        _route_after_critic,
+        {
+            "packager_node": "packager_node",
+            "dev_node": "dev_node",
+            "hitl_review_node": "hitl_review_node",
+            END: END,
+        },
+    )
+
+    # Packager -> HITL(review) | END
+    graph.add_conditional_edges(
+        "packager_node",
+        _route_after_packager,
+        {
+            "hitl_review_node": "hitl_review_node",
+            END: END,
+        },
+    )
+
+    # HITL(review) -> END (Phase 1)
+    graph.add_conditional_edges(
+        "hitl_review_node",
+        _route_after_hitl_review,
+        {
+            END: END,
+        },
+    )
+
+    # -- Compile ------------------------------------------------------------
+    compiled = graph.compile(checkpointer=checkpointer)
+    logger.info(
+        "full_pipeline_graph_compiled",
+        has_checkpointer=checkpointer is not None,
+    )
+    return compiled
+
+
+def build_scout_bid_graph(checkpointer: Any | None = None) -> CompiledGraph:
+    """Build and compile the legacy Scout -> Bid -> HITL StateGraph.
+
+    Retained for backward compatibility with existing tests and scripts.
+    For new code prefer :func:`build_full_pipeline_graph`.
+
+    Args:
+        checkpointer: An optional ``BaseCheckpointSaver`` instance.
+
+    Returns:
+        A compiled LangGraph ready for ``ainvoke`` / ``astream``.
+    """
+    graph = StateGraph(dict)
 
     # -- Add nodes ----------------------------------------------------------
     graph.add_node("scout_node", scout_node)
@@ -155,14 +589,14 @@ def build_scout_bid_graph(checkpointer: Any | None = None) -> CompiledGraph:
     )
     graph.add_conditional_edges(
         "bid_node",
-        _route_after_bid,
+        _route_after_bid_legacy,
         {
             "hitl_node": "hitl_node",
             END: END,
         },
     )
 
-    # -- HITL node always terminates the graph (Phase 1) --------------------
+    # -- HITL node always terminates the graph (legacy) ---------------------
     graph.add_edge("hitl_node", END)
 
     # -- Compile ------------------------------------------------------------
@@ -178,17 +612,23 @@ def build_scout_bid_graph(checkpointer: Any | None = None) -> CompiledGraph:
 def create_graph_with_persistence(
     valkey: AsyncRedis,
     db_pool: asyncpg.Pool,
+    *,
+    full_pipeline: bool = True,
 ) -> CompiledGraph:
-    """Build the Scout -> Bid -> HITL graph backed by hybrid persistence.
+    """Build a graph backed by hybrid persistence.
 
     Args:
         valkey: An ``AsyncRedis`` client connected to Valkey.
         db_pool: An ``asyncpg.Pool`` connected to PostgreSQL.
+        full_pipeline: When ``True`` (default) builds the full Phase 1
+            pipeline.  When ``False`` builds the legacy Scout -> Bid graph.
 
     Returns:
         A compiled graph with :class:`HybridCheckpointSaver` attached.
     """
     checkpointer = HybridCheckpointSaver(valkey=valkey, db_pool=db_pool)
+    if full_pipeline:
+        return build_full_pipeline_graph(checkpointer=checkpointer)
     return build_scout_bid_graph(checkpointer=checkpointer)
 
 
@@ -196,16 +636,56 @@ def create_graph_with_persistence(
 # Convenience runners
 # ---------------------------------------------------------------------------
 
+async def run_full_pipeline(
+    project_context: ProjectContext,
+    thread_id: str | None = None,
+) -> AgentState:
+    """Run the full Phase 1 pipeline end-to-end (no persistence).
+
+    This is a convenience wrapper for scripts, tests, and one-shot CLI
+    invocations.  For production use, prefer
+    :func:`create_graph_with_persistence` and invoke the graph directly.
+
+    Args:
+        project_context: The :class:`ProjectContext` describing the target
+            project / search criteria.
+        thread_id: Optional thread identifier.  A UUID4 hex string is
+            generated when omitted.
+
+    Returns:
+        The final ``AgentState`` after the graph terminates (either at END
+        or paused at an HITL node).
+    """
+    tid = thread_id or uuid.uuid4().hex
+    initial_state = create_initial_state(
+        project=project_context,
+        first_agent="scout",
+        thread_id=tid,
+    )
+
+    graph = build_full_pipeline_graph()
+
+    logger.info("full_pipeline_start", thread_id=tid)
+    result: AgentState = await graph.ainvoke(initial_state)
+    logger.info(
+        "full_pipeline_finished",
+        thread_id=tid,
+        status=result.get("status"),
+        requires_hitl=result.get("requires_hitl"),
+        current_agent=result.get("current_agent"),
+    )
+    return result
+
+
 async def run_scout_bid_pipeline(
     project_context: ProjectContext,
     thread_id: str | None = None,
 ) -> AgentState:
-    """Run the full Scout -> Bid -> HITL pipeline end-to-end.
+    """Run the legacy Scout -> Bid -> HITL pipeline end-to-end.
 
-    This is a convenience wrapper intended for scripts, tests, and one-shot
-    CLI invocations.  It builds a graph **without** persistence.  For
-    production use, prefer :func:`create_graph_with_persistence` and invoke
-    the graph directly so that checkpoints are saved.
+    Retained for backward compatibility.  Builds a graph **without**
+    persistence.  For production use, prefer
+    :func:`create_graph_with_persistence`.
 
     Args:
         project_context: The :class:`ProjectContext` describing the target
@@ -237,19 +717,23 @@ async def run_scout_bid_pipeline(
     return result
 
 
+# ---------------------------------------------------------------------------
+# HITL resume
+# ---------------------------------------------------------------------------
+
 async def resume_from_hitl(
     thread_id: str,
     hitl_response: dict[str, Any],
     *,
+    hitl_type: str | None = None,
     valkey: AsyncRedis | None = None,
     db_pool: asyncpg.Pool | None = None,
 ) -> AgentState:
     """Resume a paused workflow after HITL approval.
 
     Loads the latest checkpoint for *thread_id*, merges the human's
-    response into the state, and re-invokes the graph.  In Phase 1 the
-    graph immediately reaches END after the HITL node, but later phases
-    will route to downstream agents (Planner, Dev, etc.).
+    response into the state, and -- for the full pipeline -- re-invokes
+    the graph so execution continues to downstream agents.
 
     Args:
         thread_id: The workflow thread to resume.
@@ -261,6 +745,9 @@ async def resume_from_hitl(
                 "edits": {...},       # optional modifications
             }
 
+        hitl_type: The type of HITL interruption.  One of
+            ``"bid_approval"`` or ``"final_review"``.  When ``None`` the
+            function auto-detects from the saved ``current_agent`` field.
         valkey: Async Valkey client.  When ``None`` the default client
             from :func:`~src.core.database.get_valkey` is used.
         db_pool: Async PostgreSQL pool.  When ``None`` a temporary pool
@@ -271,7 +758,8 @@ async def resume_from_hitl(
         The final ``AgentState`` after the resumed graph terminates.
 
     Raises:
-        ValueError: If no checkpoint is found for the given *thread_id*.
+        ValueError: If no checkpoint is found for the given *thread_id*,
+            or if the HITL type cannot be determined.
     """
     from src.core.database import get_valkey  # noqa: PLC0415
 
@@ -287,7 +775,6 @@ async def resume_from_hitl(
 
     try:
         checkpointer = HybridCheckpointSaver(valkey=_valkey, db_pool=_db_pool)
-        build_scout_bid_graph(checkpointer=checkpointer)
 
         # Load the latest checkpoint for this thread.
         config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
@@ -295,68 +782,192 @@ async def resume_from_hitl(
         if checkpoint_tuple is None:
             raise ValueError(f"No checkpoint found for thread_id={thread_id!r}")
 
-        # Reconstruct the state from the checkpoint and apply the HITL response.
+        # Reconstruct the state from the checkpoint.
         saved_state: dict[str, Any] = checkpoint_tuple.checkpoint
         action = hitl_response.get("action", "approve")
 
-        if action == "approve":
-            resumed_state = update_state(
-                saved_state,  # type: ignore[arg-type]
-                requires_hitl=False,
-                hitl_request_id=None,
-                status="completed",  # Phase 1: approve -> completed
-                next_agent=None,
-            )
-        elif action == "reject":
-            resumed_state = update_state(
-                saved_state,  # type: ignore[arg-type]
-                requires_hitl=False,
-                hitl_request_id=None,
-                status="failed",
-                next_agent=None,
-                errors=[*saved_state.get("errors", []), "HITL: bid rejected by human"],
-            )
-        elif action == "edit":
-            # Apply human edits to the proposal, then mark as completed.
-            edits = hitl_response.get("edits", {})
-            artifacts = dict(saved_state.get("artifacts") or {})
-            if edits:
-                artifacts["hitl_edits"] = [edits] if not isinstance(edits, list) else edits
-            resumed_state = update_state(
-                saved_state,  # type: ignore[arg-type]
-                requires_hitl=False,
-                hitl_request_id=None,
-                status="completed",
-                next_agent=None,
-                artifacts=artifacts,
-            )
-        else:
-            logger.warning("hitl_unknown_action", action=action, thread_id=thread_id)
-            resumed_state = update_state(
-                saved_state,  # type: ignore[arg-type]
-                requires_hitl=False,
-                hitl_request_id=None,
-                status="completed",
-                next_agent=None,
-            )
+        # Auto-detect HITL type from saved state if not provided.
+        resolved_type = hitl_type
+        if resolved_type is None:
+            current_agent = saved_state.get("current_agent", "")
+            if current_agent == "hitl_bid":
+                resolved_type = "bid_approval"
+            elif current_agent == "hitl_review":
+                resolved_type = "final_review"
+            else:
+                # Fall back to legacy behaviour (Phase 1 Scout -> Bid only).
+                resolved_type = "bid_approval"
+                logger.warning(
+                    "hitl_type_auto_detected_fallback",
+                    thread_id=thread_id,
+                    current_agent=current_agent,
+                    resolved_type=resolved_type,
+                )
 
         logger.info(
-            "hitl_resumed",
+            "hitl_resume_start",
             thread_id=thread_id,
             action=action,
-            new_status=resumed_state["status"],
+            hitl_type=resolved_type,
         )
 
-        # In Phase 1, the graph ends after HITL, so we simply return the
-        # updated state.  In later phases we would re-invoke the graph:
-        #   result = await graph.ainvoke(resumed_state, config=config)
-        #   return result
-        #
-        # For now, save the updated state to the checkpointer and return.
-        await checkpointer.aput(config, resumed_state, {"source": "hitl_resume", "action": action})
+        # ----- bid_approval -----------------------------------------------
+        if resolved_type == "bid_approval":
+            resumed_state = _apply_bid_approval(saved_state, action, hitl_response, thread_id)
 
-        return resumed_state  # type: ignore[return-value]
+            # On approval, re-invoke the full pipeline graph so execution
+            # continues to the Planner and beyond.
+            if action == "approve":
+                graph = build_full_pipeline_graph(checkpointer=checkpointer)
+                result: AgentState = await graph.ainvoke(resumed_state, config=config)
+                logger.info(
+                    "hitl_bid_resumed_pipeline_finished",
+                    thread_id=thread_id,
+                    status=result.get("status"),
+                )
+                return result
+
+            # Rejection / edit without continuation -- save and return.
+            await checkpointer.aput(
+                config, resumed_state, {"source": "hitl_resume", "action": action}
+            )
+            return resumed_state  # type: ignore[return-value]
+
+        # ----- final_review -----------------------------------------------
+        if resolved_type == "final_review":
+            resumed_state = _apply_final_review(saved_state, action, hitl_response, thread_id)
+
+            await checkpointer.aput(
+                config, resumed_state, {"source": "hitl_resume", "action": action}
+            )
+
+            logger.info(
+                "hitl_review_resumed",
+                thread_id=thread_id,
+                action=action,
+                new_status=resumed_state["status"],
+            )
+            return resumed_state  # type: ignore[return-value]
+
+        # ----- unknown type -----------------------------------------------
+        raise ValueError(f"Unknown hitl_type={resolved_type!r}")
 
     finally:
         if _pool_created and _db_pool is not None:
             await _db_pool.close()
+
+
+# ---------------------------------------------------------------------------
+# Internal HITL response helpers
+# ---------------------------------------------------------------------------
+
+def _apply_bid_approval(
+    saved_state: dict[str, Any],
+    action: str,
+    hitl_response: dict[str, Any],
+    thread_id: str,
+) -> AgentState:
+    """Apply the human's bid-approval decision to the saved state.
+
+    On **approve** the graph should continue to the Planner, so we set
+    ``next_agent="planner"`` and ``status="active"``.
+    """
+    if action == "approve":
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="active",
+            next_agent="planner",
+            current_agent="planner",
+        )
+
+    if action == "reject":
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="failed",
+            next_agent=None,
+            errors=[*saved_state.get("errors", []), "HITL: bid rejected by human"],
+        )
+
+    if action == "edit":
+        edits = hitl_response.get("edits", {})
+        artifacts = dict(saved_state.get("artifacts") or {})
+        if edits:
+            artifacts["hitl_edits"] = [edits] if not isinstance(edits, list) else edits
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="active",
+            next_agent="planner",
+            current_agent="planner",
+            artifacts=artifacts,
+        )
+
+    # Unknown action -- treat as approve with a warning.
+    logger.warning("hitl_bid_unknown_action", action=action, thread_id=thread_id)
+    return update_state(
+        saved_state,  # type: ignore[arg-type]
+        requires_hitl=False,
+        hitl_request_id=None,
+        status="active",
+        next_agent="planner",
+        current_agent="planner",
+    )
+
+
+def _apply_final_review(
+    saved_state: dict[str, Any],
+    action: str,
+    hitl_response: dict[str, Any],
+    thread_id: str,
+) -> AgentState:
+    """Apply the human's final-review decision to the saved state."""
+    if action == "approve":
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="completed",
+            next_agent=None,
+        )
+
+    if action == "reject":
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="failed",
+            next_agent=None,
+            errors=[
+                *saved_state.get("errors", []),
+                "HITL: final delivery rejected by human",
+            ],
+        )
+
+    if action == "edit":
+        edits = hitl_response.get("edits", {})
+        artifacts = dict(saved_state.get("artifacts") or {})
+        if edits:
+            artifacts["hitl_edits"] = [edits] if not isinstance(edits, list) else edits
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="completed",
+            next_agent=None,
+            artifacts=artifacts,
+        )
+
+    # Unknown action -- treat as approve with a warning.
+    logger.warning("hitl_review_unknown_action", action=action, thread_id=thread_id)
+    return update_state(
+        saved_state,  # type: ignore[arg-type]
+        requires_hitl=False,
+        hitl_request_id=None,
+        status="completed",
+        next_agent=None,
+    )
