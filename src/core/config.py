@@ -6,6 +6,7 @@ Canonical variable names follow TECH_STACK.md exactly.
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
 
 from pydantic import computed_field
@@ -66,7 +67,25 @@ class Settings(BaseSettings):
     ENCRYPTION_KEY: str = "change-me-in-production"
 
     # ── CORS ───────────────────────────────────────────────────────────
-    CORS_ALLOWED_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+    # Stored as str to avoid pydantic-settings JSON parse issues with
+    # bracket-style env vars like ``[https://a.com,https://b.com]``.
+    CORS_ALLOWED_ORIGINS: str = '["http://localhost:3000","http://localhost:5173"]'
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def cors_origins(self) -> list[str]:
+        """Parse ``CORS_ALLOWED_ORIGINS`` into a list of origin strings."""
+        raw = self.CORS_ALLOWED_ORIGINS.strip()
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(u) for u in parsed]
+        except (json.JSONDecodeError, ValueError):
+            pass
+        # Handle [url1,url2] (no JSON quotes) or comma-separated
+        if raw.startswith("[") and raw.endswith("]"):
+            raw = raw[1:-1]
+        return [u.strip() for u in raw.split(",") if u.strip()]
 
     # ── Application ────────────────────────────────────────────────────
     APP_VERSION: str = "1.0.0"

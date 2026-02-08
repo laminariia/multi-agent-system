@@ -21,9 +21,9 @@ from contextlib import asynccontextmanager
 import structlog
 from litestar import Litestar, MediaType, Request, Response
 from litestar.channels import ChannelsPlugin
-from litestar.exceptions import HTTPException
 from litestar.channels.backends.redis import RedisChannelsPubSubBackend
 from litestar.config.cors import CORSConfig
+from litestar.exceptions import HTTPException
 from litestar.middleware.rate_limit import RateLimitConfig
 from litestar.openapi import OpenAPIConfig
 from sqlalchemy import text as sa_text
@@ -173,7 +173,7 @@ _settings = get_settings()
 
 # CORS
 cors_config = CORSConfig(
-    allow_origins=_settings.CORS_ALLOWED_ORIGINS,
+    allow_origins=_settings.cors_origins,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     allow_credentials=True,
