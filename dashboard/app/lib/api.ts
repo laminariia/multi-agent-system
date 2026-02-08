@@ -6,7 +6,18 @@ import type {
   AgentStatusList,
 } from "./types";
 
-const API_BASE = "/api/v1";
+declare global {
+  interface Window {
+    ENV?: { API_URL?: string };
+  }
+}
+
+function getApiBase(): string {
+  if (typeof window !== "undefined" && window.ENV?.API_URL) {
+    return `${window.ENV.API_URL}/api/v1`;
+  }
+  return "/api/v1";
+}
 
 function getAccessToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -57,7 +68,7 @@ async function refreshAccessToken(): Promise<string | null> {
   if (!refreshToken) return null;
 
   try {
-    const res = await fetch(`${API_BASE}/auth/refresh`, {
+    const res = await fetch(`${getApiBase()}/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: refreshToken }),
@@ -88,7 +99,7 @@ async function apiFetch<T>(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  let res = await fetch(`${API_BASE}${path}`, {
+  let res = await fetch(`${getApiBase()}${path}`, {
     ...options,
     headers,
   });
@@ -98,7 +109,7 @@ async function apiFetch<T>(
     const newToken = await refreshAccessToken();
     if (newToken) {
       headers["Authorization"] = `Bearer ${newToken}`;
-      res = await fetch(`${API_BASE}${path}`, {
+      res = await fetch(`${getApiBase()}${path}`, {
         ...options,
         headers,
       });
@@ -124,7 +135,7 @@ export async function login(
   email: string,
   password: string
 ): Promise<LoginResponse> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
+  const res = await fetch(`${getApiBase()}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),

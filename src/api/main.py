@@ -21,6 +21,7 @@ from contextlib import asynccontextmanager
 import structlog
 from litestar import Litestar, MediaType, Request, Response
 from litestar.channels import ChannelsPlugin
+from litestar.exceptions import HTTPException
 from litestar.channels.backends.redis import RedisChannelsPubSubBackend
 from litestar.config.cors import CORSConfig
 from litestar.middleware.rate_limit import RateLimitConfig
@@ -73,6 +74,21 @@ def _mas_exception_handler(request: Request, exc: MASException) -> Response[Erro
             ),
         ),
         status_code=status_code,
+        media_type=MediaType.JSON,
+    )
+
+
+def _http_exception_handler(request: Request, exc: HTTPException) -> Response[ErrorResponseSchema]:
+    """Return structured JSON for Litestar HTTP exceptions (404, 405, etc.)."""
+    return Response(
+        content=ErrorResponseSchema(
+            error=ErrorSchema(
+                code=f"HTTP_{exc.status_code}",
+                message=exc.detail if exc.detail else str(exc),
+                details={},
+            ),
+        ),
+        status_code=exc.status_code,
         media_type=MediaType.JSON,
     )
 
@@ -217,6 +233,7 @@ app = Litestar(
     on_app_init=[jwt_auth.on_app_init],
     exception_handlers={
         MASException: _mas_exception_handler,  # type: ignore[dict-item]
+        HTTPException: _http_exception_handler,  # type: ignore[dict-item]
         Exception: _generic_exception_handler,  # type: ignore[dict-item]
     },
     cors_config=cors_config,
