@@ -40,8 +40,10 @@ from src.core.models import User
 
 logger = structlog.get_logger(__name__)
 
-# Rate limit applied to the entire auth controller (10/min per docs/api_specification.md)
-auth_rate_limit = RateLimitConfig(rate_limit=("minute", 10), exclude=["/api/v1/auth/me"])
+# Rate limit applied to the entire auth controller.
+# Set high because Railway reverse proxy makes all requests appear from the
+# same internal IP — IP-based rate limiting is effectively global, not per-user.
+auth_rate_limit = RateLimitConfig(rate_limit=("minute", 60), exclude=["/api/v1/auth/me"])
 
 
 class AuthController(Controller):

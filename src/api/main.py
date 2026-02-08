@@ -179,9 +179,11 @@ cors_config = CORSConfig(
     allow_credentials=True,
 )
 
-# Default rate limit (applied globally; per-route overrides are set on controllers)
+# Default rate limit (applied globally; per-route overrides are set on controllers).
+# Set high because Railway reverse proxy collapses all client IPs into one
+# internal address — IP-based limiting effectively caps ALL users together.
 rate_limit_config = RateLimitConfig(
-    rate_limit=("minute", 60),
+    rate_limit=("minute", 300),
     exclude=["/health", "/schema", "/metrics"],
 )
 
