@@ -53,6 +53,13 @@ dependencies = [
     # Telegram bot
     "python-telegram-bot>=21.0",
 
+    # Sandbox
+    "docker>=7.0",
+    "e2b-code-interpreter>=0.0.8",
+
+    # Worker / Scheduler
+    "apscheduler>=3.10",
+
     # Utilities
     "python-dotenv>=1.0",
     "structlog>=24.0",

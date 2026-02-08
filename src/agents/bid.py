@@ -25,6 +25,7 @@ from src.core.llm_client import LLMClient
 from src.core.loop_detector import LoopDetector
 from src.core.models import AgentLog, Bid, HITLQueue, Job, KnowledgeBase
 from src.core.state import AgentState, update_state
+from src.knowledge.retrieval import KnowledgeRetriever
 from src.prompts.bid import BID_SYSTEM_PROMPT
 
 logger = structlog.get_logger(__name__)
@@ -50,6 +51,17 @@ class BidAgent(ConstrainedAgent):
     loop_detector:
         Shared :class:`LoopDetector` for runaway-prevention.
     """
+
+    _retriever: KnowledgeRetriever | None = None
+
+    @classmethod
+    def configure_retriever(cls, retriever: KnowledgeRetriever) -> None:
+        """Set the shared :class:`KnowledgeRetriever` for vector-based RAG.
+
+        Call once at application startup after creating the retriever with a
+        live ``asyncpg.Pool`` and :class:`EmbeddingService`.
+        """
+        cls._retriever = retriever
 
     def __init__(
         self,
@@ -189,11 +201,57 @@ class BidAgent(ConstrainedAgent):
     async def _fetch_similar_bids(self, job: dict[str, Any]) -> list[dict[str, Any]]:
         """Query the knowledge_base for similar previously-won bids.
 
-        Uses a text-based category filter as a lightweight RAG step.
-        Full vector-similarity search will be enabled once the embedding
-        pipeline is operational.
+        When a :class:`KnowledgeRetriever` is configured (via
+        :meth:`configure_retriever`), performs vector-similarity search using
+        the job title, description, and skills as the query.  Falls back to a
+        category-only SQL query when the retriever is unavailable or the vector
+        search fails.
         """
         category = self._infer_category(job)
+
+        # --- Vector search path (preferred) ---
+        if self._retriever is not None:
+            try:
+                query_parts: list[str] = []
+                if job.get("title"):
+                    query_parts.append(job["title"])
+                if job.get("description"):
+                    query_parts.append(job["description"][:500])
+                if job.get("skills_required"):
+                    query_parts.append(", ".join(job["skills_required"]))
+
+                query_text = " ".join(query_parts)
+                results = await self._retriever.search(
+                    query_text,
+                    kb_type="proposal_template",
+                    category=category,
+                    top_k=3,
+                )
+
+                if results:
+                    similar = [
+                        {
+                            "title": r.title,
+                            "content": r.content,
+                            "success_rate": r.success_rate,
+                        }
+                        for r in results
+                    ]
+                    self._log.debug(
+                        "similar_bids_found",
+                        count=len(similar),
+                        category=category,
+                        source="vector_search",
+                    )
+                    return similar
+            except Exception:
+                self._log.warning(
+                    "vector_search_fallback",
+                    category=category,
+                    exc_info=True,
+                )
+
+        # --- Fallback: category-only SQL query ---
         similar: list[dict[str, Any]] = []
 
         async with get_db_session() as session:
@@ -216,7 +274,12 @@ class BidAgent(ConstrainedAgent):
                     "success_rate": float(row.success_rate) if row.success_rate else None,
                 })
 
-        self._log.debug("similar_bids_found", count=len(similar), category=category)
+        self._log.debug(
+            "similar_bids_found",
+            count=len(similar),
+            category=category,
+            source="category_fallback",
+        )
         return similar
 
     @staticmethod

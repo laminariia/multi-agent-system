@@ -382,6 +382,20 @@ class LLMClient:
                 )
                 self.cost_tracker.record(metrics)
 
+                try:
+                    from src.monitoring.metrics import get_metrics
+
+                    get_metrics().record_llm_call(
+                        agent_name,
+                        spec.model_id,
+                        tokens_input=tokens_in,
+                        tokens_output=tokens_out,
+                        cost_usd=cost,
+                        latency_seconds=latency_ms / 1000,
+                    )
+                except Exception:  # noqa: S110
+                    pass  # Metrics should never break LLM calls
+
                 logger.info(
                     "llm_call_success",
                     agent=agent_name,

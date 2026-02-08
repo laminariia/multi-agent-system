@@ -1,0 +1,32 @@
+[
+  {
+    "title": "React Landing Page Proposal",
+    "content": "Thank you for posting this project. I specialize in building high-converting React landing pages with modern UI/UX patterns, and I would love to help bring your vision to life.\n\nFor your landing page, I will deliver a fully responsive, pixel-perfect implementation using React 18, Tailwind CSS, and Framer Motion for smooth scroll animations. The page will include optimized images via lazy loading, a contact form with validation, and SEO-friendly meta tags. I follow a mobile-first approach to ensure the page looks great on all devices.\n\nMy process includes a brief discovery call (15 min), a wireframe review, and iterative development with milestone check-ins so you stay in control throughout. I typically deliver a polished landing page within 3-5 business days.\n\nI have built over 40 landing pages for SaaS products, e-commerce brands, and startups. My pages consistently achieve 90+ Google PageSpeed scores. I am happy to share my portfolio with relevant examples upon request.\n\nLooking forward to discussing your project in detail.",
+    "category": "web_development",
+    "success_rate": 0.85
+  },
+  {
+    "title": "WordPress Website Development Proposal",
+    "content": "I read your project description carefully and I am confident I can deliver exactly what you need. With 5+ years of WordPress development experience, I build custom themes, WooCommerce stores, and business sites that are fast, secure, and easy to manage.\n\nFor your project, I will set up a clean WordPress installation with a custom child theme (or a premium theme tailored to your brand), responsive design, essential plugins (Yoast SEO, WP Rocket for caching, Wordfence for security), and a contact form with email notifications. If you need e-commerce functionality, I will configure WooCommerce with payment gateway integration and product catalog setup.\n\nDeliverables include the live WordPress site, admin training documentation, and 30 days of post-launch support for bug fixes. I use staging environments for development so your existing site is never disrupted.\n\nTimeline: 5-10 business days depending on the number of pages and custom features required. I will provide daily progress updates and am available for revisions until you are fully satisfied.\n\nLet me know if you have any questions -- I am ready to start immediately.",
+    "category": "wordpress",
+    "success_rate": 0.82
+  },
+  {
+    "title": "UI/UX Design Proposal",
+    "content": "I would be excited to work on your design project. As a UI/UX designer with a strong background in user-centered design, I create interfaces that are not only visually appealing but also intuitive and conversion-focused.\n\nMy approach starts with understanding your target audience and business goals. I will conduct a brief competitor analysis, create user flow diagrams, and then move into wireframes before progressing to high-fidelity mockups in Figma. Every screen will include hover states, responsive breakpoints (mobile, tablet, desktop), and a component library you can hand off directly to developers.\n\nDeliverables: Figma file with organized layers and components, clickable prototype for user testing, style guide documenting colors, typography, spacing, and iconography. I also export all assets in the formats your development team needs (SVG, PNG at 1x/2x/3x).\n\nI typically complete a full design project (5-10 screens) within 7 business days, with two rounds of revisions included. I am responsive on chat and provide daily design previews so there are no surprises at the end.\n\nI would love to learn more about your project and share relevant case studies from my portfolio.",
+    "category": "design",
+    "success_rate": 0.78
+  },
+  {
+    "title": "Copywriting and Content Creation Proposal",
+    "content": "Thank you for considering me for your content project. I am a professional copywriter who helps businesses communicate their value clearly and persuasively. Whether you need website copy, blog posts, email sequences, or product descriptions, I deliver polished content that resonates with your audience and drives action.\n\nFor your project, I will begin with a content brief to align on tone, audience, keywords, and goals. I research your industry, competitors, and target readers before writing a single word. Every piece goes through my three-stage process: draft, self-edit, and final polish with readability optimization.\n\nDeliverables include the final copy in Google Docs (with commenting enabled for your feedback), SEO keyword integration if applicable, and meta descriptions for each page. I write in clear, concise English and can adapt to formal, conversational, or technical tones depending on your brand voice.\n\nTimeline: 2-5 business days for most projects, with faster turnaround available if needed. One round of revisions is included, and I am always open to feedback-driven adjustments.\n\nI look forward to helping your brand stand out with compelling content.",
+    "category": "copywriting",
+    "success_rate": 0.80
+  },
+  {
+    "title": "HTML/CSS Landing Page Proposal",
+    "content": "I noticed your project requires a clean, fast-loading landing page and I am the right fit for this job. I build hand-coded HTML5/CSS3 landing pages that are lightweight, fully responsive, and optimized for conversions.\n\nFor your page, I will deliver semantic HTML markup, modern CSS with Flexbox/Grid layout, smooth CSS animations, and optional JavaScript for interactive elements like accordions, sliders, or form validation. The page will be cross-browser tested (Chrome, Firefox, Safari, Edge) and optimized for mobile devices from 320px upward.\n\nPerformance is a priority: I compress all images, minify CSS/JS, and structure the code so the page loads in under 2 seconds. I also include Open Graph tags for social sharing and basic schema markup for better search visibility.\n\nDeliverables: production-ready HTML/CSS/JS files, all image assets optimized, and a brief deployment guide. If you use a hosting platform like Netlify or Vercel, I can deploy the page for you at no extra charge.\n\nI can complete a standard landing page in 2-4 business days. I will share a live preview link on day two so you can provide feedback early. Looking forward to building something great together.",
+    "category": "landing_pages",
+    "success_rate": 0.88
+  }
+]

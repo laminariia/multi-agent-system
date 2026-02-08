@@ -34,6 +34,7 @@ from src.api.routes.auth import AuthController
 from src.api.routes.health import health_check
 from src.api.routes.hitl import HITLController
 from src.api.routes.jobs import JobController
+from src.api.routes.metrics import MetricsController
 from src.api.schemas import ErrorResponseSchema, ErrorSchema
 from src.api.websocket import (
     CHANNEL_AGENT_HEARTBEAT,
@@ -47,6 +48,7 @@ from src.api.websocket import (
 from src.core.config import get_settings
 from src.core.database import engine, get_valkey
 from src.core.exceptions import MASException
+from src.monitoring.sentry_config import init_sentry
 
 logger = structlog.get_logger(__name__)
 
@@ -128,6 +130,12 @@ async def lifespan(app: Litestar) -> AsyncGenerator[None, None]:
     except Exception as exc:
         logger.error("app.valkey_connection_failed", error=str(exc))
 
+    # Initialize Sentry
+    init_sentry(
+        dsn=settings.SENTRY_DSN,
+        environment="production" if not settings.DEBUG else "development",
+    )
+
     yield
 
     # ── Shutdown ────────────────────────────────────────────────────
@@ -157,7 +165,7 @@ cors_config = CORSConfig(
 # Default rate limit (applied globally; per-route overrides are set on controllers)
 rate_limit_config = RateLimitConfig(
     rate_limit=("minute", 60),
-    exclude=["/health", "/schema"],
+    exclude=["/health", "/schema", "/metrics"],
 )
 
 # ChannelsPlugin for WebSocket real-time events
@@ -198,6 +206,7 @@ app = Litestar(
         HITLController,
         AgentController,
         JobController,
+        MetricsController,
         ws_handler,
     ],
     dependencies={

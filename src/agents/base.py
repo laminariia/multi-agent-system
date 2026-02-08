@@ -260,10 +260,32 @@ class ConstrainedAgent(abc.ABC):
                     elapsed_ms=round(elapsed_ms, 2),
                     next_agent=result_state.get("next_agent"),
                 )
+
+                # Record Prometheus metrics
+                try:
+                    from src.monitoring.metrics import get_metrics
+
+                    status = "hitl_paused" if result_state.get("requires_hitl") else "success"
+                    get_metrics().record_agent_run(
+                        self.agent_name,
+                        status=status,
+                        duration_seconds=elapsed_ms / 1000,
+                    )
+                except Exception:  # noqa: S110
+                    pass  # Metrics should never break agent execution
+
                 return result_state
 
             except LoopDetectedError:
                 self._log.error("loop_detected", thread_id=state["thread_id"])
+                try:
+                    from src.monitoring.metrics import get_metrics
+
+                    get_metrics().record_agent_run(
+                        self.agent_name, status="failed", duration_seconds=0,
+                    )
+                except Exception:  # noqa: S110
+                    pass
                 return update_state(
                     append_error(state, f"Loop detected in {self.agent_name}"),
                     status="failed",
@@ -289,6 +311,14 @@ class ConstrainedAgent(abc.ABC):
                 )
                 state = increment_retry(append_error(state, f"LLM error (attempt {attempt}): {exc}"))
                 if attempt == self.max_retries:
+                    try:
+                        from src.monitoring.metrics import get_metrics
+
+                        get_metrics().record_agent_run(
+                            self.agent_name, status="failed", duration_seconds=0,
+                        )
+                    except Exception:  # noqa: S110
+                        pass
                     return update_state(state, status="failed", next_agent=None)
 
             except AgentException as exc:
@@ -300,10 +330,26 @@ class ConstrainedAgent(abc.ABC):
                 )
                 state = increment_retry(append_error(state, f"Agent error (attempt {attempt}): {exc}"))
                 if attempt == self.max_retries:
+                    try:
+                        from src.monitoring.metrics import get_metrics
+
+                        get_metrics().record_agent_run(
+                            self.agent_name, status="failed", duration_seconds=0,
+                        )
+                    except Exception:  # noqa: S110
+                        pass
                     return update_state(state, status="failed", next_agent=None)
 
             except MASException as exc:
                 self._log.error("mas_error", thread_id=state["thread_id"], error=str(exc))
+                try:
+                    from src.monitoring.metrics import get_metrics
+
+                    get_metrics().record_agent_run(
+                        self.agent_name, status="failed", duration_seconds=0,
+                    )
+                except Exception:  # noqa: S110
+                    pass
                 return update_state(
                     append_error(state, f"Unrecoverable: {exc}"),
                     status="failed",
@@ -312,6 +358,14 @@ class ConstrainedAgent(abc.ABC):
 
             except Exception as exc:
                 self._log.exception("unexpected_error", thread_id=state["thread_id"])
+                try:
+                    from src.monitoring.metrics import get_metrics
+
+                    get_metrics().record_agent_run(
+                        self.agent_name, status="failed", duration_seconds=0,
+                    )
+                except Exception:  # noqa: S110
+                    pass
                 return update_state(
                     append_error(state, f"Unexpected: {type(exc).__name__}: {exc}"),
                     status="failed",

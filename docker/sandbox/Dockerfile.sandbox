@@ -1,0 +1,23 @@
+FROM python:3.12-slim
+
+# Install Node.js 20
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install common Python packages
+RUN pip install --no-cache-dir \
+    requests httpx beautifulsoup4 lxml \
+    flask fastapi uvicorn \
+    pandas numpy matplotlib \
+    pillow
+
+# Create non-root user
+RUN groupadd -g 1000 sandbox && useradd -u 1000 -g sandbox -m sandbox
+
+WORKDIR /workspace
+USER sandbox
+
+CMD ["python", "--version"]

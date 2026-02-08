@@ -29,6 +29,7 @@ from src.core.loop_detector import LoopDetector
 from src.core.models import AgentLog
 from src.core.state import AgentState, update_state
 from src.prompts.dev import DEV_SYSTEM_PROMPT
+from src.sandbox.manager import SandboxManager
 from src.security.semgrep_gate import SemgrepGate
 
 logger = structlog.get_logger(__name__)
@@ -133,6 +134,29 @@ class DevAgent(ConstrainedAgent):
             artifacts["_dev_semgrep_warnings"] = [
                 json.dumps({"blocked": True, "findings": [f.rule_id for f in scan_result.findings]})
             ]
+
+        # 4c. Sandbox execution (best-effort -- don't block pipeline on sandbox failure).
+        if not scan_result.blocked:
+            try:
+                sandbox = SandboxManager()
+                exec_result = await sandbox.execute_code(parsed.get("files", []))
+                artifacts["_dev_execution"] = {
+                    "stdout": exec_result.stdout[:5000],
+                    "stderr": exec_result.stderr[:5000],
+                    "exit_code": exec_result.exit_code,
+                    "duration_ms": exec_result.duration_ms,
+                    "success": exec_result.success,
+                }
+                if not exec_result.success:
+                    self._log.warning(
+                        "sandbox_execution_failed",
+                        exit_code=exec_result.exit_code,
+                        stderr_preview=exec_result.stderr[:200],
+                    )
+            except Exception as exc:
+                self._log.warning("sandbox_unavailable", error=str(exc))
+                artifacts["_dev_execution"] = {"error": str(exc), "success": False}
+
         code_artifact_id = str(uuid.uuid4())
         serialized = json.dumps(parsed, default=str, ensure_ascii=False)
         artifacts["dev"] = [code_artifact_id, serialized]

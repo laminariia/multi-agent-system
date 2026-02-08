@@ -212,13 +212,19 @@ def dev_state(sample_project: ProjectContext) -> AgentState:
 
 @pytest.fixture(autouse=True)
 def _mock_semgrep_gate():
-    """Mock the SemgrepGate in critic/dev agents so tests don't require semgrep binary."""
+    """Mock the SemgrepGate in critic/dev agents so tests don't require semgrep binary.
+
+    Also mocks the SandboxManager in dev.py so tests don't require Docker.
+    """
+    from src.sandbox.base import ExecutionResult
     from src.security.semgrep_gate import ScanResult
 
     clean_result = ScanResult(findings=[], critical_count=0, warning_count=0, blocked=False)
+    sandbox_result = ExecutionResult(stdout="OK", stderr="", exit_code=0, duration_ms=50.0)
 
     with patch("src.agents.critic.SemgrepGate") as mock_critic_gate, \
-         patch("src.agents.dev.SemgrepGate") as mock_dev_gate:
+         patch("src.agents.dev.SemgrepGate") as mock_dev_gate, \
+         patch("src.agents.dev.SandboxManager") as mock_sandbox_mgr:
         mock_critic_instance = AsyncMock()
         mock_critic_instance.scan_files = AsyncMock(return_value=clean_result)
         mock_critic_gate.return_value = mock_critic_instance
@@ -226,6 +232,10 @@ def _mock_semgrep_gate():
         mock_dev_instance = AsyncMock()
         mock_dev_instance.scan_files = AsyncMock(return_value=clean_result)
         mock_dev_gate.return_value = mock_dev_instance
+
+        mock_sandbox_instance = AsyncMock()
+        mock_sandbox_instance.execute_code = AsyncMock(return_value=sandbox_result)
+        mock_sandbox_mgr.return_value = mock_sandbox_instance
 
         yield
 

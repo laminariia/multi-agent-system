@@ -1,0 +1,140 @@
+"""Task definitions for the background worker queue.
+
+Each task function receives a payload dict and executes the corresponding
+pipeline step.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+import structlog
+
+from src.core.state import ProjectContext, create_initial_state
+
+logger = structlog.get_logger(__name__)
+
+
+async def run_scout_cycle(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Execute a full Scout Agent cycle.
+
+    Returns a summary dict with job IDs found.
+    """
+    from src.agents.scout import scout_node
+
+    state = create_initial_state(
+        project=ProjectContext(
+            project_id="scout-queue-task",
+            job_id="",
+            platform=payload.get("platform", "all") if payload else "all",
+            client={},
+            requirements="Queued scout cycle",
+            budget=0,
+            deadline=None,
+        ),
+        first_agent="scout",
+    )
+
+    result = await scout_node(state)
+    scout_artifacts = (result.get("artifacts") or {}).get("scout", [])
+    logger.info("scout_cycle_task_complete", jobs_found=len(scout_artifacts))
+
+    return {
+        "task": "scout_cycle",
+        "jobs_found": len(scout_artifacts),
+        "job_ids": scout_artifacts[:10],  # Limit logged IDs
+    }
+
+
+async def run_project_pipeline(payload: dict[str, Any]) -> dict[str, Any]:
+    """Execute the full pipeline for a won project.
+
+    Expects payload with: project_id, job_id, platform, requirements, budget.
+    """
+    from src.core.graph import build_full_pipeline_graph
+
+    project = ProjectContext(
+        project_id=payload["project_id"],
+        job_id=payload.get("job_id", ""),
+        platform=payload.get("platform", "freelancer"),
+        client=payload.get("client", {}),
+        requirements=payload.get("requirements", ""),
+        budget=payload.get("budget", 0),
+        deadline=payload.get("deadline"),
+    )
+
+    state = create_initial_state(
+        project=project,
+        first_agent="planner",
+        thread_id=f"pipeline-{project.project_id}",
+    )
+
+    graph = build_full_pipeline_graph()
+    result = await graph.ainvoke(state)
+
+    final_status = result.get("status", "unknown")
+    logger.info(
+        "project_pipeline_complete",
+        project_id=project.project_id,
+        status=final_status,
+    )
+
+    return {
+        "task": "project_pipeline",
+        "project_id": project.project_id,
+        "status": final_status,
+    }
+
+
+async def run_bid_generation(payload: dict[str, Any]) -> dict[str, Any]:
+    """Generate bids for a list of qualified job IDs.
+
+    Expects payload with: job_ids (list of UUID strings).
+    """
+    from src.agents.bid import bid_node
+
+    state = create_initial_state(
+        project=ProjectContext(
+            project_id="bid-task",
+            job_id="",
+            platform="all",
+            client={},
+            requirements="",
+            budget=0,
+            deadline=None,
+        ),
+        first_agent="bid",
+    )
+
+    state["artifacts"] = {"scout": payload.get("job_ids", [])}
+
+    result = await bid_node(state)
+    bid_artifacts = (result.get("artifacts") or {}).get("bid", [])
+
+    return {
+        "task": "bid_generation",
+        "bids_created": len(bid_artifacts),
+    }
+
+
+# Task dispatcher
+TASK_REGISTRY: dict[str, Any] = {
+    "scout_cycle": run_scout_cycle,
+    "project_pipeline": run_project_pipeline,
+    "bid_generation": run_bid_generation,
+}
+
+
+async def dispatch_task(task_type: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Dispatch a task by type name.
+
+    Returns the task result dict.
+
+    Raises:
+        ValueError: If the task type is not registered.
+    """
+    handler = TASK_REGISTRY.get(task_type)
+    if handler is None:
+        raise ValueError(f"Unknown task type: {task_type}")
+
+    logger.info("task_dispatch", task_type=task_type)
+    return await handler(payload or {})
