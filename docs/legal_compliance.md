@@ -109,7 +109,7 @@ Generate invoices in "Мой налог" app after each payment.
 - Simple accounting
 - Quarterly advance payments
 - Annual declaration
-- Страховые взносы: ~45,000 ₽/year (2024)
+- Страховые взносы: ~45,000 ₽/year (2024). **Проверить актуальные ставки на 2026 год**
 
 ### Foreign Currency Operations
 ```

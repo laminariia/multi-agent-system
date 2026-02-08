@@ -73,16 +73,17 @@ knowledge/
 
 | Provider | Model | Dimensions | Cost | Speed |
 |----------|-------|------------|------|-------|
+| Google | text-embedding-004 | 768 | $0.006/1M tokens | Fast |
 | OpenAI | text-embedding-3-small | 1536 | $0.02/1M tokens | Fast |
-| OpenAI | text-embedding-3-large | 3072 | $0.13/1M tokens | Medium |
 | Cohere | embed-multilingual-v3 | 1024 | $0.10/1M tokens | Fast |
 | Local | nomic-embed-text | 768 | Free | Variable |
 
 ### Recommendation
 ```
-Primary: text-embedding-3-small
-- Good quality for our use case
-- Cost-effective ($0.02/1M tokens)
+Primary: Google text-embedding-004
+- Best quality/cost ratio for our use case
+- Very cost-effective ($0.006/1M tokens)
+- 768 dimensions — good balance of quality and performance
 - Fast enough for real-time
 
 Fallback: nomic-embed-text (local)
@@ -93,14 +94,14 @@ Fallback: nomic-embed-text (local)
 ### Configuration
 
 ```python
-from langchain_openai import OpenAIEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.embeddings import OllamaEmbeddings
 
 EMBEDDING_CONFIG = {
     "primary": {
-        "provider": "openai",
-        "model": "text-embedding-3-small",
-        "dimensions": 1536,
+        "provider": "google",
+        "model": "models/text-embedding-004",
+        "dimensions": 768,
     },
     "fallback": {
         "provider": "ollama",
@@ -113,7 +114,7 @@ EMBEDDING_CONFIG = {
 
 def get_embeddings():
     try:
-        return OpenAIEmbeddings(
+        return GoogleGenerativeAIEmbeddings(
             model=EMBEDDING_CONFIG["primary"]["model"]
         )
     except Exception:
@@ -148,7 +149,7 @@ CREATE TABLE knowledge_embeddings (
     chunk_index INTEGER NOT NULL,
     
     -- Embedding
-    embedding vector(1536),
+    embedding vector(768),                     -- Google text-embedding-004 (768 dim)
     
     -- Metadata for filtering
     metadata JSONB DEFAULT '{}',
@@ -167,10 +168,10 @@ CREATE INDEX idx_embeddings_category ON knowledge_embeddings(category);
 CREATE INDEX idx_embeddings_platform ON knowledge_embeddings(platform);
 CREATE INDEX idx_embeddings_source ON knowledge_embeddings(source_type);
 
--- Vector similarity index (HNSW for speed)
-CREATE INDEX idx_embeddings_vector ON knowledge_embeddings 
-USING hnsw (embedding vector_cosine_ops)
-WITH (m = 16, ef_construction = 64);
+-- DiskANN index for ultra-fast vector search (pgvectorscale)
+-- 11x faster than HNSW at 99% recall on large datasets
+CREATE INDEX idx_embeddings_vector ON knowledge_embeddings
+USING diskann (embedding vector_cosine_ops);
 ```
 
 ### Query Examples
@@ -414,8 +415,8 @@ async def log_retrieval_usage(
 ```python
 KNOWLEDGE_BASE_CONFIG = {
     "embedding": {
-        "model": "text-embedding-3-small",
-        "dimensions": 1536,
+        "model": "models/text-embedding-004",  # Google text-embedding-004
+        "dimensions": 768,
     },
     "chunking": {
         "chunk_size": 1000,

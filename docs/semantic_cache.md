@@ -34,12 +34,12 @@ Semantic caching stores LLM responses and retrieves them for semantically simila
 │            ▼                                                             │
 │   ┌──────────────────┐     ┌─────────────────┐                           │
 │   │ Vector Search    │────▶│ Similar found?  │                           │
-│   │ (Redis/Postgres) │     └────────┬────────┘                           │
+│   │ (Valkey/Postgres) │     └────────┬────────┘                           │
 │   └──────────────────┘              │                                    │
 │                                     │                                    │
 │              ┌──────────────────────┼──────────────────────┐             │
 │              │                      │                      │             │
-│              ▼ YES (>0.95)          ▼ NO                   │             │
+│              ▼ YES (>0.92)          ▼ NO                   │             │
 │   ┌──────────────────┐   ┌──────────────────┐              │             │
 │   │ Return Cached    │   │ Call LLM API     │              │             │
 │   │ Response         │   └────────┬─────────┘              │             │
@@ -62,7 +62,7 @@ SEMANTIC_CACHE_CONFIG = {
     # Similarity threshold (0.0 - 1.0)
     # Higher = more strict (fewer false positives, less cache hits)
     # Lower = more lenient (more hits, risk of wrong responses)
-    "similarity_threshold": 0.95,
+    "similarity_threshold": 0.92,
     
     # TTL settings by query type
     "ttl": {
@@ -87,7 +87,7 @@ SEMANTIC_CACHE_CONFIG = {
 
 ## 🗄️ Storage Implementation
 
-### Redis Implementation (Recommended for Speed)
+### Valkey Implementation (Recommended for Speed)
 
 ```python
 import redis
@@ -95,15 +95,15 @@ import numpy as np
 from redis.commands.search.field import VectorField, TextField, NumericField
 from redis.commands.search.indexDefinition import IndexDefinition, IndexType
 
-class RedisSemanticCache:
-    def __init__(self, redis_url: str, config: dict):
-        self.redis = redis.from_url(redis_url)
+class ValkeySemanticCache:
+    def __init__(self, valkey_url: str, config: dict):
+        self.redis = redis.from_url(valkey_url)  # redis-py is Valkey-compatible
         self.config = config
         self.embeddings = get_embeddings()
         self._create_index()
     
     def _create_index(self):
-        """Create Redis vector index for semantic search."""
+        """Create Valkey vector index for semantic search."""
         try:
             self.redis.ft("semantic_cache").create_index(
                 fields=[
@@ -112,7 +112,7 @@ class RedisSemanticCache:
                         "HNSW",
                         {
                             "TYPE": "FLOAT32",
-                            "DIM": 1536,
+                            "DIM": 768,
                             "DISTANCE_METRIC": "COSINE"
                         }
                     ),
@@ -197,14 +197,14 @@ CREATE TABLE semantic_cache (
     query TEXT NOT NULL,
     response TEXT NOT NULL,
     query_type TEXT DEFAULT 'default',
-    embedding vector(1536),
+    embedding vector(768),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     expires_at TIMESTAMPTZ NOT NULL,
     hit_count INTEGER DEFAULT 0
 );
 
-CREATE INDEX idx_cache_embedding ON semantic_cache 
-USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX idx_cache_embedding ON semantic_cache
+USING diskann (embedding vector_cosine_ops);
 
 CREATE INDEX idx_cache_expires ON semantic_cache(expires_at);
 ```
@@ -244,7 +244,7 @@ class PostgresSemanticCache:
 | TTL-based | Default | Automatic expiry |
 | Manual | Knowledge update | API endpoint |
 | Pattern-based | Category changes | Query type filter |
-| Full flush | Major updates | Redis FLUSHDB |
+| Full flush | Major updates | Valkey FLUSHDB |
 
 ### Invalidation API
 
@@ -291,8 +291,8 @@ async def on_knowledge_update(event):
 
 ```python
 class CacheMetrics:
-    def __init__(self, redis: Redis):
-        self.redis = redis
+    def __init__(self, valkey: Redis):  # redis-py client, Valkey-compatible
+        self.redis = valkey
     
     async def get_stats(self) -> dict:
         """Get cache statistics."""
@@ -348,7 +348,7 @@ from langchain.schema import Generation
 class SemanticLLMCache(BaseCache):
     """LangChain-compatible semantic cache."""
     
-    def __init__(self, cache: RedisSemanticCache):
+    def __init__(self, cache: ValkeySemanticCache):
         self.cache = cache
     
     async def alookup(self, prompt: str, llm_string: str) -> Optional[list[Generation]]:
@@ -371,9 +371,9 @@ class SemanticLLMCache(BaseCache):
 # Usage with LangChain
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-cache = SemanticLLMCache(RedisSemanticCache(redis_url, config))
+cache = SemanticLLMCache(ValkeySemanticCache(valkey_url, config))
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
+    model="gemini-3-flash",
     cache=cache
 )
 ```

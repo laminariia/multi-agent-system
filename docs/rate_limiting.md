@@ -25,7 +25,7 @@
 │  │ Gemini Flash  │ 5-15 RPM   │ 150-300 RPM │ 2000+ RPM   │ 1M        │   │
 │  │ Gemini Pro    │ 2 RPM      │ 60 RPM      │ 1000 RPM    │ 500K      │   │
 │  │ Claude Opus   │ 50 RPM     │ 50-100 RPM  │ 300+ RPM    │ 40K       │   │
-│  │ GPT 5.2       │ 60 RPM     │ 500 RPM     │ 5000+ RPM   │ 150K      │   │
+│  │ GPT 5.3 Codex │ 60 RPM     │ 500 RPM     │ 5000+ RPM   │ 150K      │   │
 │  │ NanoBanana    │ via Gemini │ via Gemini  │ via Gemini  │ -         │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │  ⚠️ Free tier = 5 RPM Gemini = только ~2 шага агента/минуту!               │
@@ -38,7 +38,7 @@
 │                                                                             │
 │  Layer 4: BUSINESS TARGETS (24/7)                                           │
 │  ├── Bids/day: 150 │ Projects/day: 3-4 (100/month)                          │
-│  └── Parallel: 30 micro / 20 small / 10 medium (requires Tier 1+)           │
+│  └── Parallel: Phase 1: 5 concurrent, Phase 2: 10, Phase 3+: 15-20 (по типу проекта) │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -178,7 +178,7 @@ LLM_LIMITS = {
         "tier_2": RateLimit(300, RateLimitWindow.MINUTE, "claude:rpm"),
         "tokens": RateLimit(40_000, RateLimitWindow.MINUTE, "claude:tpm"),
     },
-    "gpt_5_2": {
+    "gpt_5_3_codex": {
         "tier_0": RateLimit(60, RateLimitWindow.MINUTE, "openai:rpm"),  # Free tier
         "tier_1": RateLimit(500, RateLimitWindow.MINUTE, "openai:rpm"), # Tier 1
         "tier_2": RateLimit(5000, RateLimitWindow.MINUTE, "openai:rpm"), # Tier 2+
@@ -251,11 +251,12 @@ class DynamicProjectLimits:
     - 5 parallel projects × 4 steps = 20 steps → fits in 1 minute
     """
     
+    # Phase 1: 5 concurrent, Phase 2: 10, Phase 3+: 15-20 (по типу проекта)
     PARALLEL_LIMITS = {
-        "micro": 30,    # Landing pages, fixes (~1 hour each)
-        "small": 20,    # WordPress, components (~4 hours each)
-        "medium": 10,   # Dashboards, simple apps (~12 hours each)
-        "large": 5,     # Complex apps (~40 hours each)
+        "micro": 10,    # Landing pages, fixes (~1 hour each)
+        "small": 7,     # WordPress, components (~4 hours each)
+        "medium": 5,    # Dashboards, simple apps (~12 hours each)
+        "large": 3,     # Complex apps (~40 hours each)
     }
     
     TIME_ESTIMATES_HOURS = {

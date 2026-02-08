@@ -2,7 +2,7 @@
 
 **Version:** 1.0  
 **Framework:** LangGraph 1.0  
-**Storage:** PostgreSQL (primary) + Redis (cache)
+**Storage:** PostgreSQL (primary) + Valkey (cache)
 
 ---
 
@@ -31,7 +31,7 @@ LangGraph uses a **StateGraph** that tracks the full execution state of multi-ag
 │      ┌─────┴─────┐                                                       │
 │      ▼           ▼                                                       │
 │   ┌──────┐   ┌──────┐                                                    │
-│   │Redis │   │Postgres│                                                  │
+│   │Valkey│   │Postgres│                                                  │
 │   │Cache │   │Storage │                                                  │
 │   └──────┘   └────────┘                                                  │
 │                                                                          │
@@ -45,7 +45,7 @@ LangGraph uses a **StateGraph** that tracks the full execution state of multi-ag
 
 | Layer | Purpose | TTL | Use Case |
 |-------|---------|-----|----------|
-| Redis | Hot cache | 1 hour | Active workflows, fast access |
+| Valkey | Hot cache | 1 hour | Active workflows, fast access |
 | PostgreSQL | Persistent | Permanent | Recovery, audit, history |
 
 ---
@@ -181,33 +181,33 @@ from datetime import timedelta
 class HybridCheckpointSaver(BaseCheckpointSaver):
     """
     Dual-layer checkpoint saver:
-    - Redis for hot cache (fast access)
+    - Valkey for hot cache (fast access)
     - PostgreSQL for persistence (durability)
     """
     
     def __init__(
         self,
-        redis_url: str,
+        valkey_url: str,
         postgres_url: str,
-        redis_ttl: timedelta = timedelta(hours=1)
+        valkey_ttl: timedelta = timedelta(hours=1)
     ):
         super().__init__(serde=JsonPlusSerializer())
-        self.redis = redis.from_url(redis_url)
+        self.redis = redis.from_url(valkey_url)  # redis-py is Valkey-compatible
         self.postgres_url = postgres_url
-        self.redis_ttl = redis_ttl
+        self.redis_ttl = valkey_ttl
         
     async def aget(self, config: dict) -> Optional[dict]:
-        """Get checkpoint, try Redis first, fallback to Postgres."""
+        """Get checkpoint, try Valkey first, fallback to Postgres."""
         thread_id = config["configurable"]["thread_id"]
         checkpoint_id = config["configurable"].get("checkpoint_id")
         
-        # Try Redis first
+        # Try Valkey first
         cache_key = f"checkpoint:{thread_id}:{checkpoint_id or 'latest'}"
         cached = self.redis.get(cache_key)
         if cached:
             return self.serde.loads(cached)
         
-        # Fallback to PostgreSQL
+        # Fallback to PostgreSQL (Valkey miss)
         async with asyncpg.connect(self.postgres_url) as conn:
             if checkpoint_id:
                 row = await conn.fetchrow(
@@ -234,14 +234,14 @@ class HybridCheckpointSaver(BaseCheckpointSaver):
         return None
     
     async def aput(self, config: dict, checkpoint: dict) -> dict:
-        """Save checkpoint to both Redis and PostgreSQL."""
+        """Save checkpoint to both Valkey and PostgreSQL."""
         thread_id = config["configurable"]["thread_id"]
         checkpoint_id = checkpoint.get("id", str(uuid.uuid4()))
         parent_id = checkpoint.get("parent_id")
         
         serialized = self.serde.dumps(checkpoint)
         
-        # Save to Redis (hot cache)
+        # Save to Valkey (hot cache)
         cache_key = f"checkpoint:{thread_id}:{checkpoint_id}"
         latest_key = f"checkpoint:{thread_id}:latest"
         self.redis.setex(cache_key, self.redis_ttl, serialized)
@@ -402,9 +402,9 @@ ORDER BY created_at DESC;
 # config.py
 LANGGRAPH_CONFIG = {
     "checkpoint": {
-        "redis_url": "redis://localhost:6379/1",
+        "valkey_url": "valkey://localhost:6379/1",
         "postgres_url": "postgresql://mas:password@localhost/mas",
-        "redis_ttl_hours": 1,
+        "valkey_ttl_hours": 1,
         "max_history_per_thread": 10,
     },
     "recovery": {

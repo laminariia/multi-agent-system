@@ -5,7 +5,7 @@
 **Status:** Updated with Competitor Analysis + MAS Failure Taxonomy
 
 > [!NOTE]
-> **Tech Stack Update (Feb 2026):** Production uses **Valkey 8.1** (Redis-compatible), **Litestar** (API), **Remix** (Dashboard), **pgvectorscale** (vector search). Code samples may still reference `redis`/`FastAPI` — Valkey is API-compatible with Redis.
+> **Tech Stack (Feb 2026):** Production uses **Valkey 8.1** (Redis-compatible), **Litestar** (API), **Remix** (Dashboard), **pgvectorscale** (vector search). See `TECH_STACK.md` for authoritative reference. Code samples may use `redis`/`FastAPI` syntax — Valkey is API-compatible with Redis.
 
 ---
 
@@ -13,6 +13,7 @@
 
 This architecture defines a **10-agent Multi-Agent System (MAS)** for automating:
 - **Pipeline A:** Freelance job acquisition (Freelancer.com, Upwork, FL.ru, Kwork)
+  - Upwork: опционально, только мониторинг через Playwright+Stealth или ручной поиск
 - **Pipeline B:** Cold outreach to offline businesses via geo-discovery
 
 ### v4.2 New Features (from Competitor + MAS Research)
@@ -66,14 +67,14 @@ This architecture defines a **10-agent Multi-Agent System (MAS)** for automating
 
 | Agent | Role | LLM | Tools |
 |-------|------|-----|-------|
-| **Scout** | Job discovery & filtering | Gemini Flash | RSS Parser, Platform APIs |
-| **Bid** | Proposal writing & submission | Gemini Flash | RAG, Playwright |
-| **Planner** | Task decomposition & orchestration | **Claude Opus** | Task Scheduler |
-| **Dev** | Code generation (Full-stack) | Claude Opus | E2B Sandbox, Git |
-| **Content** | Copywriting, docs | Gemini Flash | RAG, Templates |
-| **Design** | UI/UX, graphics | **Gemini Pro** | Figma API, DALL-E |
-| **Critic** | Code review + **Semgrep** | **GPT 5.2** | Semgrep, Linters |
-| **Packager** | Final assembly & delivery | Gemini Flash | ZIP, Upload APIs |
+| **Scout** | Job discovery & filtering | Gemini 3 Flash | RSS Parser, Platform APIs |
+| **Bid** | Proposal writing & submission | Gemini 3 Flash | RAG, Playwright |
+| **Planner** | Task decomposition & orchestration | **Claude Opus 4.6** | Task Scheduler |
+| **Dev** | Code generation (Full-stack) | **Claude Opus 4.6** | Docker Sandbox, Git |
+| **Content** | Copywriting, docs | Gemini 3 Flash | RAG, Templates |
+| **Design** | UI/UX, graphics | **Gemini 3 Pro** (NanoBanana Pro) | Figma API, Image Generation |
+| **Critic** | Code review + **Semgrep** | **GPT 5.3 Codex** | Semgrep, Linters |
+| **Packager** | Final assembly & delivery | Gemini 3 Flash | ZIP, Upload APIs |
 
 ### Pipeline B: Cold Outreach
 
@@ -366,8 +367,8 @@ class AgentBase:
 ### Monitoring Dashboard Integration
 
 ```python
-# FastAPI endpoint for dashboard
-@app.get("/api/agents/health")
+# Litestar endpoint for dashboard
+@get("/api/v1/agents/health")
 async def get_agent_health():
     return {
         agent_id: {
@@ -389,46 +390,54 @@ LLM receives semantically similar prompts repeatedly, wasting tokens.
 ### Solution: Vector-Based Response Cache
 
 ```python
-from sentence_transformers import SentenceTransformer
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 import numpy as np
 from typing import Optional
 import hashlib
 
 class SemanticCache:
-    """Cache LLM responses by semantic similarity."""
-    
+    """Cache LLM responses by semantic similarity.
+
+    Uses Google text-embedding-004 (768 dim) — must match Valkey/PostgreSQL index dimensions.
+    See TECH_STACK.md for canonical embedding model.
+    """
+
     SIMILARITY_THRESHOLD = 0.92
-    
+
     def __init__(self, redis_client):
         self.redis = redis_client
-        self.model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.embeddings_model = GoogleGenerativeAIEmbeddings(
+            model="models/text-embedding-004"
+        )  # 768 dimensions
         self.embeddings: dict[str, np.ndarray] = {}
-    
+
     async def get_or_generate(
-        self, 
-        prompt: str, 
+        self,
+        prompt: str,
         llm_func: callable,
         cache_ttl: int = 86400  # 24 hours
     ) -> tuple[str, bool]:
         """Returns (response, was_cached)."""
-        
-        # Generate embedding for prompt
-        prompt_embedding = self.model.encode(prompt)
-        
+
+        # Generate embedding for prompt (768 dim)
+        prompt_embedding = np.array(
+            await self.embeddings_model.aembed_query(prompt)
+        )
+
         # Search for similar cached prompts
         cached_response = await self._find_similar(prompt_embedding)
         if cached_response:
             return cached_response, True
-        
+
         # No cache hit - generate new response
         response = await llm_func(prompt)
-        
+
         # Store in cache
         cache_key = hashlib.md5(prompt.encode()).hexdigest()
         await self._store(cache_key, prompt_embedding, response, cache_ttl)
-        
+
         return response, False
-    
+
     async def _find_similar(self, query_embedding: np.ndarray) -> Optional[str]:
         """Find cached response with similarity > threshold."""
         for key, cached_emb in self.embeddings.items():
@@ -436,12 +445,12 @@ class SemanticCache:
             if similarity > self.SIMILARITY_THRESHOLD:
                 return await self.redis.get(f"semantic_cache:{key}")
         return None
-    
+
     async def _store(self, key: str, embedding: np.ndarray, response: str, ttl: int):
         """Store embedding and response."""
         self.embeddings[key] = embedding
         await self.redis.setex(f"semantic_cache:{key}", ttl, response)
-    
+
     @staticmethod
     def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
         return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
@@ -590,20 +599,23 @@ class H3GeoScanner:
 
 ---
 
-## 📊 Updated Cost Estimates (v4.1)
+## 📊 Updated Cost Estimates (v4.2)
 
 ### Monthly Operating Costs
 
-| Component | v4.0 Estimate | v4.1 Estimate | Change |
+> Пересчитано с учётом Claude Opus 4.6 (Planner+Dev) + GPT 5.3 Codex (Critic).
+
+| Component | v4.1 Estimate | v4.2 Estimate | Change |
 |-----------|---------------|---------------|--------|
-| LLM API (Gemini + Claude) | $150-300 | $130-260 | -15% (Semantic Cache) |
-| E2B Sandboxes | $80-150 | $80-150 | = |
-| Lead Enrichment | $100-250 | $40-100 | -60% (Waterfall) |
-| Redis/Postgres | $40-80 | $50-90 | +10% (Cache storage) |
+| LLM API (Gemini + Claude Opus 4.6 + GPT 5.3 Codex) | $130-260 | **$450-600** | Claude Opus дорогой! |
+| Docker/E2B Sandboxes | $80-150 | $50-100 | Docker дешевле |
+| Lead Enrichment | $40-100 | $40-100 | = (Waterfall) |
+| Valkey/Postgres | $50-90 | $50-90 | = |
 | Proxies | $60-100 | $60-100 | = |
+| VPS сервер | — | $20-40 | Hetzner/DigitalOcean |
+| Email warm-up (Instantly.ai) | — | $50-100 | Pipeline B requirement |
 | Monitoring (LangSmith) | Free | Free | = |
-| Infrastructure (AWS) | $50-100 | $50-100 | = |
-| **TOTAL** | **$480-980** | **$410-800** | **-15%** |
+| **TOTAL** | **$410-800** | **$800-1200** | **Unified with CLAUDE.md** |
 
 ### New Component Costs
 
@@ -611,7 +623,7 @@ class H3GeoScanner:
 |-------------|-----------------|-----|
 | Semgrep | $0 (open source) | Security + Quality |
 | Heartbeat Monitor | $0 (built-in) | Reliability |
-| Semantic Cache | ~$10/mo (Redis storage) | $20-50 savings |
+| Semantic Cache | ~$10/mo (Valkey storage) | $20-50 savings |
 | H3 Library | $0 (open source) | Better coverage |
 
 ---
@@ -693,7 +705,7 @@ multi-agent-service/
 │   │   ├── fl_ru.py
 │   │   └── kwork.py
 │   └── api/
-│       ├── main.py              # FastAPI
+│       ├── main.py              # Litestar
 │       └── websocket.py
 ├── dashboard/                    # Remix frontend
 ├── rules/                        # Semgrep rules
@@ -709,11 +721,11 @@ multi-agent-service/
 
 | Feature | Status | Impact |
 |---------|--------|--------|
-| Enrichment Waterfall | ✅ Implemented | -60% enrichment costs |
-| Semgrep Analysis | ✅ Implemented | +Security layer |
-| Heartbeat Monitoring | ✅ Implemented | +99.9% uptime target |
-| Semantic Cache | ✅ Implemented | -15% LLM costs |
-| H3 Hexagonal Indexing | ✅ Implemented | +Coverage efficiency |
+| Enrichment Waterfall | 📋 Specified | -60% enrichment costs |
+| Semgrep Analysis | 📋 Specified | +Security layer |
+| Heartbeat Monitoring | 📋 Specified | +99.9% uptime target |
+| Semantic Cache | 📋 Specified | -15% LLM costs |
+| H3 Hexagonal Indexing | 📋 Specified | +Coverage efficiency |
 
 ---
 

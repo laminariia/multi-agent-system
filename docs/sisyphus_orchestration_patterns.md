@@ -44,7 +44,7 @@
                              ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                    SISYPHUS (Main Orchestrator)                         │
-│                    Model: Claude Opus 4.5                               │
+│                    Model: Claude Opus 4.6                               │
 │                    Thinking Budget: 32k tokens                          │
 │                                                                         │
 │  1. Анализирует задачу                                                  │
@@ -57,7 +57,7 @@
          ▼                   ▼                   ▼
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │   Oracle    │     │  Librarian  │     │   Explore   │
-│ (GPT 5.2)   │     │ (GLM 4.7)   │     │ (Haiku 4.5) │
+│ (GPT 5.3)   │     │ (GLM 4.7)   │     │ (Haiku 4.5) │
 │ Read-Only   │     │ Read-Only   │     │ Read-Only   │
 │             │     │             │     │             │
 │ Debugging   │     │   Docs,     │     │   Fast      │
@@ -75,7 +75,7 @@
 │           → Uses Gemini 3 Pro Preview                                   │
 │                                                                         │
 │  delegate_task(category="ultrabrain", prompt="...")                     │
-│           → Uses GPT 5.2 Codex (xhigh reasoning)                        │
+│           → Uses GPT 5.3 Codex (xhigh reasoning)                        │
 └────────────────────────────┬────────────────────────────────────────────┘
                              │
                              ▼
@@ -108,8 +108,8 @@
 | **Orchestrator** | Sisyphus | Opus 4.5 | Главный оркестратор, планирование, делегирование | Полный доступ |
 | **Planning** | Prometheus | Opus 4.5 | Интервью + создание плана | План only |
 | **Planning** | Metis | Opus 4.5 | Анализ плана, поиск скрытых требований | Консультация |
-| **Planning** | Momus | GPT 5.2 | Валидация плана | Review only |
-| **Consultant** | Oracle | GPT 5.2 | Архитектура, дебаг | Read-only |
+| **Planning** | Momus | GPT 5.3 | Валидация плана | Review only |
+| **Consultant** | Oracle | GPT 5.3 | Архитектура, дебаг | Read-only |
 | **Research** | Librarian | GLM 4.7 | Документация, OSS код | Read-only |
 | **Research** | Explore | Haiku 4.5 | Быстрый grep по коду | Read-only |
 | **Multimodal** | Multimodal-Looker | Gemini Flash | PDF, изображения | Read-only |
@@ -121,11 +121,11 @@
 
 ```
 Sisyphus:
-  Primary: claude-opus-4-5
-  Fallback: kimi-k2.5 → glm-4.7 → gpt-5.2-codex → gemini-3-pro
+  Primary: claude-opus-4-6
+  Fallback: gemini-3-pro → gpt-5.3-codex (alternative fallback examples: kimi-k2.5, glm-4.7)
 
 Oracle:
-  Primary: gpt-5.2
+  Primary: gpt-5.3-codex
   (no fallback - critical for reasoning quality)
 
 Explore:
@@ -144,7 +144,7 @@ Explore:
 | Категория | Модель по умолчанию | Когда использовать |
 |-----------|--------------------|--------------------|
 | **visual-engineering** | Gemini 3 Pro | Frontend, UI/UX, стили, анимации |
-| **ultrabrain** | GPT 5.2 Codex (xhigh) | Сложная логика, архитектурные решения |
+| **ultrabrain** | GPT 5.3 Codex (xhigh) | Сложная логика, архитектурные решения |
 | **artistry** | Gemini 3 Pro (max) | Креативные задачи, уникальные идеи |
 | **quick** | Haiku 4.5 | Тривиальные правки, typo fixes |
 | **unspecified-low** | Sonnet 4.5 | Стандартные задачи, низкая сложность |
@@ -165,7 +165,7 @@ delegate_task(
   category="ultrabrain", 
   prompt="Design the payment processing flow"
 )
-// → Автоматически использует GPT 5.2 с xhigh reasoning
+// → Автоматически использует GPT 5.3 с xhigh reasoning
 ```
 
 ---
@@ -256,7 +256,7 @@ background_output(task_id="bg_abc123")
       "google": 10
     },
     "modelConcurrency": {
-      "anthropic/claude-opus-4-5": 2,
+      "anthropic/claude-opus-4-6": 2,
       "google/gemini-3-flash": 10
     }
   }
@@ -356,13 +356,13 @@ TASK_CATEGORIES = {
         "description": "Proposal writing, client communication"
     },
     "code-generation": {
-        "model": "claude-opus-4-5",
+        "model": "claude-opus-4-6",
         "temperature": 0.3,
         "thinking_budget": 16000,
         "description": "Complex code generation"
     },
     "code-review": {
-        "model": "gpt-5.2",
+        "model": "gpt-5.3-codex",
         "temperature": 0.1,
         "description": "Code review, debugging, quality checks"
     },

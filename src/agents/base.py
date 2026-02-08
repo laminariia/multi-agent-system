@@ -1,0 +1,441 @@
+"""Constrained agent base class (Feature 6 from architecture v4.2).
+
+Every concrete agent subclass inherits from ``ConstrainedAgent`` and only needs
+to implement ``_execute(state) -> AgentState``.  The base class transparently
+handles:
+
+* Heartbeat pings (liveness monitoring).
+* Loop detection (iteration cap + identical-step detection).
+* Role constraint validation (forbidden tools, max iterations).
+* LLM delegation via ``_call_llm``.
+* Error handling with retry logic.
+* State bookkeeping (``current_agent``, ``updated_at``).
+"""
+
+from __future__ import annotations
+
+import abc
+import time
+from typing import Any
+
+import structlog
+from langchain_core.messages import BaseMessage
+
+from src.core.exceptions import (
+    AgentException,
+    HITLRequiredError,
+    LLMException,
+    LoopDetectedError,
+    MASException,
+)
+from src.core.heartbeat import HeartbeatMonitor
+from src.core.llm_client import CallMetrics, LLMClient
+from src.core.loop_detector import LoopDetector
+from src.core.state import AgentState, append_error, increment_retry, update_state
+
+logger = structlog.get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Role constraint definitions (canonical, from architecture v4.2)
+# ---------------------------------------------------------------------------
+
+ROLE_CONSTRAINTS: dict[str, dict[str, Any]] = {
+    "scout": {
+        "role": "Job Scout",
+        "goal": "Find qualified jobs matching profile",
+        "constraints": [
+            "ONLY search and filter jobs",
+            "NEVER submit proposals",
+            "NEVER contact clients directly",
+            "ALWAYS pass jobs to Bid Agent",
+            "STOP after finding 10 qualified jobs per cycle",
+        ],
+        "forbidden_tools": ["submit_proposal", "send_message", "execute_code"],
+        "max_iterations": 10,
+    },
+    "bid": {
+        "role": "Proposal Writer",
+        "goal": "Generate high-quality draft proposals",
+        "constraints": [
+            "ONLY generate draft proposals",
+            "NEVER submit without HITL approval",
+            "ALWAYS include personalisation tokens",
+            "STOP after generating proposal (human submits)",
+        ],
+        "forbidden_tools": ["execute_code", "delete_file"],
+        "max_iterations": 10,
+        "requires_hitl_approval": True,
+    },
+    "planner": {
+        "role": "Task Planner",
+        "goal": "Decompose projects into actionable tasks",
+        "constraints": [
+            "ONLY plan and decompose tasks",
+            "NEVER execute code directly",
+            "ALWAYS produce a structured task list",
+            "MAX 3 re-plans per project",
+        ],
+        "forbidden_tools": ["execute_code", "submit_proposal", "send_email"],
+        "max_iterations": 10,
+    },
+    "dev": {
+        "role": "Full-Stack Developer",
+        "goal": "Generate production-quality code",
+        "constraints": [
+            "ONLY write code, tests, documentation",
+            "NEVER access external networks (sandbox isolation)",
+            "ALWAYS pass code to Critic Agent before delivery",
+            "MAX 5 iterations per task",
+        ],
+        "forbidden_tools": ["submit_proposal", "send_email", "send_message"],
+        "max_iterations": 5,
+    },
+    "content": {
+        "role": "Content Writer",
+        "goal": "Produce copywriting and documentation",
+        "constraints": [
+            "ONLY write text content and documentation",
+            "NEVER execute code",
+            "NEVER submit proposals",
+        ],
+        "forbidden_tools": ["execute_code", "submit_proposal"],
+        "max_iterations": 10,
+    },
+    "design": {
+        "role": "Designer",
+        "goal": "Create UI/UX designs and graphics",
+        "constraints": [
+            "ONLY produce design artefacts",
+            "NEVER execute arbitrary code",
+            "NEVER modify code files",
+        ],
+        "forbidden_tools": ["execute_code", "submit_proposal", "send_email"],
+        "max_iterations": 10,
+    },
+    "critic": {
+        "role": "Quality Reviewer",
+        "goal": "Review code quality and security",
+        "constraints": [
+            "ONLY review and score artefacts",
+            "NEVER modify code directly",
+            "ALWAYS run Semgrep before approval",
+            "RETURN decision: APPROVE / REVISE / REJECT",
+        ],
+        "forbidden_tools": ["submit_proposal", "send_email"],
+        "max_iterations": 10,
+    },
+    "packager": {
+        "role": "Delivery Packager",
+        "goal": "Assemble and deliver final artefacts",
+        "constraints": [
+            "ONLY assemble approved artefacts",
+            "NEVER modify code or content",
+            "NEVER submit without HITL approval on first delivery",
+        ],
+        "forbidden_tools": ["execute_code"],
+        "max_iterations": 10,
+    },
+    "geoscout": {
+        "role": "Geo Business Scout",
+        "goal": "Discover offline businesses via geo-search",
+        "constraints": [
+            "ONLY search and filter business leads",
+            "NEVER contact leads directly",
+            "ALWAYS pass leads to Outreach Agent",
+        ],
+        "forbidden_tools": ["execute_code", "submit_proposal", "send_email", "send_message"],
+        "max_iterations": 10,
+    },
+    "outreach": {
+        "role": "Outreach Specialist",
+        "goal": "Enrich leads and generate cold emails",
+        "constraints": [
+            "ONLY enrich leads and draft emails",
+            "NEVER send emails without HITL approval (first batch)",
+            "ALWAYS follow email warm-up protocol",
+        ],
+        "forbidden_tools": ["execute_code", "submit_proposal"],
+        "max_iterations": 10,
+    },
+}
+
+_DEFAULT_MAX_RETRIES = 3
+
+
+class ConstrainedAgent(abc.ABC):
+    """Abstract base class for all MAS agents with role enforcement.
+
+    Subclasses implement ``_execute(state)`` to perform agent-specific work.
+    Everything else (heartbeat, loop detection, constraint checking, retries,
+    state updates) is handled automatically by ``invoke()``.
+
+    Args:
+        agent_name: Canonical agent identifier (e.g. ``"scout"``).
+        allowed_tools: List of tool names this agent is permitted to invoke.
+        llm_client: Shared ``LLMClient`` instance.
+        heartbeat: Shared ``HeartbeatMonitor`` instance.
+        loop_detector: Shared ``LoopDetector`` instance.
+        max_retries: Per-invocation retry cap before the error propagates.
+    """
+
+    def __init__(
+        self,
+        agent_name: str,
+        allowed_tools: list[str],
+        llm_client: LLMClient,
+        heartbeat: HeartbeatMonitor,
+        loop_detector: LoopDetector,
+        *,
+        max_retries: int = _DEFAULT_MAX_RETRIES,
+    ) -> None:
+        self.agent_name = agent_name
+        self.allowed_tools = set(allowed_tools)
+        self.llm_client = llm_client
+        self.heartbeat = heartbeat
+        self.loop_detector = loop_detector
+        self.max_retries = max_retries
+
+        self.role_constraints: dict[str, Any] = ROLE_CONSTRAINTS.get(agent_name, {})
+        self._forbidden_tools: set[str] = set(self.role_constraints.get("forbidden_tools", []))
+        self._agent_max_iterations: int = self.role_constraints.get("max_iterations", 10)
+
+        self._log = logger.bind(agent=agent_name)
+
+    # ------------------------------------------------------------------
+    # Public entry point
+    # ------------------------------------------------------------------
+
+    async def invoke(self, state: AgentState) -> AgentState:
+        """Execute this agent's logic with full lifecycle management.
+
+        1. Heartbeat ping.
+        2. Loop detection check.
+        3. Role constraint validation.
+        4. Delegate to ``_execute``.
+        5. Error handling + retry.
+        6. State update (current_agent, updated_at).
+        """
+        # Mark the state as belonging to this agent
+        state = update_state(
+            state,
+            current_agent=self.agent_name,
+            current_task=state.get("current_task"),
+        )
+
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                # 1. Heartbeat
+                task_description = _describe_task(state.get("current_task"))
+                await self.heartbeat.ping(self.agent_name, task_description)
+
+                # 2. Loop detection
+                await self.loop_detector.check(
+                    thread_id=state["thread_id"],
+                    current_step=self.agent_name,
+                    state=dict(state),
+                )
+
+                # 3. Role constraints
+                self._validate_role_constraints(state)
+
+                # 4. Agent-specific logic
+                self._log.info(
+                    "agent_invoke_start",
+                    thread_id=state["thread_id"],
+                    attempt=attempt,
+                )
+                t0 = time.perf_counter()
+                result_state = await self._execute(state)
+                elapsed_ms = (time.perf_counter() - t0) * 1000
+
+                # 5. Finalise state
+                result_state = update_state(
+                    result_state,
+                    current_agent=self.agent_name,
+                )
+                self._log.info(
+                    "agent_invoke_success",
+                    thread_id=result_state["thread_id"],
+                    elapsed_ms=round(elapsed_ms, 2),
+                    next_agent=result_state.get("next_agent"),
+                )
+                return result_state
+
+            except LoopDetectedError:
+                self._log.error("loop_detected", thread_id=state["thread_id"])
+                return update_state(
+                    append_error(state, f"Loop detected in {self.agent_name}"),
+                    status="failed",
+                    next_agent=None,
+                )
+
+            except HITLRequiredError as exc:
+                self._log.info("hitl_required", thread_id=state["thread_id"], reason=str(exc))
+                return update_state(
+                    state,
+                    requires_hitl=True,
+                    hitl_request_id=exc.hitl_request_id,
+                    status="paused",
+                    errors=[*state["errors"], f"HITL: {exc}"],
+                )
+
+            except LLMException as exc:
+                self._log.warning(
+                    "llm_error",
+                    thread_id=state["thread_id"],
+                    attempt=attempt,
+                    error=str(exc),
+                )
+                state = increment_retry(append_error(state, f"LLM error (attempt {attempt}): {exc}"))
+                if attempt == self.max_retries:
+                    return update_state(state, status="failed", next_agent=None)
+
+            except AgentException as exc:
+                self._log.error(
+                    "agent_error",
+                    thread_id=state["thread_id"],
+                    attempt=attempt,
+                    error=str(exc),
+                )
+                state = increment_retry(append_error(state, f"Agent error (attempt {attempt}): {exc}"))
+                if attempt == self.max_retries:
+                    return update_state(state, status="failed", next_agent=None)
+
+            except MASException as exc:
+                self._log.error("mas_error", thread_id=state["thread_id"], error=str(exc))
+                return update_state(
+                    append_error(state, f"Unrecoverable: {exc}"),
+                    status="failed",
+                    next_agent=None,
+                )
+
+            except Exception as exc:
+                self._log.exception("unexpected_error", thread_id=state["thread_id"])
+                return update_state(
+                    append_error(state, f"Unexpected: {type(exc).__name__}: {exc}"),
+                    status="failed",
+                    next_agent=None,
+                )
+
+        # Exhausted all retries
+        return update_state(state, status="failed", next_agent=None)
+
+    # ------------------------------------------------------------------
+    # Abstract -- subclasses implement this
+    # ------------------------------------------------------------------
+
+    @abc.abstractmethod
+    async def _execute(self, state: AgentState) -> AgentState:
+        """Perform agent-specific work.
+
+        Must return a (possibly updated) ``AgentState``.  Should set
+        ``next_agent`` to indicate which agent should run next, or ``None``
+        to terminate.
+        """
+        ...
+
+    # ------------------------------------------------------------------
+    # LLM helper
+    # ------------------------------------------------------------------
+
+    async def _call_llm(
+        self,
+        messages: list[BaseMessage],
+        *,
+        temperature: float = 0.7,
+        max_tokens: int | None = None,
+    ) -> tuple[BaseMessage, CallMetrics]:
+        """Delegate an LLM call through the shared client, tagged with this agent's name."""
+        return await self.llm_client.call(
+            self.agent_name,
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+    # ------------------------------------------------------------------
+    # Constraint validation
+    # ------------------------------------------------------------------
+
+    def _validate_role_constraints(self, state: AgentState) -> None:
+        """Enforce role boundaries before execution.
+
+        Raises:
+            AgentException: When a constraint would be violated.
+        """
+        # Check that no forbidden tool is in the allowed set
+        overlap = self._forbidden_tools & self.allowed_tools
+        if overlap:
+            raise AgentException(
+                f"Agent '{self.agent_name}' has forbidden tools in its allowed set: {overlap}",
+                agent_name=self.agent_name,
+                thread_id=state.get("thread_id", ""),
+            )
+
+        # Check iteration budget
+        retry_count = state.get("retry_count", 0)
+        if retry_count > self._agent_max_iterations:
+            raise AgentException(
+                f"Agent '{self.agent_name}' exceeded max iterations ({self._agent_max_iterations})",
+                agent_name=self.agent_name,
+                thread_id=state.get("thread_id", ""),
+            )
+
+    def _build_system_prompt(self) -> str:
+        """Construct a system prompt embedding role constraints.
+
+        Subclasses can call this as a prefix and append domain-specific
+        instructions.
+        """
+        rc = self.role_constraints
+        role = rc.get("role", self.agent_name)
+        goal = rc.get("goal", "")
+        constraints = rc.get("constraints", [])
+        forbidden = rc.get("forbidden_tools", [])
+
+        lines = [
+            f"You are a {role}.",
+            "",
+            f"GOAL: {goal}",
+            "",
+            "CRITICAL CONSTRAINTS (NEVER VIOLATE):",
+        ]
+        for c in constraints:
+            lines.append(f"- {c}")
+        lines.append("")
+        lines.append("FORBIDDEN ACTIONS:")
+        if forbidden:
+            for f in forbidden:
+                lines.append(f"- {f}")
+        else:
+            lines.append("- None")
+        lines.append("")
+        lines.append("If you are unsure about an action, STOP and request human clarification.")
+        return "\n".join(lines)
+
+    def _assert_tool_allowed(self, tool_name: str) -> None:
+        """Raise if *tool_name* is not in this agent's allowed set or is forbidden."""
+        if tool_name in self._forbidden_tools:
+            raise AgentException(
+                f"Agent '{self.agent_name}' is forbidden from using tool '{tool_name}'",
+                agent_name=self.agent_name,
+                details={"tool": tool_name, "forbidden_tools": sorted(self._forbidden_tools)},
+            )
+        if tool_name not in self.allowed_tools:
+            raise AgentException(
+                f"Agent '{self.agent_name}' is not permitted to use tool '{tool_name}'",
+                agent_name=self.agent_name,
+                details={"tool": tool_name, "allowed": sorted(self.allowed_tools)},
+            )
+
+
+# ---------------------------------------------------------------------------
+# Utility
+# ---------------------------------------------------------------------------
+
+def _describe_task(task: dict[str, Any] | None) -> str | None:
+    """Extract a short description from a task dict for heartbeat reporting."""
+    if task is None:
+        return None
+    return task.get("description") or task.get("name") or str(task)[:120]

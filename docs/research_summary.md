@@ -6,7 +6,7 @@
 
 ## 1. Tool Calling / Function Calling
 
-**Применение**: Все агенты (Searcher, Analyst, Writer, Bidder) для работы с API.
+**Применение**: Все агенты (Scout, Critic, Content, Bid) для работы с API.
 
 ```python
 # Схема инструмента
@@ -34,7 +34,7 @@ tools = [{
 
 ## 2. ReAct Pattern (Reason + Act)
 
-**Применение**: Sisyphus Planner для декомпозиции задач.
+**Применение**: Planner Agent для декомпозиции задач.
 
 ```
 Thought: Нужно найти проект → проанализировать → написать бид → отправить
@@ -112,11 +112,11 @@ async def main():
 ```python
 def route_to_model(task_complexity):
     if complexity == "simple":
-        return "gemini-2.0-flash"  # Дешёвый
+        return "gemini-3-flash"  # Дешёвый
     elif complexity == "medium":
-        return "claude-sonnet-4"    # Баланс
+        return "gemini-3-flash"     # Баланс
     else:
-        return "claude-opus-4"      # Качество
+        return "gemini-3-pro"       # Качество
 ```
 
 **Экономия**: 40-60% cost reduction при правильном роутинге.
@@ -227,11 +227,11 @@ async def safe_llm_call(prompt, max_retries=3):
 
 | Агент | Ключевые паттерны |
 |-------|------------------|
-| **Sisyphus Planner** | ReAct, Memory, Prompt Versioning |
-| **Searcher** | Tool Calling, Async, Rate Limiting |
-| **Analyst** | ReAct, Token Optimization |
-| **Writer** | Output Length Control, Caching |
-| **Bidder** | Tool Calling, Error Handling |
+| **Planner Agent** | ReAct, Memory, Prompt Versioning |
+| **Scout** | Tool Calling, Async, Rate Limiting |
+| **Critic** | ReAct, Token Optimization |
+| **Content** | Output Length Control, Caching |
+| **Bid** | Tool Calling, Error Handling |
 
 ---
 

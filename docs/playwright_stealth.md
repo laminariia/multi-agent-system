@@ -30,8 +30,8 @@ class StealthBrowser:
     
     # Realistic user agents (rotate monthly)
     USER_AGENTS = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
     ]
     
@@ -272,19 +272,143 @@ if __name__ == "__main__":
 
 ## 📋 Session Management
 
-```python
-# Storing and reusing sessions
-sessions = {
-    "upwork_main": "./sessions/upwork/main",
-    "upwork_backup": "./sessions/upwork/backup",
-    "freelancer": "./sessions/freelancer/main",
-}
+### Cookie Persistence
 
-# Rotate sessions to avoid patterns
-def get_session(platform: str) -> str:
-    platform_sessions = [k for k in sessions if platform in k]
-    return random.choice(platform_sessions)
+Browser sessions (cookies, localStorage) are stored in Valkey (Redis-compatible) with encryption:
+
+```python
+import json
+import base64
+from cryptography.fernet import Fernet
+
+class CookiePersistence:
+    """Encrypt and store browser cookies in Valkey."""
+
+    def __init__(self, valkey_client, encryption_key: str):
+        self.redis = valkey_client
+        self.fernet = Fernet(encryption_key.encode())
+
+    async def save_cookies(self, session_name: str, cookies: list[dict]):
+        """Save encrypted cookies to Valkey."""
+        data = json.dumps(cookies).encode()
+        encrypted = self.fernet.encrypt(data)
+        await self.redis.setex(
+            f"browser:cookies:{session_name}",
+            86400 * 7,  # 7 days TTL
+            encrypted,
+        )
+
+    async def load_cookies(self, session_name: str) -> list[dict]:
+        """Load and decrypt cookies from Valkey."""
+        encrypted = await self.redis.get(f"browser:cookies:{session_name}")
+        if not encrypted:
+            return []
+        data = self.fernet.decrypt(encrypted)
+        return json.loads(data)
+
+    async def clear_cookies(self, session_name: str):
+        """Remove session cookies (e.g., after ban detection)."""
+        await self.redis.delete(f"browser:cookies:{session_name}")
 ```
+
+### Session Rotation
+
+```python
+import random
+from datetime import datetime, timedelta
+
+class SessionRotator:
+    """Rotate browser sessions to avoid detection patterns."""
+
+    def __init__(self, valkey_client):
+        self.redis = valkey_client
+
+    # Session pool per platform
+    SESSIONS = {
+        "freelancer": ["freelancer_main", "freelancer_backup"],
+        "upwork": ["upwork_main", "upwork_backup"],  # OPTIONAL
+        "kwork": ["kwork_main"],
+    }
+
+    async def get_session(self, platform: str) -> str:
+        """Get least-recently-used session for platform."""
+        sessions = self.SESSIONS.get(platform, [])
+        if not sessions:
+            raise ValueError(f"No sessions configured for {platform}")
+
+        # Find session with oldest last_used timestamp
+        best_session = None
+        oldest_time = datetime.max
+
+        for session_name in sessions:
+            last_used = await self.redis.get(f"session:last_used:{session_name}")
+            if last_used is None:
+                return session_name  # Never used, pick this one
+            used_at = datetime.fromisoformat(last_used.decode())
+            if used_at < oldest_time:
+                oldest_time = used_at
+                best_session = session_name
+
+        # Mark as used
+        await self.redis.set(
+            f"session:last_used:{best_session}",
+            datetime.now().isoformat(),
+        )
+        return best_session
+
+    async def mark_compromised(self, session_name: str):
+        """Mark session as compromised (ban detected)."""
+        await self.redis.set(f"session:status:{session_name}", "compromised")
+        # Don't use for 48 hours
+        await self.redis.setex(
+            f"session:cooldown:{session_name}", 48 * 3600, "1"
+        )
+```
+
+### Multi-Account Isolation
+
+```python
+class AccountIsolation:
+    """Ensure each platform account uses isolated browser context."""
+
+    # Each account gets its own:
+    # 1. Browser profile (cookies, localStorage)
+    # 2. Proxy IP
+    # 3. User-Agent
+    # 4. Viewport dimensions
+    # 5. Timezone (matching proxy location)
+
+    ACCOUNT_PROFILES = {
+        "freelancer_main": {
+            "proxy": {"server": "http://proxy1.example.com:22225"},
+            "timezone": "America/New_York",
+            "viewport": {"width": 1920, "height": 1080},
+            "user_agent_index": 0,
+        },
+        "freelancer_backup": {
+            "proxy": {"server": "http://proxy2.example.com:22225"},
+            "timezone": "Europe/London",
+            "viewport": {"width": 1440, "height": 900},
+            "user_agent_index": 1,
+        },
+    }
+
+    @classmethod
+    def get_profile(cls, account_name: str) -> dict:
+        """Get isolated profile for account."""
+        profile = cls.ACCOUNT_PROFILES.get(account_name)
+        if not profile:
+            raise ValueError(f"No profile for account: {account_name}")
+        return profile
+```
+
+### Security Notes
+
+- All cookies are encrypted at rest using Fernet (AES-128-CBC)
+- Encryption key stored in `ENCRYPTION_KEY` env var
+- Sessions are TTL-limited (7 days max)
+- Compromised sessions are automatically cooled down for 48 hours
+- Never share proxy IPs between different platform accounts
 
 ---
 

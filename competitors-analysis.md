@@ -590,7 +590,7 @@ AutoGPT был **hype в 2023**, но провалился в production.
 "Built by engineers for production, not prototype."
 ```
 
-- LangGraph + PostgreSQL + Redis + Docker
+- LangGraph + PostgreSQL + Valkey + Docker
 - Competitors используют quick hacks (Chrome Extensions, Tampermonkey)
 - Вы — enterprise-grade infrastructure
 

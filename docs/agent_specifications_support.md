@@ -618,15 +618,17 @@ GEOSCOUT_AGENT_TOOLS = [
 
 ## 📊 Agent Summary Matrix
 
+> Canonical LLM assignments — see `TECH_STACK.md` for full details.
+
 | Agent | LLM | Primary Role | HITL Required |
 |-------|-----|--------------|---------------|
-| Scout | Gemini Flash | Job discovery | No |
-| Bid | Gemini Flash | Proposal generation | **YES** (Upwork always!) |
-| Planner | Gemini Flash | Task decomposition | On blockers |
-| Content | Gemini Flash | Copywriting | On brand-sensitive |
-| Design | Gemini Flash + NanoBanana | Graphics/UI | On delivery |
-| Dev | **Claude Opus** | Code generation | On security issues |
-| Critic | Gemini Flash | Quality assurance | On rejections |
-| **Packager** | Gemini Flash | Final delivery | **YES** (always) |
-| Outreach | Gemini Flash | Cold email | On first campaign |
-| GeoScout | Gemini Flash | Lead discovery | No |
+| Scout | Gemini 3 Flash | Job discovery | No |
+| Bid | Gemini 3 Flash | Proposal generation | **YES** |
+| Planner | **Claude Opus 4.6** | Task decomposition | On blockers |
+| Content | Gemini 3 Flash | Copywriting | On brand-sensitive |
+| Design | **Gemini 3 Pro** (NanoBanana Pro) | Graphics/UI | On delivery |
+| Dev | **Claude Opus 4.6** | Code generation | On security issues |
+| Critic | **GPT 5.3 Codex** | Quality assurance | On rejections |
+| **Packager** | Gemini 3 Flash | Final delivery | **YES** (always) |
+| Outreach | Gemini 3 Flash | Cold email | On first campaign |
+| GeoScout | Gemini 3 Flash | Lead discovery | No |

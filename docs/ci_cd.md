@@ -116,7 +116,7 @@ jobs:
     
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: timescale/timescaledb-ha:pg16
         env:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
@@ -129,8 +129,8 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       
-      redis:
-        image: redis:7-alpine
+      valkey:
+        image: valkey/valkey:8.1-alpine
         ports:
           - 6379:6379
     
@@ -151,7 +151,7 @@ jobs:
       - name: Run tests
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/test_mas
-          REDIS_URL: redis://localhost:6379
+          VALKEY_URL: valkey://localhost:6379
         run: |
           pytest tests/ -v --cov=src --cov-report=xml
       
@@ -274,24 +274,12 @@ jobs:
           sleep 30
           curl -f https://${{ secrets.VPS_HOST }}/health || exit 1
       
-      - name: Notify on success
-        uses: slackapi/slack-github-action@v1.25.0
-        with:
-          payload: |
-            {
-              "text": "✅ MAS deployed successfully",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "✅ *MAS deployed* to production\nCommit: `${{ github.sha }}`"
-                  }
-                }
-              ]
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+      - name: Notify on success via Telegram
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="Markdown" \
+            -d text="✅ *MAS deployed* to production%0ACommit: \`${{ github.sha }}\`"
 
   # ═══════════════════════════════════════════════════════════════
   # JOB 6: Rollback (manual trigger)
@@ -374,7 +362,8 @@ Configure these in GitHub repo Settings → Secrets:
 | `VPS_HOST` | Server IP/domain | `mas.example.com` |
 | `VPS_USER` | SSH username | `deploy` |
 | `VPS_SSH_KEY` | SSH private key | `-----BEGIN...` |
-| `SLACK_WEBHOOK` | Notifications | `https://hooks.slack.com/...` |
+| `TELEGRAM_BOT_TOKEN` | Telegram notifications | `123456:ABC-DEF...` |
+| `TELEGRAM_CHAT_ID` | Telegram chat ID | `-1001234567890` |
 
 ---
 

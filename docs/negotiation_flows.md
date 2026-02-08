@@ -274,7 +274,9 @@ class FollowUpScheduler:
 ### 3. Concurrent Projects Limit
 
 ```python
-MAX_CONCURRENT_PROJECTS = 5
+# Phase 1: MAX_CONCURRENT_PROJECTS = 5, increases per tier
+# Phase 2: 10, Phase 3+: 15-20
+MAX_CONCURRENT_PROJECTS = 5  # Phase 1 default
 MIN_QUALITY_THRESHOLD = 0.85
 
 class ProjectCapacityManager:

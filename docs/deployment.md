@@ -63,7 +63,7 @@ services:
       dockerfile: Dockerfile.agents
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - DATABASE_URL=postgresql://mas:${DB_PASSWORD}@postgres:5432/mas
       - VALKEY_URL=valkey://valkey:6379/0
     depends_on:
@@ -73,7 +73,7 @@ services:
 
   # ==================== DATA LAYER ====================
   postgres:
-    image: pgvector/pgvector:pg16  # Includes pgvector + pgvectorscale
+    image: timescale/timescaledb-ha:pg16  # Includes pgvector + pgvectorscale
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -89,7 +89,7 @@ services:
       retries: 5
 
   valkey:
-    image: valkey/valkey:8.1-alpine  # 45% faster than Redis, open-source
+    image: valkey/valkey:8.1-alpine  # Redis-compatible, open-source (BSD-3 license)
     volumes:
       - valkey_data:/data
     command: valkey-server --appendonly yes
@@ -130,7 +130,7 @@ services:
 
   # ==================== MONITORING ====================
   prometheus:
-    image: prom/prometheus:v2.47.0
+    image: prom/prometheus:v3.2.0
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
@@ -139,7 +139,7 @@ services:
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:10.2.0
+    image: grafana/grafana:11.4.0
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/dashboards:/etc/grafana/provisioning/dashboards
@@ -170,17 +170,17 @@ SECRET_KEY=your-secret-key-min-32-chars
 
 # ==================== LLM PROVIDERS ====================
 GEMINI_API_KEY=AIza...
-CLAUDE_API_KEY=sk-ant-...
+ANTHROPIC_API_KEY=sk-ant-...         # Claude Opus 4.6 (Planner, Dev)
+OPENAI_API_KEY=sk-...                # GPT 5.3 Codex (Critic Agent)
 
 # ==================== PLATFORMS ====================
 # Freelancer.com
-FREELANCER_OAUTH_CLIENT_ID=...
-FREELANCER_OAUTH_CLIENT_SECRET=...
-FREELANCER_ACCESS_TOKEN=...
+FREELANCER_CLIENT_ID=...
+FREELANCER_CLIENT_SECRET=...
 
-# Upwork (GraphQL - monitoring only!)
-UPWORK_CLIENT_ID=...
-UPWORK_CLIENT_SECRET=...
+# Upwork (OPTIONAL — Playwright monitoring or manual search)
+# UPWORK_EMAIL=...
+# UPWORK_PASSWORD=...
 
 # ==================== ENRICHMENT ====================
 HUNTER_API_KEY=...
@@ -347,6 +347,52 @@ docker stats
 # Restart specific service
 docker compose restart agent-orchestrator
 ```
+
+---
+
+## 📊 Unified Observability Strategy
+
+Four tools work together for complete system visibility:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     OBSERVABILITY STACK                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐               │
+│   │  Prometheus   │   │    Loki      │   │  LangSmith   │               │
+│   │  (Metrics)    │   │   (Logs)     │   │  (Traces)    │               │
+│   └──────┬───────┘   └──────┬───────┘   └──────┬───────┘               │
+│          │                   │                   │                       │
+│          └───────────┬───────┘                   │                       │
+│                      │                           │                       │
+│              ┌───────▼───────┐                   │                       │
+│              │   Grafana     │◄──────────────────┘                       │
+│              │  (Dashboards  │                                           │
+│              │   + Alerts)   │                                           │
+│              └───────┬───────┘                                           │
+│                      │                                                   │
+│              ┌───────▼───────┐   ┌──────────────┐                       │
+│              │   Alerting    │──▶│  Telegram Bot │                       │
+│              │  (Grafana     │   │  (Notifications) │                    │
+│              │   Rules)      │   └──────────────┘                       │
+│              └───────────────┘                                           │
+│                                                                          │
+│   ┌──────────────┐                                                      │
+│   │   Sentry     │  ← Uncaught exceptions, crash reports               │
+│   │  (Errors)    │  ← Litestar integration via sentry-sdk              │
+│   └──────────────┘                                                      │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+| Layer | Tool | What It Captures | Retention |
+|-------|------|-----------------|-----------|
+| **Metrics** | Prometheus | Request rates, latencies, agent durations, LLM costs, queue depths | 30 days |
+| **Logs** | Loki + Promtail | Application logs, agent activity, structured events | 90-180 days |
+| **Traces** | LangSmith | LLM call chains, prompt/response pairs, token usage | Per LangSmith plan |
+| **Errors** | Sentry | Uncaught exceptions, stack traces, breadcrumbs | 90 days |
+| **Alerts** | Grafana → Telegram | Threshold-based alerts for all above sources | N/A |
 
 ---
 

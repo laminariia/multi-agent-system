@@ -23,13 +23,14 @@
 | Слой | Технология | Назначение |
 |------|------------|------------|
 | **Оркестрация** | LangGraph 1.0 | Граф состояний, управление агентами |
-| **LLM** | Gemini 3 Flash + Claude Opus 4.5 | Flash для большинства задач, Opus для кода |
+| **LLM** | Gemini 3 Flash + Claude Opus 4.6 + GPT 5.3 Codex | Flash для большинства, Opus для кода, GPT для code review |
 | **Backend** | Litestar + Python 3.12 | API, WebSocket для UI |
 | **База данных** | PostgreSQL | Состояния LangGraph, история, задачи |
 | **Кэш/Очереди** | Valkey | Pub/Sub, очереди задач, сессии |
 | **Песочница** | Docker (E2B для коротких) | Изолированное выполнение кода |
 | **Браузер** | Playwright + Stealth | Мониторинг, НЕ auto-submit |
 | **Frontend** | Remix | Dashboard для HITL |
+| **Эмбеддинги** | Google text-embedding-004 | Векторный поиск (768 dim) |
 | **Деплой** | Docker + VPS | Hetzner/DigitalOcean |
 
 ### 10 агентов системы
@@ -55,7 +56,7 @@ Pipeline B (Outreach):
 ## 📊 Поток данных
 
 ```
-[Cron: 5 мин] → Scout → Redis Queue → Bid → [HITL: одобрение] → Submit
+[Cron: 5 мин] → Scout → Valkey Queue → Bid → [HITL: одобрение] → Submit
                                               ↓
                                           Planner → Dev/Content/Design (параллельно)
                                               ↓
@@ -71,9 +72,13 @@ Pipeline B (Outreach):
 
 ## 🔧 Ключевые технические решения
 
-### 1. LLM стратегия (двухуровневая)
-- **Gemini 3 Flash** ($0.001/1K): Scout, Bid, Planner, Content, Design, Critic, Outreach
-- **Claude Opus 4.5 Thinking** ($0.015/1K): только Dev Agent для критического кода
+### 1. LLM стратегия (трёхуровневая)
+- **Gemini 3 Flash** ($0.001/1K): Scout, Bid, Content, Packager, GeoScout, Outreach
+- **Claude Opus 4.6** ($0.015/1K): Planner + Dev Agent (высокое качество планирования и кодогенерации)
+- **GPT 5.3 Codex**: Critic Agent (лучший для code review)
+- **Gemini 3 Pro** (NanoBanana Pro): Design Agent (генерация изображений)
+
+> Полная таблица агент → модель: см. `TECH_STACK.md` → "LLM Models — Canonical Agent Assignment"
 
 ### 2. Платформы фриланса (HITL-FIRST!)
 
@@ -82,7 +87,7 @@ Pipeline B (Outreach):
 | Платформа | Интеграция | Метод | Auto-submit |
 |-----------|------------|-------|-------------|
 | Freelancer.com | ✅ API | REST API | ⚠️ С осторожностью |
-| Upwork | ⚠️ GraphQL | Мониторинг only | ❌ ЗАПРЕЩЕНО |
+| Upwork | ⚠️ Опционально | Только мониторинг через Playwright+Stealth ИЛИ ручной поиск заказов | ❌ ЗАПРЕЩЕНО |
 | FL.ru | ✅ RSS Feed | Парсинг | N/A |
 | Kwork | ⚠️ Scraper | Playwright | ⚠️ Риск бана |
 
@@ -105,7 +110,10 @@ Pipeline B (Outreach):
 - **Auto-restart** — при timeout > 180 сек
 - **LangSmith** — трассировка всех LLM-вызовов
 
-### 6. Антидетект для браузера (КРИТИЧНО!)
+### 6. Лимиты параллельных проектов
+- Phase 1: 5 параллельных проектов, Phase 2+: до 15 с масштабированием по tier
+
+### 7. Антидетект для браузера (КРИТИЧНО!)
 
 > ⚠️ Без stealth-режима бан за 1-2 недели на Upwork/Freelancer.
 
@@ -186,7 +194,7 @@ async def create_stealth_browser():
 | Прокси | $60-100 | |
 | VPS сервер | $20-40 | |
 | Email (warm-up) | $50-100 | Instantly.ai |
-| **ИТОГО** | **$720-1130/мес** | Было занижено на 50% |
+| **ИТОГО** | **$800-1200/мес** | Пересчитано с учётом объёма bids и embedding costs |
 
 ---
 
@@ -255,13 +263,16 @@ multi-agent-service/
 
 ## 🔑 Переменные окружения
 
+> Каноничные имена — см. `TECH_STACK.md` → "Environment Variables"
+
 ```bash
-# LLM
+# LLM APIs
 GEMINI_API_KEY=
-ANTHROPIC_API_KEY=
+ANTHROPIC_API_KEY=          # Claude Opus 4.6 (Planner, Dev)
+OPENAI_API_KEY=             # GPT 5.3 Codex (Critic Agent)
 
 # Databases
-POSTGRES_URL=postgresql://user:pass@localhost:5432/mas
+DATABASE_URL=postgresql://user:pass@localhost:5432/mas
 VALKEY_URL=valkey://localhost:6379  # Redis-compatible
 
 # E2B Sandbox
@@ -270,8 +281,8 @@ E2B_API_KEY=
 # Freelance Platforms
 FREELANCER_CLIENT_ID=
 FREELANCER_CLIENT_SECRET=
-UPWORK_EMAIL=
-UPWORK_PASSWORD=
+# UPWORK_EMAIL=             # OPTIONAL
+# UPWORK_PASSWORD=          # OPTIONAL
 
 # Enrichment
 HUNTER_API_KEY=
@@ -280,11 +291,19 @@ APOLLO_API_KEY=
 # Proxies
 BRIGHTDATA_USERNAME=
 BRIGHTDATA_PASSWORD=
-BRIGHTDATA_HOST=
+BRIGHTDATA_HOST=brd.superproxy.io
+
+# Auth
+JWT_SECRET_KEY=
+ENCRYPTION_KEY=  # Fernet key for credentials encryption
 
 # Notifications
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
+
+# Monitoring
+LANGSMITH_API_KEY=
+SENTRY_DSN=
 ```
 
 ---
@@ -292,7 +311,7 @@ TELEGRAM_CHAT_ID=
 ## 📋 Текущий статус разработки
 
 ### ✅ Готово:
-- Архитектура v4.1 с 5 новыми фичами
+- Архитектура v4.2 с 5 новыми фичами
 - Техническое руководство по реализации
 - Анализ 6 источников deep research
 
@@ -311,7 +330,7 @@ TELEGRAM_CHAT_ID=
 ## 📚 Связанные документы
 
 ### Архитектура
-- `mas_architecture_v4.1.md` — детальная архитектура
+- `mas_architecture_v4.2.md` — детальная архитектура
 - `technical_implementation_guide.md` — техническое руководство
 - `research_cross_comparison.md` — анализ исследований
 
@@ -367,7 +386,7 @@ TELEGRAM_CHAT_ID=
 
 4. **Запустить API:**
    ```bash
-   uvicorn src.api.main:app --reload
+   litestar --app src.api.main:app run --reload
    ```
 
 ---

@@ -55,45 +55,28 @@
 
 ### 1. Email + Password (Primary)
 
-```typescript
-// NextAuth configuration
-export const authOptions: NextAuthOptions = {
-  providers: [
-    CredentialsProvider({
-      name: "Credentials",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" }
-      },
-      async authorize(credentials) {
-        const user = await verifyCredentials(
-          credentials.email, 
-          credentials.password
-        );
-        return user;
-      }
-    })
-  ],
-  session: {
-    strategy: "jwt",
-    maxAge: 7 * 24 * 60 * 60, // 7 days
-  },
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.role = user.role;
-        token.userId = user.id;
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      session.user.role = token.role;
-      session.user.id = token.userId;
-      return session;
-    }
-  }
-};
+```python
+from litestar import Controller, post, get
+from litestar.security.jwt import JWTAuth, Token
+from litestar.connection import ASGIConnection
+from litestar.middleware.session.server_side import ServerSideSessionConfig
+import bcrypt
+from datetime import datetime, timedelta
+
+async def retrieve_user_handler(token: Token, connection: ASGIConnection) -> User | None:
+    """Retrieve user from JWT token."""
+    user = await UserRepository.get_by_id(token.sub)
+    return user
+
+jwt_auth = JWTAuth[User](
+    retrieve_user_handler=retrieve_user_handler,
+    token_secret=os.environ["JWT_SECRET_KEY"],
+    default_token_expiration=timedelta(hours=24),
+)
 ```
+
+> **Required env var:** `JWT_SECRET_KEY` must be set. Generate a strong random key
+> (e.g., `openssl rand -hex 32`) and store it securely. Never commit it to source control.
 
 ### 2. Telegram Auth (Optional)
 
@@ -135,45 +118,40 @@ For linking Telegram account to dashboard:
 
 ## 🛡️ API Security
 
-### Litestar Dependency
+### Litestar JWT Auth + Guards
 
 ```python
-from litestar import get, post
+from litestar import get, post, Controller
 from litestar.connection import ASGIConnection
-from litestar.middleware import AbstractAuthenticationMiddleware
-from litestar.exceptions import NotAuthorizedException
+from litestar.handlers import BaseRouteHandler
+from litestar.security.jwt import JWTAuth, Token
+from litestar.exceptions import NotAuthorizedException, PermissionDeniedException
 
-class JWTAuthMiddleware(AbstractAuthenticationMiddleware):
+async def retrieve_user_handler(token: Token, connection: ASGIConnection) -> User | None:
+    """Retrieve user from JWT token. Returns None if user not found (triggers 401)."""
+    user = await UserRepository.get_by_id(token.sub)
+    return user
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Security(security)
-) -> User:
-    token = credentials.credentials
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        user = await get_user_by_id(payload["sub"])
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-        return user
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+jwt_auth = JWTAuth[User](
+    retrieve_user_handler=retrieve_user_handler,
+    token_secret=os.environ["JWT_SECRET_KEY"],
+    default_token_expiration=timedelta(hours=24),
+)
 
-def require_role(required_role: str):
-    async def role_checker(user: User = Depends(get_current_user)):
-        if user.role != required_role and user.role != "owner":
-            raise HTTPException(status_code=403, detail="Insufficient permissions")
-        return user
-    return role_checker
+def require_role(role: str):
+    """Litestar guard that checks user role."""
+    async def guard(connection: ASGIConnection, handler: BaseRouteHandler) -> None:
+        if not connection.user or role not in connection.user.roles:
+            raise PermissionDeniedException("Insufficient permissions")
+    return guard
 
-# Usage
-@app.post("/api/hitl/{id}/resolve")
-async def resolve_hitl(
-    id: UUID,
-    user: User = Depends(require_role("owner"))
-):
-    ...
+# Usage — guards are passed as route handler parameters
+class HITLController(Controller):
+    path = "/api/hitl"
+
+    @post("/{hitl_id:uuid}/resolve", guards=[require_role("owner")])
+    async def resolve_hitl(self, hitl_id: UUID) -> dict:
+        ...
 ```
 
 ---
@@ -231,27 +209,37 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 ```
 
-### 2. Rate Limiting
+### 2. Rate Limiting (Litestar built-in)
 ```python
-from slowapi import Limiter
+from litestar.middleware.rate_limit import RateLimitConfig
 
-limiter = Limiter(key_func=get_remote_address)
+rate_limit_config = RateLimitConfig(
+    rate_limit=("minute", 60),
+    exclude=["/api/health"],
+)
 
-@app.post("/api/auth/login")
-@limiter.limit("5/minute")
-async def login(request: Request, credentials: LoginRequest):
-    ...
+# For stricter limits on auth endpoints, apply per-route config:
+auth_rate_limit = RateLimitConfig(
+    rate_limit=("minute", 5),
+)
+
+# Pass rate_limit_config to the Litestar app constructor:
+# app = Litestar(..., middleware=[rate_limit_config.middleware])
 ```
 
-### 3. CORS Configuration
+### 3. CORS Configuration (Litestar CORSConfig)
 ```python
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://dashboard.example.com"],
+from litestar.config.cors import CORSConfig
+
+cors_config = CORSConfig(
+    allow_origins=["https://dashboard.yourdomain.com"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
 )
+
+# Pass cors_config to the Litestar app constructor:
+# app = Litestar(..., cors_config=cors_config)
 ```
 
 ### 4. Secrets Management
@@ -262,6 +250,11 @@ TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
 # For production: use AWS Secrets Manager / HashiCorp Vault
 ```
+
+> **Required environment variable:** `JWT_SECRET_KEY` is mandatory for the application to start.
+> Generate it with: `openssl rand -hex 32`
+> This key signs all JWT tokens. If rotated, all existing sessions will be invalidated.
+> Store it in `.env` (local) or a secrets manager (production). Never commit it to version control.
 
 ---
 
@@ -307,12 +300,19 @@ CREATE TABLE user_sessions (
 
 ### Logout All Devices
 ```python
-@app.post("/api/auth/logout-all")
-async def logout_all_devices(user: User = Depends(get_current_user)):
-    await db.execute(
-        update(UserSession)
-        .where(UserSession.user_id == user.id)
-        .values(revoked=True)
-    )
-    return {"message": "All sessions revoked"}
+from litestar import post, Request
+from litestar.security.jwt import JWTAuth
+
+class AuthController(Controller):
+    path = "/api/auth"
+
+    @post("/logout-all")
+    async def logout_all_devices(self, request: Request) -> dict:
+        user = request.user
+        await db.execute(
+            update(UserSession)
+            .where(UserSession.user_id == user.id)
+            .values(revoked=True)
+        )
+        return {"message": "All sessions revoked"}
 ```

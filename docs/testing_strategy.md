@@ -588,6 +588,161 @@ pytest tests/property/ --hypothesis-seed=42
 
 ---
 
+## 7. LLM Golden Set — Regression Testing
+
+> A benchmark dataset of canonical examples for prompt regression testing.
+> Run after any prompt template change to ensure quality doesn't degrade.
+
+### Golden Set Structure
+
+```python
+# tests/golden_set/bid_agent_golden.py
+
+GOLDEN_SET_BID_AGENT = [
+    {
+        "id": "gs_bid_001",
+        "input": {
+            "job_title": "Build a React dashboard with charts",
+            "budget": 2500,
+            "skills": ["React", "TypeScript", "Chart.js"],
+            "client_rating": 4.8,
+            "description": "Need a modern analytics dashboard with 5 chart types"
+        },
+        "expected_properties": {
+            "min_length": 100,
+            "max_length": 300,
+            "must_mention": ["React", "dashboard", "chart"],
+            "must_not_mention": ["Angular", "Vue", "10-year experience on Upwork"],
+            "bid_amount_range": [1500, 2500],
+            "confidence_min": 0.7,
+            "has_milestones": True,
+        },
+        "quality_threshold": 0.8,
+    },
+    {
+        "id": "gs_bid_002",
+        "input": {
+            "job_title": "WordPress landing page for dental clinic",
+            "budget": 500,
+            "skills": ["WordPress", "Elementor"],
+            "client_rating": 4.2,
+            "description": "Simple one-page site with contact form and service list"
+        },
+        "expected_properties": {
+            "min_length": 80,
+            "max_length": 200,
+            "must_mention": ["WordPress", "landing"],
+            "must_not_mention": ["blockchain", "AI"],
+            "bid_amount_range": [300, 500],
+            "confidence_min": 0.85,
+        },
+        "quality_threshold": 0.85,
+    },
+    {
+        "id": "gs_bid_003",
+        "input": {
+            "job_title": "Fix CSS bugs on e-commerce site",
+            "budget": 100,
+            "skills": ["CSS", "HTML"],
+            "client_rating": 3.5,
+            "description": "Mobile layout broken on product pages"
+        },
+        "expected_properties": {
+            "min_length": 50,
+            "max_length": 150,
+            "must_mention": ["CSS", "mobile", "responsive"],
+            "bid_amount_range": [50, 100],
+            "confidence_min": 0.9,
+        },
+        "quality_threshold": 0.9,
+    },
+]
+
+GOLDEN_SET_CONTENT_AGENT = [
+    {
+        "id": "gs_content_001",
+        "input": {
+            "content_type": "landing_page",
+            "business": "Dental clinic",
+            "audience": "Local patients",
+            "language": "en",
+        },
+        "expected_properties": {
+            "has_headline": True,
+            "has_cta": True,
+            "readability_score_min": 60,
+            "word_count_range": [100, 500],
+            "must_not_contain": ["Lorem ipsum", "click here"],
+        },
+        "quality_threshold": 0.8,
+    },
+]
+
+GOLDEN_SET_SCOUT_AGENT = [
+    {
+        "id": "gs_scout_001",
+        "input": {
+            "job_title": "Build NFT marketplace",
+            "budget": 50000,
+            "skills": ["Solidity", "Web3"],
+        },
+        "expected_output": {
+            "recommendation": "skip",
+            "disqualify_reason_contains": ["blockchain", "budget", "complexity"],
+        },
+    },
+    {
+        "id": "gs_scout_002",
+        "input": {
+            "job_title": "Simple WordPress blog setup",
+            "budget": 300,
+            "skills": ["WordPress"],
+            "client_rating": 4.5,
+        },
+        "expected_output": {
+            "recommendation": "bid",
+            "match_score_min": 0.7,
+        },
+    },
+]
+```
+
+### Running Golden Set Tests
+
+```python
+# tests/golden_set/test_golden_regression.py
+import pytest
+from tests.golden_set.bid_agent_golden import GOLDEN_SET_BID_AGENT
+
+class TestGoldenSetRegression:
+    """Regression tests using golden set examples."""
+
+    @pytest.mark.parametrize("case", GOLDEN_SET_BID_AGENT, ids=lambda c: c["id"])
+    @pytest.mark.asyncio
+    async def test_bid_agent_golden(self, case, bid_agent):
+        result = await bid_agent.generate_proposal(case["input"])
+
+        props = case["expected_properties"]
+
+        # Length checks
+        assert len(result["proposal_text"]) >= props["min_length"]
+        assert len(result["proposal_text"]) <= props["max_length"]
+
+        # Content checks
+        text_lower = result["proposal_text"].lower()
+        for keyword in props.get("must_mention", []):
+            assert keyword.lower() in text_lower, f"Missing: {keyword}"
+        for keyword in props.get("must_not_mention", []):
+            assert keyword.lower() not in text_lower, f"Should not mention: {keyword}"
+
+        # Price checks
+        if "bid_amount_range" in props:
+            lo, hi = props["bid_amount_range"]
+            assert lo <= result["bid_amount"] <= hi
+```
+
+---
+
 ## ✅ Test Coverage Targets
 
 | Module | Target | Priority |

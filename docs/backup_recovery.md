@@ -14,7 +14,7 @@
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │  ┌────────────────┐    ┌────────────────┐    ┌────────────────┐         │
-│  │   PostgreSQL   │    │     Redis      │    │    Secrets     │         │
+│  │   PostgreSQL   │    │     Valkey     │    │    Secrets     │         │
 │  │   Database     │    │   Sessions     │    │  (Vault/ENV)   │         │
 │  └───────┬────────┘    └───────┬────────┘    └───────┬────────┘         │
 │          │                     │                     │                   │
@@ -102,12 +102,12 @@ docker compose exec api python scripts/verify_db_integrity.py
 
 ---
 
-## 💾 Redis Session Backup
+## 💾 Valkey Session Backup
 
 ### Configuration
 
 ```bash
-# redis.conf
+# valkey.conf
 appendonly yes
 appendfsync everysec
 save 3600 1      # Snapshot every hour if 1 key changed
@@ -119,23 +119,23 @@ save 60 10000    # Snapshot every min if 10000 keys changed
 
 ```bash
 # Trigger RDB snapshot
-docker compose exec redis redis-cli BGSAVE
+docker compose exec valkey valkey-cli BGSAVE
 
 # Copy snapshot
-docker cp mas_redis_1:/data/dump.rdb ./backups/redis/
+docker cp mas_valkey_1:/data/dump.rdb ./backups/valkey/
 ```
 
-### Restore Redis
+### Restore Valkey
 
 ```bash
-# 1. Stop Redis
-docker compose stop redis
+# 1. Stop Valkey
+docker compose stop valkey
 
 # 2. Copy backup
-docker cp dump.rdb mas_redis_1:/data/
+docker cp dump.rdb mas_valkey_1:/data/
 
 # 3. Restart
-docker compose start redis
+docker compose start valkey
 ```
 
 ---
@@ -307,7 +307,7 @@ async def call_llm_with_fallback(prompt: str, task_type: str) -> str:
 | Test Type | Frequency | Last Tested | Next Due |
 |-----------|-----------|-------------|----------|
 | Database restore | Monthly | - | - |
-| Redis restore | Quarterly | - | - |
+| Valkey restore | Quarterly | - | - |
 | Full DR simulation | Annually | - | - |
 | Account failover | Semi-annually | - | - |
 | LLM failover | Monthly | - | - |

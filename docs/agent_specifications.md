@@ -10,6 +10,27 @@
 ### Role
 Generates all text content: copywriting, documentation, emails, blog posts, and UI text.
 
+**LLM:** Gemini 3 Flash (see `TECH_STACK.md` for canonical assignment)
+
+### Role Constraints (v4.2 Feature 6)
+
+```python
+CONTENT_AGENT_CONSTRAINTS = {
+    "role": "Content Writer",
+    "goal": "Generate high-quality text content matching brand voice",
+    "constraints": [
+        "ONLY generate text content (copy, docs, emails, UI text)",
+        "NEVER generate or modify code",
+        "NEVER submit content directly to clients",
+        "ALWAYS pass output to Critic Agent for review",
+        "MAX 3 revision iterations per task (then escalate to HITL)",
+    ],
+    "forbidden_tools": ["run_in_sandbox", "deploy_to_preview", "submit_bid"],
+    "max_iterations": 5,
+    "loop_detection": True,
+}
+```
+
 ### System Prompt
 
 ```python
@@ -182,6 +203,28 @@ async def content_agent_node(state: AgentState) -> AgentState:
 ### Role
 Creates visual designs: UI mockups, graphics, icons, and provides design specifications.
 
+**LLM:** Gemini 3 Pro / NanoBanana Pro (see `TECH_STACK.md` for canonical assignment)
+
+### Role Constraints (v4.2 Feature 6)
+
+```python
+DESIGN_AGENT_CONSTRAINTS = {
+    "role": "UI/UX Designer",
+    "goal": "Create visually appealing, accessible designs",
+    "constraints": [
+        "ONLY create visual designs (mockups, graphics, icons, design specs)",
+        "NEVER write functional code (CSS-only snippets allowed)",
+        "NEVER submit designs directly to clients",
+        "ALWAYS pass output to Critic Agent for review",
+        "ALWAYS follow WCAG 2.1 AA accessibility standards",
+        "MAX 3 revision iterations per task (then escalate to HITL)",
+    ],
+    "forbidden_tools": ["run_in_sandbox", "submit_bid", "generate_code"],
+    "max_iterations": 5,
+    "loop_detection": True,
+}
+```
+
 ### System Prompt
 
 ```python
@@ -287,18 +330,18 @@ def generate_image(prompt: str, style: str, size: str = "4K") -> str:
 @tool
 def generate_image_fast(prompt: str) -> str:
     """
-    Fast image generation using NanoBanana (Gemini 2.5 Flash Image).
-    
+    Fast image generation using Gemini 3 Flash Image.
+
     Use for: Quick drafts, A/B testing, concept exploration.
     - ~3-10 seconds
     - Up to 2K resolution
     - ~$0.06 per image
     """
     from google import genai
-    
+
     client = genai.Client(api_key=GEMINI_API_KEY)
     response = client.models.generate_content(
-        model="gemini-2.5-flash-image",  # NanoBanana (faster, cheaper)
+        model="gemini-3-flash-image",  # Fast image generation (cheaper, faster)
         contents=[prompt]
     )
     

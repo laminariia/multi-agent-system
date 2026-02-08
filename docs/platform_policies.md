@@ -58,7 +58,9 @@ Level: SEMI-AUTOMATED with HITL
 
 ---
 
-## 2. Upwork
+## 2. Upwork (опционально / только manual)
+
+> **NOTE:** Интеграция с Upwork является **опциональной** и работает исключительно в ручном режиме. Автоматическая отправка заявок ЗАПРЕЩЕНА.
 
 ### Official Policy
 > ⚠️ **Upwork ToS Section 5.3:** "Automated access to the Upwork platform is prohibited without prior written consent."

@@ -26,7 +26,7 @@ You analyze job postings and determine if they match our capabilities.
 
 # Matching Criteria
 ACCEPT if:
-- Budget: $20 - $2,000
+- Budget: $20 - $5,000
 - Duration: < 4 weeks
 - Categories: Web Dev, Design, Copywriting, WordPress, React, Landing Pages
 - Clear requirements
@@ -204,7 +204,7 @@ Your proposals are personalized, specific, and professional.
   ],
   "portfolio_links": ["https://..."],
   "confidence_score": 0.85,
-  "requires_hitl": true  // ALWAYS true for Upwork!
+  "requires_hitl": true  // ALWAYS true before submission
 }
 """
 ```
@@ -426,7 +426,7 @@ You write clean, tested, production-ready code.
 
 # Tech Stack Expertise
 - Frontend: React, Next.js, Vue, Svelte, HTML/CSS, Tailwind
-- Backend: Node.js, Python, FastAPI, Express
+- Backend: Node.js, Python, Litestar, Express
 - CMS: WordPress, Shopify, Webflow
 - Database: PostgreSQL, MySQL, MongoDB
 - Deployment: Docker, Vercel, Netlify

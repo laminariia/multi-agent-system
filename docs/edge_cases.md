@@ -102,7 +102,7 @@ class LLMFailoverManager:
     PROVIDERS = [
         {"name": "gemini", "priority": 1, "for_tasks": ["analysis", "bid_gen"]},
         {"name": "claude", "priority": 2, "for_tasks": ["code_gen", "complex"]},
-        {"name": "openai", "priority": 3, "for_tasks": ["fallback"]},  # Emergency only
+        {"name": "claude_haiku", "priority": 3, "for_tasks": ["fallback"]},  # Emergency fallback chain: Gemini 3 Flash → Gemini 3 Pro → Claude Haiku
     ]
     
     async def get_available_provider(self, task_type: str) -> Optional[str]:
@@ -199,7 +199,7 @@ async def handle_project_cancellation(project_id: str, reason: str):
 **Response:**
 ```python
 class CapacityOverflowHandler:
-    MAX_CONCURRENT = 5
+    MAX_CONCURRENT = 5  # Phase 1 (scales up in later phases)
     
     async def handle_multiple_wins(self, new_wins: list[Bid]):
         current_active = await count_active_projects()

@@ -101,7 +101,7 @@ flowchart TB
 | **Workers** | LangGraph Python | Выполняют логику агентов |
 | **Scheduler** | APScheduler | Запускает Scout каждые 5 минут |
 | **Database** | PostgreSQL | Хранит состояния, историю, задачи |
-| **Cache** | Redis | Очереди задач, кэш, Pub/Sub |
+| **Cache** | Valkey | Очереди задач, кэш, Pub/Sub |
 | **LLM API** | Claude/Gemini | "Мозг" агентов |
 | **Sandbox** | E2B | Безопасное выполнение кода |
 
@@ -116,7 +116,7 @@ sequenceDiagram
     autonumber
     participant Scheduler as ⏰ Scheduler
     participant Scout as 🔍 Scout Agent
-    participant Redis as 📮 Redis Queue
+    participant Redis as 📮 Valkey Queue
     participant Bid as 💼 Bid Agent
     participant Human as 👤 HITL (Вы)
     participant Planner as 📋 Planner Agent
@@ -395,7 +395,7 @@ multi-agent-service/
 │   ├── agents/           # Логика агентов
 │   ├── core/             # LangGraph, state
 │   ├── prompts/          # System prompts
-│   └── api/              # FastAPI endpoints
+│   └── api/              # Litestar endpoints
 ├── knowledge/            # RAG базы знаний
 ├── docker-compose.yml    # Контейнеризация
 └── requirements.txt
@@ -406,7 +406,7 @@ multi-agent-service/
 ```bash
 # Запуск локально для отладки
 docker-compose up -d postgres redis
-python -m src.api.main  # FastAPI на localhost:8000
+python -m src.api.main  # Litestar на localhost:8000
 ```
 
 ### Этап 3: Деплой на сервер
@@ -475,12 +475,12 @@ flowchart LR
 
 4. **Настроить Docker**
    ```
-   Попросить: "Создай docker-compose.yml с Postgres и Redis"
+   Попросить: "Создай docker-compose.yml с Postgres и Valkey"
    ```
 
 5. **Написать API**
    ```
-   Попросить: "Создай FastAPI endpoints для HITL"
+   Попросить: "Создай Litestar endpoints для HITL"
    ```
 
 6. **Тестирование**
@@ -496,13 +496,13 @@ flowchart LR
 flowchart TB
     subgraph Always["🔁 Работает постоянно"]
         Cron[APScheduler<br/>каждые 5 мин] -->|trigger| Scout
-        Scout -->|новые заказы| Queue[(Redis Queue)]
+        Scout -->|новые заказы| Queue[(Valkey Queue)]
         Worker[LangGraph Worker] -->|берёт из очереди| Queue
     end
     
     subgraph OnDemand["📲 По требованию"]
         You[Вы] -->|открываете dashboard| API
-        API -->|WebSocket| Dashboard[React Dashboard]
+        API -->|WebSocket| Dashboard[Remix Dashboard]
         Dashboard -->|показывает| Status[Статус агентов<br/>Pending задачи<br/>HITL запросы]
     end
     

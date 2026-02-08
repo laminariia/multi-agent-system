@@ -11,10 +11,47 @@
 |--------|--------|-------------|
 | Scout throughput | 100 jobs/min | Jobs scanned per minute |
 | Bid generation | <15s per proposal | LLM latency + processing |
-| Concurrent projects | 30 micro / 20 small / 10 medium | Active workflows |
+| Concurrent projects | Phase 1: 5 параллельных, Phase 2+: до 15 по tier | Active workflows |
 | HITL response | <5s (P95) | Dashboard load time |
 | Database queries | <100ms (P95) | PostgreSQL response |
-| API latency | <200ms (P95) | FastAPI endpoints |
+| API latency | <200ms (P95) | Litestar endpoints |
+
+---
+
+## 📐 Capacity Planning
+
+### Agent Throughput (24/7 Operation)
+
+| Agent | Per Cycle | Cycles/Hour | Daily Throughput | Bottleneck |
+|-------|-----------|-------------|------------------|------------|
+| Scout | 10 jobs | 12 | ~2,880 jobs scanned | Platform rate limits |
+| Bid | 1 proposal | 6-8 | **50-100 bids/day** | HITL approval speed |
+| Planner | 1 plan | On-demand | ~10-15 plans/day | Claude Opus RPM |
+| Dev | 1 task | Variable | 5-10 tasks/day | Code complexity |
+| Content | 1 piece | 4-6 | ~30-50 pieces/day | Gemini Flash RPM |
+| Design | 1 asset | 2-3 | ~15-30 assets/day | Gemini Pro RPM |
+| Critic | 1 review | On-demand | ~20-30 reviews/day | GPT 5.3 Codex RPM |
+| Packager | 1 delivery | On-demand | ~3-5 deliveries/day | Depends on project volume |
+| GeoScout | 50 hexagons | 2-3 | ~500-750 businesses/day | Overpass API limits |
+| Outreach | 10 emails | 5 | ~50 emails/day (warm-up phase) | Email warm-up status |
+
+### Bid Volume Reconciliation
+
+| Source | Bids/Day | Notes |
+|--------|----------|-------|
+| CLAUDE.md | 50-100 | Conservative estimate for Phase 1 |
+| rate_limiting.md | 150 | Aggressive 24/7 target for Phase 2+ |
+| **Reconciled** | **50-100 (Phase 1), up to 150 (Phase 2+)** | Scale with platform tier upgrades |
+
+### Pipeline Capacity
+
+```
+Pipeline A (Freelance):
+  Scout (2880/day) → Filter (10-15%) → Bid (50-150/day) → HITL → Win (5-15%) → 3-10 projects/day
+
+Pipeline B (Outreach):
+  GeoScout (500-750/day) → Enrich (60-80%) → Outreach (50/day warm-up) → Reply (5-10%)
+```
 
 ---
 
@@ -124,7 +161,7 @@ WHERE j.status = 'active';
 | Layer | Storage | TTL | Use Case |
 |-------|---------|-----|----------|
 | L1 | In-memory | 60s | Hot data (active workflows) |
-| L2 | Redis | 5min-24h | LLM responses, job listings |
+| L2 | Valkey | 5min-24h | LLM responses, job listings |
 | L3 | PostgreSQL | Permanent | Historical data, checkpoints |
 
 ### Semantic Cache (LLM)
@@ -187,10 +224,10 @@ docker-compose up -d --scale worker=3
 docker-compose up -d --scale worker=1
 ```
 
-### Redis-Based Work Distribution
+### Valkey-Based Work Distribution
 
 ```python
-# Workers pull from Redis queue (natural load balancing)
+# Workers pull from Valkey queue (natural load balancing)
 async def worker_loop():
     while True:
         # BRPOP blocks until job available
@@ -214,18 +251,18 @@ class MASUser(HttpUser):
     
     @task(3)
     def check_hitl_queue(self):
-        self.client.get("/api/hitl/queue")
-    
+        self.client.get("/api/v1/hitl/queue")
+
     @task(1)
     def submit_job(self):
-        self.client.post("/api/jobs/scan", json={
+        self.client.post("/api/v1/jobs/scan", json={
             "platform": "freelancer",
             "keywords": ["react", "python"]
         })
-    
+
     @task(2)
     def get_project_status(self):
-        self.client.get("/api/projects/status")
+        self.client.get("/api/v1/projects/status")
 ```
 
 ### Running Load Tests
@@ -324,7 +361,7 @@ histogram_quantile(0.95, rate(mas_agent_duration_seconds_bucket[5m]))
 ### Before Launch
 - [ ] All critical indexes created
 - [ ] Connection pooling configured
-- [ ] Redis caching enabled
+- [ ] Valkey caching enabled
 - [ ] Semantic cache tested
 - [ ] Load test passed (10 concurrent users)
 

@@ -476,7 +476,7 @@ CREATE TABLE knowledge_base (
     content         TEXT NOT NULL,
     
     -- Embeddings for RAG
-    embedding       vector(384),                     -- for semantic search
+    embedding       vector(768),                     -- Google text-embedding-004 (768 dim)
     
     -- Stats
     usage_count     INTEGER DEFAULT 0,
@@ -494,6 +494,118 @@ CREATE INDEX idx_knowledge_embedding ON knowledge_base
     USING diskann (embedding vector_cosine_ops);
 ```
 
+### 16. `semantic_cache` — LLM Response Cache
+
+> See `docs/semantic_cache.md` for full architecture.
+
+```sql
+CREATE TABLE semantic_cache (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    query_hash      TEXT UNIQUE,
+    query           TEXT NOT NULL,
+    response        TEXT NOT NULL,
+    query_type      TEXT DEFAULT 'default',
+    embedding       vector(768),                     -- Google text-embedding-004 (768 dim)
+    hit_count       INTEGER DEFAULT 0,
+    created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    expires_at      TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+-- DiskANN index for fast vector similarity search
+CREATE INDEX idx_cache_embedding ON semantic_cache
+    USING diskann (embedding vector_cosine_ops);
+
+CREATE INDEX idx_cache_expires ON semantic_cache(expires_at);
+CREATE INDEX idx_cache_type ON semantic_cache(query_type);
+```
+
+### 17. `ab_test_results` — A/B Testing for Proposals
+
+```sql
+CREATE TABLE ab_test_results (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    test_name       VARCHAR(100) NOT NULL,
+    variant_id      VARCHAR(50) NOT NULL,
+    job_id          UUID REFERENCES jobs(id),
+    bid_id          UUID REFERENCES bids(id),
+
+    -- Metrics
+    impressions     INTEGER DEFAULT 0,
+    responses       INTEGER DEFAULT 0,
+    hires           INTEGER DEFAULT 0,
+
+    -- Metadata
+    template_name   VARCHAR(100),
+    opening_style   VARCHAR(30),                     -- 'question', 'statement', 'story'
+    tone            VARCHAR(30),                     -- 'professional', 'friendly', 'technical'
+
+    created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX idx_ab_test ON ab_test_results(test_name, variant_id);
+```
+
+---
+
+## 📅 Data Retention Policy
+
+| Table | Retention | Strategy | Notes |
+|-------|-----------|----------|-------|
+| `agent_logs` | 6 months | Partition by month, drop old partitions | High volume, query by date range |
+| `jobs` | 90 days active, then archive | Move to `jobs_archive` table | Keep won jobs indefinitely |
+| `bids` | 90 days active, then archive | Move to `bids_archive` table | Keep won bids indefinitely |
+| `leads` (unsubscribed) | 30 days | Hard delete | GDPR compliance |
+| `semantic_cache` | TTL-based | Auto-expire via `expires_at` | Managed by cache system |
+| `langgraph_checkpoints` | 30 days after completion | Delete completed thread checkpoints | Keep active threads |
+| `hitl_queue` (resolved) | 90 days | Archive | Audit trail |
+
+### Partition Example (agent_logs)
+
+```sql
+-- Convert agent_logs to partitioned table
+CREATE TABLE agent_logs (
+    id              UUID DEFAULT gen_random_uuid(),
+    agent_name      VARCHAR(30) NOT NULL,
+    project_id      UUID,
+    task_id         UUID,
+    job_id          UUID,
+    event_type      VARCHAR(50) NOT NULL,
+    message         TEXT,
+    details         JSONB,
+    llm_model       VARCHAR(50),
+    tokens_input    INTEGER,
+    tokens_output   INTEGER,
+    cost_usd        DECIMAL(10,6),
+    latency_ms      INTEGER,
+    created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (id, created_at)
+) PARTITION BY RANGE (created_at);
+
+-- Create monthly partitions
+CREATE TABLE agent_logs_2026_01 PARTITION OF agent_logs
+    FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');
+CREATE TABLE agent_logs_2026_02 PARTITION OF agent_logs
+    FOR VALUES FROM ('2026-02-01') TO ('2026-03-01');
+-- ... add partitions as needed
+
+-- Cleanup cron (run monthly):
+-- DROP TABLE IF EXISTS agent_logs_2025_07;  -- older than 6 months
+```
+
+### Archive Cron Job
+
+```sql
+-- Run weekly: archive old jobs/bids
+INSERT INTO jobs_archive SELECT * FROM jobs
+    WHERE status IN ('lost', 'disqualified') AND discovered_at < NOW() - INTERVAL '90 days';
+DELETE FROM jobs
+    WHERE status IN ('lost', 'disqualified') AND discovered_at < NOW() - INTERVAL '90 days';
+
+-- GDPR: delete unsubscribed leads after 30 days
+DELETE FROM leads
+    WHERE status = 'unsubscribed' AND updated_at < NOW() - INTERVAL '30 days';
+```
+
 ---
 
 ## 🔧 Migrations Strategy
@@ -507,8 +619,127 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;      -- for gen_random_uuid()
 ```
 
 ### Alembic Setup
+
 ```bash
 alembic init migrations
+```
+
+#### `alembic.ini` (key settings)
+
+```ini
+[alembic]
+script_location = migrations
+# Use async driver
+sqlalchemy.url = postgresql+asyncpg://%(DATABASE_URL)s
+
+[alembic:exclude]
+# Exclude pgvector extension tables from autogenerate
+tables = spatial_ref_sys
+```
+
+#### `migrations/env.py` (async configuration)
+
+```python
+import asyncio
+from logging.config import fileConfig
+from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
+from alembic import context
+from src.core.models import Base  # Import all models
+
+config = context.config
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+target_metadata = Base.metadata
+
+def run_migrations_offline():
+    url = config.get_main_option("sqlalchemy.url")
+    context.configure(url=url, target_metadata=target_metadata, literal_binds=True)
+    with context.begin_transaction():
+        context.run_migrations()
+
+def do_run_migrations(connection):
+    context.configure(connection=connection, target_metadata=target_metadata)
+    with context.begin_transaction():
+        context.run_migrations()
+
+async def run_async_migrations():
+    connectable = async_engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+    await connectable.dispose()
+
+def run_migrations_online():
+    asyncio.run(run_async_migrations())
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+```
+
+#### SQLAlchemy Model Example
+
+```python
+# src/core/models.py
+from sqlalchemy import Column, String, Integer, DateTime, DECIMAL, Text, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
+from sqlalchemy.orm import DeclarativeBase, relationship
+from pgvector.sqlalchemy import Vector
+import uuid
+from datetime import datetime, timezone
+
+class Base(DeclarativeBase):
+    pass
+
+class Job(Base):
+    __tablename__ = "jobs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    platform = Column(String(50), nullable=False)
+    external_id = Column(String(255), nullable=False)
+    title = Column(String(500), nullable=False)
+    description = Column(Text)
+    budget_min = Column(DECIMAL(10, 2))
+    budget_max = Column(DECIMAL(10, 2))
+    status = Column(String(30), default="new")
+    score = Column(DECIMAL(3, 2))
+    discovered_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    bids = relationship("Bid", back_populates="job")
+
+class KnowledgeBase(Base):
+    __tablename__ = "knowledge_base"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    type = Column(String(30), nullable=False)
+    title = Column(String(255), nullable=False)
+    content = Column(Text, nullable=False)
+    embedding = Column(Vector(768))  # Google text-embedding-004
+```
+
+#### Connection Pool Configuration
+
+```python
+# src/core/database.py
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+import os
+
+engine = create_async_engine(
+    os.getenv("DATABASE_URL").replace("postgresql://", "postgresql+asyncpg://"),
+    pool_size=10,
+    max_overflow=20,
+    pool_timeout=30,
+    pool_recycle=3600,
+    pool_pre_ping=True,
+)
+
+async_session = async_sessionmaker(engine, expire_on_commit=False)
 ```
 
 ### Migration naming convention:

@@ -2,7 +2,7 @@
 
 **Version:** 1.0  
 **Framework:** Litestar + Python 3.12  
-**Real-time:** WebSocket (Socket.IO)
+**Real-time:** WebSocket (Litestar ChannelsPlugin)
 
 ---
 
@@ -15,13 +15,13 @@
 │                                                                              │
 │  HTTP REST                           WebSocket                               │
 │  ─────────                           ─────────                               │
-│  /api/auth/*                         /ws/events                              │
-│  /api/hitl/*                           ├── agent:heartbeat                   │
-│  /api/agents/*                         ├── agent:log                         │
-│  /api/projects/*                       ├── hitl:new                          │
-│  /api/jobs/*                           ├── hitl:resolved                     │
-│  /api/outreach/*                       ├── project:update                    │
-│  /api/analytics/*                      └── notification                      │
+│  /api/v1/auth/*                      /ws/events                              │
+│  /api/v1/hitl/*                        ├── agent:heartbeat                   │
+│  /api/v1/agents/*                      ├── agent:log                         │
+│  /api/v1/projects/*                    ├── hitl:new                          │
+│  /api/v1/jobs/*                        ├── hitl:resolved                     │
+│  /api/v1/outreach/*                    ├── project:update                    │
+│  /api/v1/analytics/*                   └── notification                      │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -30,7 +30,7 @@
 
 ## 🔐 Authentication
 
-### POST `/api/auth/login`
+### POST `/api/v1/auth/login`
 Login with email/password.
 
 **Request:**
@@ -55,20 +55,20 @@ Login with email/password.
 }
 ```
 
-### POST `/api/auth/refresh`
+### POST `/api/v1/auth/refresh`
 Refresh access token.
 
-### POST `/api/auth/logout`
+### POST `/api/v1/auth/logout`
 Invalidate tokens.
 
-### GET `/api/auth/me`
+### GET `/api/v1/auth/me`
 Get current user info.
 
 ---
 
 ## ⏳ HITL Queue
 
-### GET `/api/hitl/pending`
+### GET `/api/v1/hitl/pending`
 Get pending HITL requests.
 
 **Query params:**
@@ -103,7 +103,7 @@ Get pending HITL requests.
 }
 ```
 
-### POST `/api/hitl/{id}/resolve`
+### POST `/api/v1/hitl/{id}/resolve`
 Resolve a HITL request.
 
 **Request:**
@@ -128,7 +128,7 @@ Resolve a HITL request.
 }
 ```
 
-### GET `/api/hitl/stats`
+### GET `/api/v1/hitl/stats`
 HITL statistics.
 
 **Response:**
@@ -148,7 +148,7 @@ HITL statistics.
 
 ## 🤖 Agents
 
-### GET `/api/agents/status`
+### GET `/api/v1/agents/status`
 Get all agents status.
 
 **Response:**
@@ -179,7 +179,7 @@ Get all agents status.
 }
 ```
 
-### GET `/api/agents/{name}/logs`
+### GET `/api/v1/agents/{name}/logs`
 Get agent logs.
 
 **Query params:**
@@ -199,7 +199,7 @@ Get agent logs.
       "event_type": "llm_call",
       "message": "Generated 245 lines of React code",
       "details": {
-        "model": "claude-opus-4.5",
+        "model": "claude-opus-4-6",
         "tokens_input": 1520,
         "tokens_output": 890,
         "latency_ms": 3200
@@ -209,20 +209,20 @@ Get agent logs.
 }
 ```
 
-### POST `/api/agents/{name}/restart`
+### POST `/api/v1/agents/{name}/restart`
 Force restart an agent.
 
-### POST `/api/agents/{name}/pause`
+### POST `/api/v1/agents/{name}/pause`
 Pause agent processing.
 
-### POST `/api/agents/{name}/resume`
+### POST `/api/v1/agents/{name}/resume`
 Resume agent processing.
 
 ---
 
 ## 📋 Projects
 
-### GET `/api/projects`
+### GET `/api/v1/projects`
 List projects with Kanban data.
 
 **Query params:**
@@ -251,10 +251,10 @@ List projects with Kanban data.
 }
 ```
 
-### GET `/api/projects/{id}`
+### GET `/api/v1/projects/{id}`
 Get project details with tasks.
 
-### PATCH `/api/projects/{id}`
+### PATCH `/api/v1/projects/{id}`
 Update project (status, kanban position).
 
 **Request:**
@@ -265,14 +265,14 @@ Update project (status, kanban position).
 }
 ```
 
-### POST `/api/projects/{id}/add-to-queue`
+### POST `/api/v1/projects/{id}/add-to-queue`
 Add digitalization project to processing queue.
 
 ---
 
 ## 🔍 Jobs
 
-### GET `/api/jobs`
+### GET `/api/v1/jobs`
 List discovered jobs.
 
 **Query params:**
@@ -280,17 +280,17 @@ List discovered jobs.
 - `platform`: `freelancer`, `upwork`, `fl_ru`, `kwork`
 - `min_score`: 0.0-1.0
 
-### GET `/api/jobs/{id}`
+### GET `/api/v1/jobs/{id}`
 Job details.
 
-### POST `/api/jobs/{id}/disqualify`
+### POST `/api/v1/jobs/{id}/disqualify`
 Manually disqualify a job.
 
 ---
 
 ## 🗺️ Outreach (Pipeline B)
 
-### POST `/api/outreach/scan`
+### POST `/api/v1/outreach/scan`
 Start a geo scan.
 
 **Request:**
@@ -312,10 +312,10 @@ Start a geo scan.
 }
 ```
 
-### GET `/api/outreach/scans/{id}`
+### GET `/api/v1/outreach/scans/{id}`
 Get scan progress.
 
-### GET `/api/outreach/leads`
+### GET `/api/v1/outreach/leads`
 List leads.
 
 **Query params:**
@@ -323,7 +323,7 @@ List leads.
 - `status`: `new`, `enriched`, `contacted`, `responded`
 - `has_email`: boolean
 
-### POST `/api/outreach/campaigns`
+### POST `/api/v1/outreach/campaigns`
 Create email campaign.
 
 **Request:**
@@ -337,20 +337,20 @@ Create email campaign.
 }
 ```
 
-### GET `/api/outreach/campaigns/{id}`
+### GET `/api/v1/outreach/campaigns/{id}`
 Campaign details with stats.
 
-### POST `/api/outreach/campaigns/{id}/pause`
+### POST `/api/v1/outreach/campaigns/{id}/pause`
 Pause campaign.
 
-### POST `/api/outreach/campaigns/{id}/resume`
+### POST `/api/v1/outreach/campaigns/{id}/resume`
 Resume campaign.
 
 ---
 
 ## 📈 Analytics
 
-### GET `/api/analytics/dashboard`
+### GET `/api/v1/analytics/dashboard`
 Main dashboard KPIs.
 
 **Response:**
@@ -381,7 +381,7 @@ Main dashboard KPIs.
 }
 ```
 
-### GET `/api/analytics/funnel`
+### GET `/api/v1/analytics/funnel`
 Bids funnel data.
 
 **Response:**
@@ -394,7 +394,7 @@ Bids funnel data.
 }
 ```
 
-### GET `/api/analytics/costs`
+### GET `/api/v1/analytics/costs`
 Cost breakdown.
 
 **Response:**
@@ -417,10 +417,20 @@ Cost breakdown.
 ## 📡 WebSocket Events
 
 ### Connection
+
+> Uses Litestar ChannelsPlugin (standard WebSocket protocol, NOT Socket.IO).
+
 ```javascript
-const socket = io("wss://api.example.com/ws", {
-  auth: { token: "Bearer eyJ..." }
-});
+// Standard WebSocket — NOT Socket.IO (incompatible protocol)
+const ws = new WebSocket("wss://api.example.com/ws/events");
+ws.onopen = () => {
+  // Authenticate after connection
+  ws.send(JSON.stringify({ type: "auth", token: "Bearer eyJ..." }));
+};
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log("Event:", data.type, data);
+};
 ```
 
 ### Events (Server → Client)
@@ -534,17 +544,58 @@ All errors follow this format:
 
 | Endpoint Group | Limit |
 |----------------|-------|
-| `/api/auth/*` | 10/min |
-| `/api/hitl/*` | 60/min |
-| `/api/agents/*` | 30/min |
-| `/api/outreach/scan` | 5/hour |
+| `/api/v1/auth/*` | 10/min |
+| `/api/v1/hitl/*` | 60/min |
+| `/api/v1/agents/*` | 30/min |
+| `/api/v1/outreach/scan` | 5/hour |
 | WebSocket events | 100/sec |
+
+### Litestar Rate Limit Implementation
+
+```python
+from litestar import Litestar, get
+from litestar.middleware.rate_limit import RateLimitConfig
+
+# Rate limit guard per endpoint group
+rate_limit_auth = RateLimitConfig(rate_limit=("minute", 10))
+rate_limit_hitl = RateLimitConfig(rate_limit=("minute", 60))
+rate_limit_agents = RateLimitConfig(rate_limit=("minute", 30))
+rate_limit_scan = RateLimitConfig(rate_limit=("hour", 5))
+
+app = Litestar(
+    route_handlers=[...],
+    middleware=[rate_limit_hitl.middleware],  # Default for most routes
+)
+```
+
+### Rate Limit Response Headers
+
+All rate-limited responses include:
+
+```http
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 45
+X-RateLimit-Reset: 1706569200
+```
+
+When exceeded (HTTP 429):
+```json
+{
+  "error": {
+    "code": "RATE_LIMITED",
+    "message": "Too many requests",
+    "details": {
+      "retry_after": 15
+    }
+  }
+}
+```
 
 ---
 
 ## 📱 Telegram Bot API
 
-### Webhook endpoint: `POST /api/telegram/webhook`
+### Webhook endpoint: `POST /api/v1/telegram/webhook`
 
 ### Commands
 
