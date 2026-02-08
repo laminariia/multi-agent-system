@@ -1,0 +1,127 @@
+rules:
+  # -----------------------------------------------------------------------
+  # MAS Network Access -- blocks unauthorised network operations from
+  # generated code running in sandboxes.
+  # -----------------------------------------------------------------------
+
+  - id: mas-network-socket-connect
+    patterns:
+      - pattern: $SOCK.connect(...)
+      - metavariable-pattern:
+          metavariable: $SOCK
+          pattern: socket.socket(...)
+    message: >-
+      Direct socket.connect() is forbidden in sandbox code. All network
+      access must go through approved adapters.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: MEDIUM
+
+  - id: mas-network-socket-create-connect
+    pattern: |
+      $S = socket.socket(...)
+      ...
+      $S.connect(...)
+    message: >-
+      Creating a socket and connecting is forbidden in sandbox code.
+      All network access must go through approved adapters.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-network-urllib-urlopen
+    patterns:
+      - pattern: urllib.request.urlopen(...)
+    message: >-
+      Use of urllib.request.urlopen() is forbidden in sandbox code.
+      Outbound HTTP requests must go through approved adapters.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-network-requests-get
+    patterns:
+      - pattern: requests.get(...)
+    message: >-
+      Use of requests.get() is forbidden in sandbox code without explicit
+      allow-listing. Outbound HTTP requests must go through approved adapters.
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: security
+      impact: MEDIUM
+      confidence: MEDIUM
+
+  - id: mas-network-requests-post
+    patterns:
+      - pattern: requests.post(...)
+    message: >-
+      Use of requests.post() is forbidden in sandbox code without explicit
+      allow-listing. Outbound HTTP requests must go through approved adapters.
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: security
+      impact: MEDIUM
+      confidence: MEDIUM
+
+  - id: mas-network-requests-put
+    patterns:
+      - pattern: requests.put(...)
+    message: >-
+      Use of requests.put() is forbidden in sandbox code without explicit
+      allow-listing. Outbound HTTP requests must go through approved adapters.
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: security
+      impact: MEDIUM
+      confidence: MEDIUM
+
+  - id: mas-network-requests-delete
+    patterns:
+      - pattern: requests.delete(...)
+    message: >-
+      Use of requests.delete() is forbidden in sandbox code without explicit
+      allow-listing. Outbound HTTP requests must go through approved adapters.
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: security
+      impact: MEDIUM
+      confidence: MEDIUM
+
+  - id: mas-network-httpx-get
+    patterns:
+      - pattern: httpx.get(...)
+    message: >-
+      Use of httpx.get() is forbidden in sandbox code without explicit
+      allow-listing. Outbound HTTP requests must go through approved adapters.
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: security
+      impact: MEDIUM
+      confidence: MEDIUM
+
+  - id: mas-network-httpx-post
+    patterns:
+      - pattern: httpx.post(...)
+    message: >-
+      Use of httpx.post() is forbidden in sandbox code without explicit
+      allow-listing. Outbound HTTP requests must go through approved adapters.
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: security
+      impact: MEDIUM
+      confidence: MEDIUM

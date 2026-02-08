@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     BRIGHTDATA_PASSWORD: str | None = None
     BRIGHTDATA_HOST: str = "brd.superproxy.io"
 
+    # ── Browser Pool ──────────────────────────────────────────────────────
+    BROWSER_POOL_MAX: int = 3
+    BROWSER_PROXY_ROTATION_MINUTES: int = 45
+    BROWSER_HEADLESS: bool = False
+
     # ── Auth ─────────────────────────────────────────────────────────────
     JWT_SECRET_KEY: str = "change-me-in-production"  # noqa: S105
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15

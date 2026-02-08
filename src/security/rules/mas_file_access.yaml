@@ -1,0 +1,154 @@
+rules:
+  # -----------------------------------------------------------------------
+  # MAS File Access -- blocks writes to system directories and reads of
+  # sensitive credential files from generated sandbox code.
+  # -----------------------------------------------------------------------
+
+  # -- Writing outside sandbox --
+
+  - id: mas-file-write-etc
+    patterns:
+      - pattern: open("/etc/...", "w", ...)
+    message: >-
+      Writing to /etc/ is forbidden. Generated code must only write within
+      the designated sandbox directory.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-file-write-usr
+    patterns:
+      - pattern: open("/usr/...", "w", ...)
+    message: >-
+      Writing to /usr/ is forbidden. Generated code must only write within
+      the designated sandbox directory.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-file-write-var
+    patterns:
+      - pattern: open("/var/...", "w", ...)
+    message: >-
+      Writing to /var/ is forbidden. Generated code must only write within
+      the designated sandbox directory.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-file-write-root
+    patterns:
+      - pattern: open("/root/...", "w", ...)
+    message: >-
+      Writing to /root/ is forbidden. Generated code must only write within
+      the designated sandbox directory.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-file-write-sys
+    patterns:
+      - pattern: open("/sys/...", "w", ...)
+    message: >-
+      Writing to /sys/ is forbidden. Generated code must only write within
+      the designated sandbox directory.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-file-write-proc
+    patterns:
+      - pattern: open("/proc/...", "w", ...)
+    message: >-
+      Writing to /proc/ is forbidden. Generated code must only write within
+      the designated sandbox directory.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  # -- Reading sensitive files --
+
+  - id: mas-file-read-dotenv
+    pattern: open(".../.env", ...)
+    message: >-
+      Reading .env files is forbidden in sandbox code. Environment variables
+      and secrets must never be accessed by generated code.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-file-read-dotenv-direct
+    pattern: open(".env", ...)
+    message: >-
+      Reading .env files is forbidden in sandbox code. Environment variables
+      and secrets must never be accessed by generated code.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-file-read-credentials-json
+    pattern: open("=~/credentials/...", ...)
+    message: >-
+      Reading credential files is forbidden in sandbox code. Credentials
+      must never be accessed by generated code.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-file-read-secrets-pattern
+    patterns:
+      - pattern: open($PATH, ...)
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: ".*(secret|credential|password|token|api_key|apikey|private_key).*"
+    message: >-
+      Reading files with sensitive names (secret, credential, password,
+      token, api_key, private_key) is forbidden in sandbox code.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: MEDIUM
+
+  - id: mas-file-read-ssh-keys
+    patterns:
+      - pattern: open($PATH, ...)
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: ".*\\.ssh/.*"
+    message: >-
+      Reading SSH key files is forbidden in sandbox code.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH

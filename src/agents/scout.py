@@ -440,6 +440,20 @@ async def scout_node(state: AgentState) -> AgentState:
     # FL.ru is always available (public RSS, no auth required).
     adapters["flru"] = FlRuClient()
 
+    # Browser-based adapters (conditionally enabled when proxy is configured).
+    pool = None
+    if settings.BRIGHTDATA_USERNAME:
+        from src.browser.pool import BrowserPool, PoolConfig  # noqa: PLC0415
+        from src.adapters.upwork import UpworkClient  # noqa: PLC0415
+        from src.adapters.kwork import KworkClient  # noqa: PLC0415
+
+        pool = BrowserPool(config=PoolConfig(
+            max_browsers=settings.BROWSER_POOL_MAX,
+            proxy_rotation_minutes=settings.BROWSER_PROXY_ROTATION_MINUTES,
+        ))
+        adapters["upwork"] = UpworkClient(browser_pool=pool)
+        adapters["kwork"] = KworkClient(browser_pool=pool)
+
     # -- Infrastructure: LLM client, heartbeat, loop detector -------------
     llm_client = LLMClient()
     heartbeat = HeartbeatMonitor(
@@ -461,6 +475,10 @@ async def scout_node(state: AgentState) -> AgentState:
     for adapter in adapters.values():
         if hasattr(adapter, "close"):
             await adapter.close()
+
+    # Shut down browser pool if it was created.
+    if pool is not None:
+        await pool.shutdown()
 
     return result
 

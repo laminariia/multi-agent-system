@@ -29,6 +29,7 @@ from src.core.loop_detector import LoopDetector
 from src.core.models import AgentLog
 from src.core.state import AgentState, update_state
 from src.prompts.dev import DEV_SYSTEM_PROMPT
+from src.security.semgrep_gate import SemgrepGate
 
 logger = structlog.get_logger(__name__)
 
@@ -120,6 +121,18 @@ class DevAgent(ConstrainedAgent):
 
         # 5. Serialize and store artifacts.
         artifacts = dict(state.get("artifacts") or {})
+
+        # 4b. Semgrep security scan on generated code.
+        gate = SemgrepGate()
+        scan_result = await gate.scan_files(parsed.get("files", []))
+        if scan_result.blocked:
+            self._log.warning(
+                "semgrep_blocked_code",
+                rules=[f.rule_id for f in scan_result.findings],
+            )
+            artifacts["_dev_semgrep_warnings"] = [
+                json.dumps({"blocked": True, "findings": [f.rule_id for f in scan_result.findings]})
+            ]
         code_artifact_id = str(uuid.uuid4())
         serialized = json.dumps(parsed, default=str, ensure_ascii=False)
         artifacts["dev"] = [code_artifact_id, serialized]

@@ -67,6 +67,7 @@ dev = [
     "ruff>=0.8",
     "black>=24.0",
     "locust>=2.30",
+    "semgrep>=1.0",
 ]
 
 [build-system]

@@ -317,6 +317,12 @@ class PlatformException(MASException):
         super().__init__(message, details={**(details or {}), "platform": platform, "operation": operation})
 
 
+class PlatformAPIError(PlatformException):
+    """Raised on non-rate-limit, non-ban API errors from freelance platforms."""
+
+    pass
+
+
 class PlatformRateLimitError(PlatformException):
     """Raised when a freelance platform returns a rate-limit response."""
 
@@ -375,6 +381,34 @@ class SecurityException(MASException):
     ) -> None:
         self.source = source
         super().__init__(message, details={**(details or {}), "source": source})
+
+
+class CaptchaDetectedError(PlatformException):
+    """Raised when a CAPTCHA challenge is detected during browser automation."""
+
+    def __init__(
+        self,
+        message: str = "CAPTCHA detected — HITL intervention required",
+        *,
+        platform: str = "",
+        operation: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, platform=platform, operation=operation, details=details)
+
+
+class CloudflareBlockError(PlatformException):
+    """Raised when Cloudflare anti-bot challenge blocks the request."""
+
+    def __init__(
+        self,
+        message: str = "Cloudflare anti-bot block detected",
+        *,
+        platform: str = "",
+        operation: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, platform=platform, operation=operation, details=details)
 
 
 class SemgrepBlockedError(SecurityException):

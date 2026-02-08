@@ -31,6 +31,7 @@ from src.core.loop_detector import LoopDetector
 from src.core.models import AgentLog
 from src.core.state import AgentState, update_state
 from src.prompts.critic import CRITIC_SYSTEM_PROMPT
+from src.security.semgrep_gate import SemgrepGate
 
 logger = structlog.get_logger(__name__)
 
@@ -100,6 +101,40 @@ class CriticAgent(ConstrainedAgent):
         if not review_context:
             self._log.warning("no_artifacts_to_review")
             return update_state(state, current_agent="critic", next_agent=None, status="active")
+
+        # 1b. Run Semgrep security scan on dev artifacts (pre-LLM gate).
+        semgrep_result = await self._run_semgrep_scan(review_context)
+        if semgrep_result is not None and semgrep_result.blocked:
+            self._log.warning(
+                "semgrep_blocked",
+                critical_count=semgrep_result.critical_count,
+                findings=[f.rule_id for f in semgrep_result.findings],
+            )
+            artifacts = dict(state.get("artifacts") or {})
+            semgrep_detail = json.dumps({
+                "verdict": "reject",
+                "score": 0.0,
+                "source": "semgrep_gate",
+                "issues": [
+                    {"rule_id": f.rule_id, "severity": f.severity, "message": f.message, "path": f.path, "line": f.line}
+                    for f in semgrep_result.findings
+                ],
+            }, default=str, ensure_ascii=False)
+            artifacts["critic"] = [semgrep_detail]
+            await self._log_review_decision(
+                thread_id=state["thread_id"],
+                verdict="reject",
+                score=0.0,
+                issues_count=len(semgrep_result.findings),
+                revision_count=self._get_revision_count(state),
+            )
+            return update_state(
+                state,
+                current_agent="critic",
+                next_agent="dev",
+                artifacts=artifacts,
+                status="active",
+            )
 
         # 2. Build LLM prompt.
         user_content = self._build_review_prompt(state, review_context)
@@ -227,6 +262,34 @@ class CriticAgent(ConstrainedAgent):
             hitl_request_id=str(uuid.uuid4()),
             status="paused",
         )
+
+    # ------------------------------------------------------------------
+    # Semgrep security scan
+    # ------------------------------------------------------------------
+
+    async def _run_semgrep_scan(self, review_context: dict[str, Any]) -> Any:
+        """Run Semgrep on dev artifacts if present.
+
+        Returns a :class:`ScanResult` or ``None`` if no dev files to scan.
+        """
+        dev_artifacts = review_context.get("dev")
+        if not dev_artifacts:
+            return None
+
+        files: list[dict[str, str]] = []
+        for item in dev_artifacts:
+            try:
+                parsed = json.loads(item)
+                if isinstance(parsed, dict) and "files" in parsed:
+                    files.extend(parsed["files"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+        if not files:
+            return None
+
+        gate = SemgrepGate()
+        return await gate.scan_files(files)
 
     # ------------------------------------------------------------------
     # Artifact collection

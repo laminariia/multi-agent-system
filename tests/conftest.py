@@ -210,6 +210,26 @@ def dev_state(sample_project: ProjectContext) -> AgentState:
     return state
 
 
+@pytest.fixture(autouse=True)
+def _mock_semgrep_gate():
+    """Mock the SemgrepGate in critic/dev agents so tests don't require semgrep binary."""
+    from src.security.semgrep_gate import ScanResult
+
+    clean_result = ScanResult(findings=[], critical_count=0, warning_count=0, blocked=False)
+
+    with patch("src.agents.critic.SemgrepGate") as mock_critic_gate, \
+         patch("src.agents.dev.SemgrepGate") as mock_dev_gate:
+        mock_critic_instance = AsyncMock()
+        mock_critic_instance.scan_files = AsyncMock(return_value=clean_result)
+        mock_critic_gate.return_value = mock_critic_instance
+
+        mock_dev_instance = AsyncMock()
+        mock_dev_instance.scan_files = AsyncMock(return_value=clean_result)
+        mock_dev_gate.return_value = mock_dev_instance
+
+        yield
+
+
 @pytest.fixture()
 def critic_state(sample_project: ProjectContext) -> AgentState:
     """AgentState ready for the Critic Agent (after dev+content+design)."""

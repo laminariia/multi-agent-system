@@ -1,0 +1,109 @@
+rules:
+  # -----------------------------------------------------------------------
+  # MAS Dangerous Patterns -- blocks code execution primitives that could
+  # allow sandbox escape or arbitrary command execution.
+  # -----------------------------------------------------------------------
+
+  - id: mas-dangerous-os-system
+    patterns:
+      - pattern: os.system(...)
+    message: >-
+      Use of os.system() is forbidden. It executes arbitrary shell commands
+      and can lead to command injection or sandbox escape.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-dangerous-eval
+    patterns:
+      - pattern: eval(...)
+    message: >-
+      Use of eval() is forbidden. It executes arbitrary Python expressions
+      and can lead to code injection.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-dangerous-exec
+    patterns:
+      - pattern: exec(...)
+    message: >-
+      Use of exec() is forbidden. It executes arbitrary Python statements
+      and can lead to code injection.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-dangerous-dunder-import
+    patterns:
+      - pattern: __import__(...)
+    message: >-
+      Use of __import__() is forbidden. It can dynamically import arbitrary
+      modules to bypass restrictions.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-dangerous-subprocess-call-shell
+    patterns:
+      - pattern: subprocess.call(..., shell=True, ...)
+    message: >-
+      Use of subprocess.call(shell=True) is forbidden. Shell mode enables
+      command injection via string interpolation.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-dangerous-subprocess-popen-shell
+    patterns:
+      - pattern: subprocess.Popen(..., shell=True, ...)
+    message: >-
+      Use of subprocess.Popen(shell=True) is forbidden. Shell mode enables
+      command injection via string interpolation.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-dangerous-subprocess-run-shell
+    patterns:
+      - pattern: subprocess.run(..., shell=True, ...)
+    message: >-
+      Use of subprocess.run(shell=True) is forbidden. Shell mode enables
+      command injection via string interpolation.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
+
+  - id: mas-dangerous-subprocess-check-output-shell
+    patterns:
+      - pattern: subprocess.check_output(..., shell=True, ...)
+    message: >-
+      Use of subprocess.check_output(shell=True) is forbidden. Shell mode
+      enables command injection via string interpolation.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      impact: HIGH
+      confidence: HIGH
