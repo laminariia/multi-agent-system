@@ -204,6 +204,7 @@ class UserController(Controller):
     @delete(
         "/{user_id:uuid}",
         summary="Delete a user account",
+        status_code=200,
     )
     async def delete_user(
         self,
