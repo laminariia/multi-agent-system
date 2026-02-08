@@ -1,9 +1,15 @@
 import type {
   LoginResponse,
+  RegisterPendingResponse,
   HITLPendingResponse,
   HITLResolveResponse,
   HITLStats,
   AgentStatusList,
+  AgentLogList,
+  Job,
+  JobListResponse,
+  UserListResponse,
+  User,
 } from "./types";
 
 declare global {
@@ -151,6 +157,27 @@ export async function login(
   return res.json();
 }
 
+export async function register(
+  email: string,
+  password: string,
+  name?: string
+): Promise<LoginResponse | RegisterPendingResponse> {
+  const res = await fetch(`${getApiBase()}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, name: name || undefined }),
+  });
+
+  if (!res.ok && res.status !== 202) {
+    const errorBody = await res.text();
+    throw new Error(
+      `Registration failed: ${errorBody || res.statusText}`
+    );
+  }
+
+  return res.json();
+}
+
 // --- HITL ---
 
 export async function fetchHITLPending(params?: {
@@ -188,4 +215,127 @@ export async function fetchHITLStats(): Promise<HITLStats> {
 
 export async function fetchAgentStatus(): Promise<AgentStatusList> {
   return apiFetch<AgentStatusList>("/agents/status");
+}
+
+export async function fetchAgentLogs(
+  name: string,
+  params?: { level?: string; limit?: number; offset?: number }
+): Promise<AgentLogList> {
+  const searchParams = new URLSearchParams();
+  if (params?.level) searchParams.set("level", params.level);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+
+  const query = searchParams.toString();
+  return apiFetch<AgentLogList>(
+    `/agents/${name}/logs${query ? `?${query}` : ""}`
+  );
+}
+
+export async function restartAgent(name: string) {
+  return apiFetch<{ agent: string; action: string; status: string; message: string }>(
+    `/agents/${name}/restart`,
+    { method: "POST" }
+  );
+}
+
+export async function pauseAgent(name: string) {
+  return apiFetch<{ agent: string; action: string; status: string; message: string }>(
+    `/agents/${name}/pause`,
+    { method: "POST" }
+  );
+}
+
+export async function resumeAgent(name: string) {
+  return apiFetch<{ agent: string; action: string; status: string; message: string }>(
+    `/agents/${name}/resume`,
+    { method: "POST" }
+  );
+}
+
+// --- Jobs ---
+
+export async function fetchJobs(params?: {
+  status?: string;
+  platform?: string;
+  min_score?: number;
+  limit?: number;
+  offset?: number;
+}): Promise<JobListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.platform) searchParams.set("platform", params.platform);
+  if (params?.min_score != null) searchParams.set("min_score", String(params.min_score));
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+
+  const query = searchParams.toString();
+  return apiFetch<JobListResponse>(
+    `/jobs${query ? `?${query}` : ""}`
+  );
+}
+
+export async function fetchJob(id: string): Promise<Job> {
+  return apiFetch<Job>(`/jobs/${id}`);
+}
+
+export async function disqualifyJob(id: string, reason: string) {
+  return apiFetch<{ id: string; status: string; disqualify_reason: string }>(
+    `/jobs/${id}/disqualify`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }
+  );
+}
+
+// --- Users (owner-only) ---
+
+export async function fetchUsers(params?: {
+  status?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<UserListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+
+  const query = searchParams.toString();
+  return apiFetch<UserListResponse>(
+    `/users${query ? `?${query}` : ""}`
+  );
+}
+
+export async function approveUser(id: string, role: string): Promise<User> {
+  return apiFetch<User>(`/users/${id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export async function rejectUser(id: string): Promise<User> {
+  return apiFetch<User>(`/users/${id}/reject`, {
+    method: "POST",
+  });
+}
+
+export async function updateUserRole(id: string, role: string): Promise<User> {
+  return apiFetch<User>(`/users/${id}/role`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export async function updateUserStatus(id: string, status: string): Promise<User> {
+  return apiFetch<User>(`/users/${id}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function deleteUser(id: string): Promise<{ message: string }> {
+  return apiFetch<{ message: string }>(`/users/${id}`, {
+    method: "DELETE",
+  });
 }

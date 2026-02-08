@@ -3,15 +3,32 @@ export interface User {
   email: string;
   name: string | null;
   role: string;
+  status: string;
   telegram_chat_id: number | null;
   created_at: string;
   last_login_at: string | null;
+}
+
+export interface RegisterPendingResponse {
+  message: string;
+  status: string;
+}
+
+export interface UserListResponse {
+  users: User[];
+  total: number;
 }
 
 export interface LoginResponse {
   access_token: string;
   refresh_token: string;
   user: User;
+}
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  name?: string;
 }
 
 export interface HITLItem {
@@ -64,4 +81,52 @@ export interface AgentStatusList {
   system_health: string;
   last_check: string;
   agents: AgentStatus[];
+}
+
+export interface AgentLog {
+  id: string;
+  timestamp: string;
+  level: "info" | "warning" | "error";
+  event_type: string;
+  message: string | null;
+  details: Record<string, any> | null;
+}
+
+export interface AgentLogList {
+  agent: string;
+  logs: AgentLog[];
+  total: number;
+}
+
+export interface BidSummary {
+  id: string;
+  bid_amount: number;
+  status: string;
+  created_at: string;
+}
+
+export interface Job {
+  id: string;
+  platform: string;
+  external_id: string;
+  title: string;
+  description: string | null;
+  budget_min: number | null;
+  budget_max: number | null;
+  budget_type: string | null;
+  currency: string;
+  client_info: Record<string, any> | null;
+  skills_required: string[] | null;
+  deadline: string | null;
+  status: string;
+  score: number | null;
+  disqualify_reason: string | null;
+  discovered_at: string;
+  url: string | null;
+  bids: BidSummary[];
+}
+
+export interface JobListResponse {
+  jobs: Job[];
+  total: number;
 }

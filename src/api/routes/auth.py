@@ -11,22 +11,25 @@ from typing import Any
 
 import redis.asyncio as aioredis
 import structlog
-from litestar import Controller, Request, get, post
+from litestar import Controller, Request, Response, get, post
 from litestar.exceptions import NotAuthorizedException
 from litestar.middleware.rate_limit import RateLimitConfig
 from litestar.security.jwt import Token
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.guards import (
     create_access_token,
     create_refresh_token,
+    hash_password,
     verify_password,
 )
 from src.api.schemas import (
     LoginRequestSchema,
     LoginResponseSchema,
     MessageSchema,
+    RegisterPendingResponseSchema,
+    RegisterRequestSchema,
     TelegramLinkSchema,
     TokenRefreshResponseSchema,
     TokenRefreshSchema,
@@ -47,6 +50,94 @@ class AuthController(Controller):
     path = "/api/v1/auth"
     tags = ["auth"]
     middleware = [auth_rate_limit.middleware]
+
+    # -----------------------------------------------------------------
+    # POST /api/v1/auth/register
+    # -----------------------------------------------------------------
+
+    @post(
+        "/register",
+        summary="Create a new user account",
+        exclude_from_auth=True,
+    )
+    async def register(
+        self,
+        data: RegisterRequestSchema,
+        db_session: AsyncSession,
+    ) -> Response[LoginResponseSchema | RegisterPendingResponseSchema]:
+        """Register a new user.
+
+        The first registered user is assigned the ``owner`` role and
+        auto-logged in.  Subsequent registrations require owner approval
+        and return HTTP 202 with a pending status message.
+
+        Raises:
+            litestar.exceptions.ClientException: When the email is already
+                registered (409 Conflict).
+        """
+        from litestar.exceptions import ClientException
+
+        stmt = select(User).where(User.email == data.email)
+        result = await db_session.execute(stmt)
+        existing = result.scalar_one_or_none()
+
+        if existing is not None:
+            raise ClientException(
+                detail="A user with this email already exists",
+                status_code=409,
+            )
+
+        # Count existing users to determine role/status
+        count_stmt = select(func.count()).select_from(User)
+        count_result = await db_session.execute(count_stmt)
+        user_count = count_result.scalar_one()
+
+        if user_count == 0:
+            # First user → owner, auto-approved
+            user = User(
+                email=data.email,
+                password_hash=hash_password(data.password),
+                name=data.name,
+                role="owner",
+                status="active",
+            )
+            db_session.add(user)
+            await db_session.flush()
+
+            access_token = create_access_token(user)
+            refresh_token = create_refresh_token(user)
+
+            logger.info("auth.register_owner", user_id=str(user.id), email=user.email)
+
+            return Response(
+                content=LoginResponseSchema(
+                    access_token=access_token,
+                    refresh_token=refresh_token,
+                    user=UserResponseSchema.model_validate(user),
+                ),
+                status_code=200,
+            )
+
+        # Subsequent users → pending approval
+        user = User(
+            email=data.email,
+            password_hash=hash_password(data.password),
+            name=data.name,
+            role="viewer",
+            status="pending_approval",
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        logger.info("auth.register_pending", user_id=str(user.id), email=user.email)
+
+        return Response(
+            content=RegisterPendingResponseSchema(
+                message="Registration submitted. An administrator must approve your account before you can sign in.",
+                status="pending_approval",
+            ),
+            status_code=202,
+        )
 
     # -----------------------------------------------------------------
     # POST /api/v1/auth/login
@@ -79,6 +170,17 @@ class AuthController(Controller):
         if not verify_password(data.password, user.password_hash):
             logger.info("auth.login_failed", email=data.email, reason="bad_password")
             raise NotAuthorizedException(detail="Invalid email or password")
+
+        # Block non-active users
+        if user.status != "active":
+            status_messages = {
+                "pending_approval": "Your account is awaiting administrator approval.",
+                "rejected": "Your registration was not approved.",
+                "suspended": "Your account has been suspended.",
+            }
+            msg = status_messages.get(user.status, "Your account is not active.")
+            logger.info("auth.login_blocked", email=data.email, status=user.status)
+            raise NotAuthorizedException(detail=msg)
 
         # Update last login timestamp
         user.last_login_at = datetime.now(UTC)

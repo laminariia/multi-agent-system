@@ -65,6 +65,14 @@ class ErrorResponseSchema(_BaseSchema):
 # =============================================================================
 
 
+class RegisterRequestSchema(_BaseSchema):
+    """Fields submitted during user registration."""
+
+    email: EmailStr = Field(..., examples=["user@example.com"], description="User email address")
+    password: str = Field(..., min_length=6, max_length=128, examples=["secret123"], description="Account password")
+    name: str | None = Field(default=None, max_length=100, examples=["John"], description="Display name (optional)")
+
+
 class LoginRequestSchema(_BaseSchema):
     """Credentials submitted during login."""
 
@@ -78,7 +86,8 @@ class UserResponseSchema(_BaseSchema):
     id: uuid.UUID = Field(..., description="User unique identifier")
     email: str = Field(..., examples=["user@example.com"])
     name: str | None = Field(default=None, examples=["John"])
-    role: str = Field(..., examples=["owner"], description="User role: owner | viewer")
+    role: str = Field(..., examples=["owner"], description="User role: owner | viewer | moderator")
+    status: str = Field(default="active", examples=["active"], description="Account status: active | pending_approval | rejected | suspended")
     telegram_chat_id: int | None = Field(default=None, description="Linked Telegram chat ID")
     created_at: datetime = Field(..., description="Account creation timestamp")
     last_login_at: datetime | None = Field(default=None, description="Most recent login")
@@ -90,6 +99,50 @@ class LoginResponseSchema(_BaseSchema):
     access_token: str = Field(..., examples=["eyJ..."], description="Short-lived JWT access token")
     refresh_token: str = Field(..., examples=["eyJ..."], description="Long-lived JWT refresh token")
     user: UserResponseSchema
+
+
+class RegisterPendingResponseSchema(_BaseSchema):
+    """Returned when a non-first user registers (requires owner approval)."""
+
+    message: str = Field(..., examples=["Registration submitted. An administrator must approve your account before you can sign in."])
+    status: str = Field(..., examples=["pending_approval"])
+
+
+class UserListResponseSchema(_BaseSchema):
+    """Paginated list of users."""
+
+    users: list[UserResponseSchema]
+    total: int = Field(..., ge=0, description="Total users matching the filter")
+
+
+class UserApproveRequestSchema(_BaseSchema):
+    """Body for approving a pending user."""
+
+    role: str = Field(
+        default="viewer",
+        pattern=r"^(viewer|moderator)$",
+        description="Role to assign: viewer | moderator",
+    )
+
+
+class UserRoleUpdateSchema(_BaseSchema):
+    """Body for changing a user's role."""
+
+    role: str = Field(
+        ...,
+        pattern=r"^(viewer|moderator)$",
+        description="New role: viewer | moderator",
+    )
+
+
+class UserStatusUpdateSchema(_BaseSchema):
+    """Body for suspending or reactivating a user."""
+
+    status: str = Field(
+        ...,
+        pattern=r"^(active|suspended)$",
+        description="New status: active | suspended",
+    )
 
 
 class TokenRefreshSchema(_BaseSchema):

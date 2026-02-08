@@ -71,6 +71,7 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255))
     name: Mapped[str | None] = mapped_column(String(100))
     role: Mapped[str] = mapped_column(String(20), default="owner", server_default="owner")
+    status: Mapped[str] = mapped_column(String(20), default="active", server_default="active")
     telegram_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     settings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -82,6 +83,7 @@ class User(Base):
 
     __table_args__ = (
         Index("idx_users_email", "email"),
+        Index("idx_users_status", "status"),
     )
 
 

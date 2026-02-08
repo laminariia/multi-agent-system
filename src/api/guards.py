@@ -84,6 +84,10 @@ async def retrieve_user_handler(token: Token, connection: ASGIConnection) -> Use
     if user is None:
         return None
 
+    # Reject non-active users (pending, suspended, rejected)
+    if user.status != "active":
+        return None
+
     # Check whether the token has been blacklisted (logout)
     from src.core.database import get_valkey
 
@@ -120,29 +124,33 @@ jwt_auth: JWTAuth[User] = JWTAuth[User](
 # ---------------------------------------------------------------------------
 
 
-def require_role(role: str):
-    """Return a Litestar guard that ensures the authenticated user has the given *role*.
+def require_role(*roles: str):
+    """Return a Litestar guard that ensures the authenticated user has one of the given *roles*.
 
     Usage::
 
         @post("/admin-action", guards=[require_role("owner")])
         async def admin_action(self, request: Request[User, Token, Any]) -> dict: ...
 
+        @get("/moderate", guards=[require_role("owner", "moderator")])
+        async def moderate(self, request: Request[User, Token, Any]) -> dict: ...
+
     Raises:
-        PermissionDeniedException: When the user does not hold the required role.
+        PermissionDeniedException: When the user does not hold any of the required roles.
     """
 
     async def _role_guard(connection: ASGIConnection, handler: BaseRouteHandler) -> None:
         user: User | None = connection.user
         if user is None:
             raise NotAuthorizedException(detail="Authentication required")
-        if user.role != role:
+        if user.role not in roles:
             raise PermissionDeniedException(
-                detail=f"Role '{role}' required. Current role: '{user.role}'",
+                detail=f"Role {roles!r} required. Current role: '{user.role}'",
             )
 
-    _role_guard.__doc__ = f"Guard: require role '{role}'"
-    _role_guard.__qualname__ = f"require_role.<{role}>"
+    label = ",".join(roles)
+    _role_guard.__doc__ = f"Guard: require role(s) {roles!r}"
+    _role_guard.__qualname__ = f"require_role.<{label}>"
     return _role_guard
 
 

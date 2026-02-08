@@ -1,11 +1,21 @@
-import { useEffect, useRef, useCallback } from "react";
-import { Outlet, NavLink, useNavigate, useLocation } from "@remix-run/react";
+import { useEffect, useRef, useCallback, useState } from "react";
+import { Outlet, useNavigate, useLocation } from "@remix-run/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import { Avatar, AvatarFallback } from "~/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu";
+import { SidebarNav } from "~/components/sidebar-nav";
 import { useAuthStore } from "~/stores/auth-store";
-import { fetchHITLPending } from "~/lib/api";
+import { fetchHITLPending, fetchUsers } from "~/lib/api";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "~/hooks/use-toast";
 
 export default function AppLayout() {
   const navigate = useNavigate();
@@ -13,6 +23,7 @@ export default function AppLayout() {
   const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
@@ -27,6 +38,14 @@ export default function AppLayout() {
     enabled: isAuthenticated,
   });
 
+  // Fetch pending users count for sidebar badge (owner only)
+  const { data: pendingUsersData } = useQuery({
+    queryKey: ["pending-users-count"],
+    queryFn: () => fetchUsers({ status: "pending_approval", limit: 1 }),
+    refetchInterval: 60_000,
+    enabled: isAuthenticated && user?.role === "owner",
+  });
+
   // Auth guard
   useEffect(() => {
     if (!isAuthenticated) {
@@ -38,7 +57,6 @@ export default function AppLayout() {
   const connectWs = useCallback(() => {
     if (!accessToken) return;
 
-    // Use relative ws URL to go through Vite proxy
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/ws/events`;
 
@@ -47,7 +65,6 @@ export default function AppLayout() {
       wsRef.current = ws;
 
       ws.onopen = () => {
-        // Send auth message
         ws.send(
           JSON.stringify({
             type: "auth",
@@ -69,11 +86,29 @@ export default function AppLayout() {
               queryKey: ["hitl-pending-count"],
             });
             queryClient.invalidateQueries({ queryKey: ["hitl-stats"] });
+
+            if (msg.type === "hitl:new") {
+              toast({
+                title: "New HITL item",
+                description: msg.data?.title ?? "Requires your attention",
+              });
+            }
           }
 
           if (msg.type === "agent:heartbeat") {
             queryClient.invalidateQueries({
               queryKey: ["agent-status"],
+            });
+          }
+
+          if (msg.type === "project:update") {
+            queryClient.invalidateQueries({ queryKey: ["jobs"] });
+          }
+
+          if (msg.type === "notification") {
+            toast({
+              title: msg.data?.title ?? "Notification",
+              description: msg.data?.message ?? "",
             });
           }
         } catch {
@@ -83,7 +118,6 @@ export default function AppLayout() {
 
       ws.onclose = () => {
         wsRef.current = null;
-        // Reconnect after 3 seconds
         reconnectTimeoutRef.current = setTimeout(connectWs, 3000);
       };
 
@@ -91,7 +125,6 @@ export default function AppLayout() {
         ws.close();
       };
     } catch {
-      // Retry on connection failure
       reconnectTimeoutRef.current = setTimeout(connectWs, 5000);
     }
   }, [accessToken, queryClient]);
@@ -129,73 +162,43 @@ export default function AppLayout() {
 
   const pendingCount = hitlData?.total ?? 0;
   const urgentCount = hitlData?.pending_urgent ?? 0;
+  const pendingUsersCount = pendingUsersData?.total ?? 0;
+
+  const userInitials = user?.name
+    ? user.name
+        .split(" ")
+        .map((w) => w[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : user?.email?.slice(0, 2).toUpperCase() ?? "U";
 
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
-      <aside className="flex w-64 flex-col border-r border-slate-700/50 bg-slate-900/50">
+      <aside
+        className={`flex flex-col border-r border-border/50 bg-card/30 transition-all ${
+          sidebarCollapsed ? "w-16" : "w-64"
+        }`}
+      >
         {/* Logo */}
-        <div className="flex h-14 items-center border-b border-slate-700/50 px-5">
+        <div className="flex h-14 items-center border-b border-border/50 px-4">
           <span className="text-xl font-bold tracking-tight text-primary">
             MAS
           </span>
-          <span className="text-xs font-medium text-muted-foreground ml-2 mt-0.5">
-            Multi-Agent Service
-          </span>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          <NavLink
-            to="/hitl"
-            className={({ isActive }) =>
-              `flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
-              }`
-            }
-          >
-            <span className="flex items-center gap-2.5">
-              <svg
-                className="h-4 w-4"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-              HITL Queue
+          {!sidebarCollapsed && (
+            <span className="text-xs font-medium text-muted-foreground ml-2 mt-0.5">
+              Multi-Agent Service
             </span>
-            {pendingCount > 0 && (
-              <Badge
-                variant={urgentCount > 0 ? "destructive" : "default"}
-                className="h-5 min-w-[20px] justify-center text-[10px] px-1.5"
-              >
-                {pendingCount}
-              </Badge>
-            )}
-          </NavLink>
-
-          <NavLink
-            to="/agents"
-            className={({ isActive }) =>
-              `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
-              }`
-            }
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="ml-auto h-7 w-7 text-muted-foreground"
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           >
             <svg
-              className="h-4 w-4"
+              className={`h-4 w-4 transition-transform ${sidebarCollapsed ? "rotate-180" : ""}`}
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 24 24"
               fill="none"
@@ -204,56 +207,98 @@ export default function AppLayout() {
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <rect width="18" height="18" x="3" y="3" rx="2" />
-              <path d="M3 9h18" />
-              <path d="M9 21V9" />
+              <path d="M11 17l-5-5 5-5" />
+              <path d="M18 17l-5-5 5-5" />
             </svg>
-            Agents
-          </NavLink>
-        </nav>
+          </Button>
+        </div>
+
+        {/* Navigation */}
+        <SidebarNav
+          pendingCount={pendingCount}
+          urgentCount={urgentCount}
+          collapsed={sidebarCollapsed}
+          pendingUsersCount={pendingUsersCount}
+          userRole={user?.role}
+        />
 
         {/* User section at bottom */}
-        <div className="border-t border-slate-700/50 p-3">
-          <div className="flex items-center justify-between rounded-md px-2 py-1.5">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-foreground">
-                {user?.name || user?.email || "User"}
-              </p>
-              {user?.name && (
-                <p className="truncate text-xs text-muted-foreground">
-                  {user.email}
-                </p>
-              )}
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleLogout}
-              className="flex-shrink-0 text-muted-foreground hover:text-foreground"
-            >
-              <svg
-                className="h-4 w-4"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-            </Button>
-          </div>
+        <div className="border-t border-border/50 p-3">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent transition-colors">
+                <Avatar className="h-8 w-8">
+                  <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                    {userInitials}
+                  </AvatarFallback>
+                </Avatar>
+                {!sidebarCollapsed && (
+                  <div className="min-w-0 text-left">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {user?.name || user?.email || "User"}
+                    </p>
+                    {user?.name && (
+                      <p className="truncate text-xs text-muted-foreground">
+                        {user.email}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>
+                {user?.name || user?.email}
+                {user?.role && (
+                  <span className="text-xs font-normal text-muted-foreground block">
+                    {user.role}
+                  </span>
+                )}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate("/settings")}>
+                <svg
+                  className="mr-2 h-4 w-4"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                Settings
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleLogout}>
+                <svg
+                  className="mr-2 h-4 w-4"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+                Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </aside>
 
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Top bar */}
-        <header className="flex h-14 items-center border-b border-slate-700/50 px-6">
+        <header className="flex h-14 items-center justify-between border-b border-border/50 px-6">
           <nav className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <span className="text-foreground">Dashboard</span>
             {pathSegments.map((segment, i) => (
@@ -282,6 +327,31 @@ export default function AppLayout() {
               </span>
             ))}
           </nav>
+
+          {/* Notification bell */}
+          {pendingCount > 0 && (
+            <button
+              onClick={() => navigate("/hitl")}
+              className="relative p-2 rounded-md hover:bg-accent transition-colors"
+            >
+              <svg
+                className="h-5 w-5 text-muted-foreground"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.73 21a2 2 0 01-3.46 0" />
+              </svg>
+              <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                {pendingCount}
+              </span>
+            </button>
+          )}
         </header>
 
         {/* Page content */}
