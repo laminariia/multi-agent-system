@@ -33,7 +33,7 @@ export interface RegisterRequest {
 
 export interface HITLItem {
   id: string;
-  type: "bid_approval" | "code_review" | "delivery" | "revision" | "alert";
+  type: "bid_approval" | "code_review" | "delivery" | "revision" | "scope_creep" | "plan_review" | "alert";
   priority: "urgent" | "normal" | "low";
   title: string;
   description: string | null;

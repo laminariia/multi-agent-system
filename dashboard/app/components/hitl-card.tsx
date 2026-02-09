@@ -12,11 +12,13 @@ import { relativeTime, formatCountdown } from "~/lib/utils";
 
 const typeConfig: Record<
   HITLItem["type"],
-  { label: string; variant: "bid" | "review" | "delivery" | "alert" | "revision" }
+  { label: string; variant: "bid" | "review" | "delivery" | "alert" | "revision" | "scope" | "plan" }
 > = {
   bid_approval: { label: "Bid", variant: "bid" },
   code_review: { label: "Review", variant: "review" },
   delivery: { label: "Delivery", variant: "delivery" },
+  scope_creep: { label: "Scope", variant: "scope" },
+  plan_review: { label: "Plan", variant: "plan" },
   alert: { label: "Alert", variant: "alert" },
   revision: { label: "Revision", variant: "revision" },
 };

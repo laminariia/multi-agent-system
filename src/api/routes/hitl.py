@@ -62,6 +62,20 @@ _NEXT_ACTION_MAP: dict[str, dict[str, str]] = {
         "skip": "revision_skipped",
         "later": "revision_deferred",
     },
+    "scope_creep": {
+        "approve": "scope_change_approved_by_client",
+        "reject": "scope_change_declined",
+        "edit": "scope_change_negotiated",
+        "skip": "scope_change_skipped",
+        "later": "scope_change_deferred",
+    },
+    "plan_review": {
+        "approve": "plan_approved_for_execution",
+        "reject": "plan_rejected_for_revision",
+        "edit": "plan_modified_by_human",
+        "skip": "plan_review_skipped",
+        "later": "plan_review_deferred",
+    },
     "alert": {
         "approve": "alert_acknowledged",
         "reject": "alert_dismissed",

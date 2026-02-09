@@ -12,6 +12,8 @@ const filterTabs = [
   { value: "bid_approval", label: "Bids" },
   { value: "code_review", label: "Reviews" },
   { value: "delivery", label: "Deliveries" },
+  { value: "scope_creep", label: "Scope" },
+  { value: "plan_review", label: "Plans" },
   { value: "alert", label: "Alerts" },
 ] as const;
 
