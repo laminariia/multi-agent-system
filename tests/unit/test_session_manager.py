@@ -12,6 +12,9 @@ import pytest
 
 from src.browser.session import SessionManager
 
+# Suppress RuntimeWarnings from AsyncMock coroutines that are never awaited.
+pytestmark = pytest.mark.filterwarnings("ignore::RuntimeWarning")
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

@@ -1,7 +1,55 @@
 # Multi-Agent System (MAS) — Полный контекст проекта
 
-> **Этот файл — главный источник контекста для разработки.**  
+> **Этот файл — главный источник контекста для разработки.**
 > Claude Code: читай его первым при работе над проектом.
+
+---
+
+## Autonomous Mode Protocol
+
+### Default: ACT, Don't ASK
+When you receive a task — EXECUTE. Do not ask for confirmation except for TRUE BLOCKERS:
+1. Missing secret/credentials that cannot be found in `.env` or environment
+2. Irreversible destructive action (`DROP TABLE`, `force push`, `deploy to production`)
+3. Critical ambiguity (>100 lines of code in 2+ incompatible directions)
+
+When in doubt — choose the approach that matches existing patterns in the codebase.
+
+### Team Mode
+For `complex` tasks (4+ files, new module, cross-cutting), spawn an Agent Team:
+- **Feature Worker** (`~/.claude/agents/feature-worker.md`) — code changes (opus)
+- **Quality Worker** (`~/.claude/agents/quality-worker.md`) — tests & review (sonnet)
+- **Research Worker** (`~/.claude/agents/research-worker.md`) — research & docs (sonnet)
+- **Infra Worker** (`~/.claude/agents/infra-worker.md`) — Docker/CI/migrations (sonnet)
+
+Coordinate through SendMessage + shared TaskList. See `~/.claude/skills/master-orchestrator/SKILL.md` for full protocol.
+
+### Task Classification
+| Type | Signals | Strategy |
+|------|---------|----------|
+| `quick` | 1 file, <20 lines | Handle alone |
+| `standard` | 1-3 files, bug/feature | +1 agent |
+| `complex` | 4+ files, new module | Full team |
+| `risky` | deploy, delete, credentials | ASK user |
+
+### Verification by Level
+| Level | Checks |
+|-------|--------|
+| `quick` | `ruff check` on changed files |
+| `standard` | ruff + `pytest tests/unit/ -x` |
+| `complex` | ruff + full `pytest` + inter-agent review |
+| `risky` | all above + report for user |
+
+### Git Safety
+- Work ONLY on `auto/{date}/{slug}` branches
+- Never touch `main`/`master` directly
+- Checkpoint with git tag before major changes
+- Rollback on test failure
+
+### Logging
+Log events to `~/.claude/logs/session_{date}.jsonl` — see master-orchestrator skill for format.
+
+---
 
 **GUI:** См. `docs/gui/GUI_SPECIFICATION.md` для wireframes и design system.
 

@@ -10,6 +10,10 @@ import pytest
 
 from src.browser.stealth import StealthBrowser, StealthConfig, StealthContext, StealthPage
 
+# Suppress RuntimeWarnings from AsyncMock coroutines that are never awaited —
+# these are harmless artifacts of mocking async Playwright objects.
+pytestmark = pytest.mark.filterwarnings("ignore::RuntimeWarning")
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -74,6 +78,7 @@ class TestStealthBrowser:
     @pytest.mark.asyncio
     async def test_launch_uses_correct_args(self) -> None:
         mock_browser, _, _ = _mock_playwright()
+        mock_browser.is_connected = MagicMock(return_value=True)
 
         with patch("src.browser.stealth.async_playwright") as mock_pw:
             pw_instance = AsyncMock()
