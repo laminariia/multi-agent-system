@@ -33,7 +33,6 @@ from src.api.schemas import (
 )
 from src.core.models import User
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -45,7 +44,7 @@ def _make_user(
     status: str = "active",
     email: str = "owner@test.com",
     name: str | None = "Test Owner",
-    password_hash: str = "$2b$12$fakehashfakehashfakehashfakehashfakehashfakehashfake",
+    password_hash: str = "$2b$12$fakehashfakehashfakehashfakehashfakehashfakehashfake",  # noqa: S107
 ) -> User:
     """Create a User ORM instance for testing (no DB round-trip)."""
     return User(
@@ -139,8 +138,8 @@ class TestRegistration:
 
         assert response.status_code == 200
         content = response.content
-        assert content.access_token == "access-tok"
-        assert content.refresh_token == "refresh-tok"
+        assert content.access_token == "access-tok"  # noqa: S105
+        assert content.refresh_token == "refresh-tok"  # noqa: S105
         assert content.user.role == "owner"
 
         # Verify user was added to session
@@ -235,8 +234,8 @@ class TestLoginBlocking:
             self_obj = object.__new__(AuthController)
             result = await _login_fn(self_obj, data=data, db_session=session)
 
-        assert result.access_token == "at"
-        assert result.refresh_token == "rt"
+        assert result.access_token == "at"  # noqa: S105
+        assert result.refresh_token == "rt"  # noqa: S105
 
     @pytest.mark.anyio
     async def test_pending_user_blocked(self):

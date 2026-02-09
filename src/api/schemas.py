@@ -87,7 +87,10 @@ class UserResponseSchema(_BaseSchema):
     email: str = Field(..., examples=["user@example.com"])
     name: str | None = Field(default=None, examples=["John"])
     role: str = Field(..., examples=["owner"], description="User role: owner | co_owner | viewer | moderator")
-    status: str = Field(default="active", examples=["active"], description="Account status: active | pending_approval | rejected | suspended")
+    status: str = Field(
+        default="active", examples=["active"],
+        description="Account status: active | pending_approval | rejected | suspended",
+    )
     telegram_chat_id: int | None = Field(default=None, description="Linked Telegram chat ID")
     created_at: datetime = Field(..., description="Account creation timestamp")
     last_login_at: datetime | None = Field(default=None, description="Most recent login")
@@ -104,7 +107,10 @@ class LoginResponseSchema(_BaseSchema):
 class RegisterPendingResponseSchema(_BaseSchema):
     """Returned when a non-first user registers (requires owner approval)."""
 
-    message: str = Field(..., examples=["Registration submitted. An administrator must approve your account before you can sign in."])
+    message: str = Field(
+        ...,
+        examples=["Registration submitted. An administrator must approve your account before you can sign in."],
+    )
     status: str = Field(..., examples=["pending_approval"])
 
 
