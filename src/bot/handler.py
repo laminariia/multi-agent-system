@@ -14,6 +14,16 @@ from src.bot.commands import (
     status_command,
 )
 from src.bot.keyboards import button_callback
+from src.bot.orchestrator_commands import (
+    add_goal_command,
+    goals_command,
+    health_command,
+    logs_command,
+    milestones_command,
+    orch_command,
+    run_command,
+    stop_command,
+)
 from src.core.config import get_settings
 
 logger = structlog.get_logger(__name__)
@@ -37,7 +47,7 @@ def create_bot_application() -> Application:
     builder = Application.builder().token(token)
     app = builder.build()
 
-    # -- Command handlers --------------------------------------------------
+    # -- HITL command handlers -----------------------------------------------
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("pending", pending_command))
@@ -45,8 +55,18 @@ def create_bot_application() -> Application:
     app.add_handler(CommandHandler("approve", approve_command))
     app.add_handler(CommandHandler("skip", skip_command))
 
+    # -- Orchestrator command handlers ----------------------------------------
+    app.add_handler(CommandHandler("run", run_command))
+    app.add_handler(CommandHandler("stop", stop_command))
+    app.add_handler(CommandHandler("orch", orch_command))
+    app.add_handler(CommandHandler("goals", goals_command))
+    app.add_handler(CommandHandler("health", health_command))
+    app.add_handler(CommandHandler("milestones", milestones_command))
+    app.add_handler(CommandHandler("logs", logs_command))
+    app.add_handler(CommandHandler("add_goal", add_goal_command))
+
     # -- Inline-keyboard callback handler ----------------------------------
     app.add_handler(CallbackQueryHandler(button_callback))
 
-    logger.info("telegram_bot.created", handlers=6)
+    logger.info("telegram_bot.created", handlers=14)
     return app
