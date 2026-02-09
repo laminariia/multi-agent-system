@@ -220,12 +220,61 @@ class CriticAgent(ConstrainedAgent):
             )
 
         if verdict == "revise" and score >= _REVISE_THRESHOLD:
-            # Fixable issues -- route back to dev for revision.
+            # Classify the type of revision needed.
+            revision_type = review.get("revision_type", "minor")
             new_revision_count = revision_count + 1
             artifacts["_critic_revision_count"] = [str(new_revision_count)]
+            artifacts["_critic_revision_type"] = [revision_type]
 
+            if revision_type == "scope_creep":
+                # Scope creep -- escalate to HITL immediately.
+                self._log.warning(
+                    "critic_scope_creep_detected",
+                    score=score,
+                    revision_count=new_revision_count,
+                )
+                await self._log_review_decision(
+                    thread_id=state["thread_id"],
+                    verdict="revise_scope_creep",
+                    score=score,
+                    issues_count=len(issues),
+                    revision_count=new_revision_count,
+                )
+                return update_state(
+                    state,
+                    current_agent="critic",
+                    next_agent=None,
+                    artifacts=artifacts,
+                    requires_hitl=True,
+                    hitl_request_id=str(uuid.uuid4()),
+                    status="paused",
+                )
+
+            if revision_type == "major":
+                # Major revision -- route back to planner for re-decomposition.
+                self._log.info(
+                    "critic_major_revision_requested",
+                    score=score,
+                    revision_count=new_revision_count,
+                )
+                await self._log_review_decision(
+                    thread_id=state["thread_id"],
+                    verdict="revise_major",
+                    score=score,
+                    issues_count=len(issues),
+                    revision_count=new_revision_count,
+                )
+                return update_state(
+                    state,
+                    current_agent="critic",
+                    next_agent="planner",
+                    artifacts=artifacts,
+                    status="active",
+                )
+
+            # Minor revision (default) -- route back to dev for auto-fix.
             self._log.info(
-                "critic_revision_requested",
+                "critic_minor_revision_requested",
                 score=score,
                 revision_count=new_revision_count,
             )
@@ -405,6 +454,13 @@ class CriticAgent(ConstrainedAgent):
         # Ensure revision_instructions is a string.
         if not isinstance(parsed.get("revision_instructions"), str):
             parsed["revision_instructions"] = ""
+
+        # Validate and normalise revision_type.
+        revision_type = parsed.get("revision_type", "none")
+        if revision_type not in ("minor", "major", "scope_creep", "none"):
+            parsed["revision_type"] = "minor" if parsed["verdict"] == "revise" else "none"
+        else:
+            parsed["revision_type"] = revision_type
 
         return parsed
 

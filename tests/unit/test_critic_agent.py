@@ -59,11 +59,13 @@ def _make_review_response(
     verdict: str = "approve",
     score: float = 0.92,
     issues: list[dict[str, Any]] | None = None,
+    revision_type: str = "none",
 ) -> str:
     """Build a critic review JSON response string."""
     return json.dumps({
         "verdict": verdict,
         "score": score,
+        "revision_type": revision_type,
         "issues": issues or [],
         "passed_checks": ["compiles", "tests_pass", "security"],
         "failed_checks": [],
@@ -109,10 +111,11 @@ async def test_critic_requests_revision(
     mock_heartbeat: Any,
     mock_loop_detector: Any,
 ):
-    """When verdict='revise' and score between 0.60-0.84, next_agent should be 'dev'."""
+    """When verdict='revise' and score between 0.60-0.84, next_agent should be 'dev' for minor revisions."""
     review_response = _make_review_response(
         verdict="revise",
         score=0.72,
+        revision_type="minor",
         issues=[
             {
                 "severity": "major",
@@ -355,4 +358,212 @@ async def test_critic_approve_boundary_score(
         result = await agent._execute(state)
 
     assert result["next_agent"] == "packager"
+    assert result["requires_hitl"] is False
+
+
+# ---------------------------------------------------------------------------
+# Revision Classification Tests
+# ---------------------------------------------------------------------------
+
+
+async def test_critic_major_revision_routes_to_planner(
+    mock_llm_client: AsyncMock,
+    mock_heartbeat: Any,
+    mock_loop_detector: Any,
+):
+    """When revision_type='major', next_agent should be 'planner' for re-decomposition."""
+    review_response = _make_review_response(
+        verdict="revise",
+        score=0.68,
+        revision_type="major",
+        issues=[
+            {
+                "severity": "major",
+                "category": "code",
+                "description": "Hero section needs complete redesign",
+                "location": "src/components/Hero.tsx",
+                "suggestion": "Restructure component hierarchy and add interactive elements",
+            }
+        ],
+    )
+    mock_llm_client.call = AsyncMock(return_value=(
+        AIMessage(content=review_response),
+        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+    ))
+
+    agent = CriticAgent(
+        llm_client=mock_llm_client,
+        heartbeat=mock_heartbeat,
+        loop_detector=mock_loop_detector,
+    )
+
+    state = _build_state(artifacts=_make_dev_artifacts())
+    with patch.object(agent, "_log_review_decision", new_callable=AsyncMock):
+        result = await agent._execute(state)
+
+    assert result["next_agent"] == "planner"
+    assert result["requires_hitl"] is False
+    assert result["status"] == "active"
+    assert result["artifacts"]["_critic_revision_type"] == ["major"]
+
+
+async def test_critic_scope_creep_escalates_to_hitl(
+    mock_llm_client: AsyncMock,
+    mock_heartbeat: Any,
+    mock_loop_detector: Any,
+):
+    """When revision_type='scope_creep', requires_hitl=True regardless of score."""
+    review_response = _make_review_response(
+        verdict="revise",
+        score=0.70,
+        revision_type="scope_creep",
+        issues=[
+            {
+                "severity": "major",
+                "category": "scope",
+                "description": "Client requests admin panel — not in original spec",
+                "location": "N/A",
+                "suggestion": "Discuss scope change with client before proceeding",
+            }
+        ],
+    )
+    mock_llm_client.call = AsyncMock(return_value=(
+        AIMessage(content=review_response),
+        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+    ))
+
+    agent = CriticAgent(
+        llm_client=mock_llm_client,
+        heartbeat=mock_heartbeat,
+        loop_detector=mock_loop_detector,
+    )
+
+    state = _build_state(artifacts=_make_dev_artifacts())
+    with patch.object(agent, "_log_review_decision", new_callable=AsyncMock):
+        result = await agent._execute(state)
+
+    assert result["requires_hitl"] is True
+    assert result["status"] == "paused"
+    assert result["next_agent"] is None
+    assert result["hitl_request_id"] is not None
+    assert result["artifacts"]["_critic_revision_type"] == ["scope_creep"]
+
+
+async def test_critic_minor_revision_routes_to_dev(
+    mock_llm_client: AsyncMock,
+    mock_heartbeat: Any,
+    mock_loop_detector: Any,
+):
+    """When revision_type='minor' (explicit), next_agent should be 'dev'."""
+    review_response = _make_review_response(
+        verdict="revise",
+        score=0.78,
+        revision_type="minor",
+        issues=[
+            {
+                "severity": "minor",
+                "category": "code",
+                "description": "Missing alt attribute on image",
+                "location": "src/components/Hero.tsx:42",
+                "suggestion": "Add descriptive alt text",
+            }
+        ],
+    )
+    mock_llm_client.call = AsyncMock(return_value=(
+        AIMessage(content=review_response),
+        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+    ))
+
+    agent = CriticAgent(
+        llm_client=mock_llm_client,
+        heartbeat=mock_heartbeat,
+        loop_detector=mock_loop_detector,
+    )
+
+    state = _build_state(artifacts=_make_dev_artifacts())
+    with patch.object(agent, "_log_review_decision", new_callable=AsyncMock):
+        result = await agent._execute(state)
+
+    assert result["next_agent"] == "dev"
+    assert result["requires_hitl"] is False
+    assert result["status"] == "active"
+    assert result["artifacts"]["_critic_revision_type"] == ["minor"]
+
+
+def test_critic_parse_revision_type_normalisation(
+    mock_llm_client: AsyncMock,
+    mock_heartbeat: Any,
+    mock_loop_detector: Any,
+):
+    """_parse_review_response should normalise invalid revision_type values."""
+    agent = CriticAgent(
+        llm_client=mock_llm_client,
+        heartbeat=mock_heartbeat,
+        loop_detector=mock_loop_detector,
+    )
+
+    # Invalid revision_type with revise verdict → defaults to "minor"
+    bad_type = json.dumps({
+        "verdict": "revise",
+        "score": 0.72,
+        "revision_type": "unknown_type",
+        "issues": [],
+    })
+    result = agent._parse_review_response(bad_type)
+    assert result is not None
+    assert result["revision_type"] == "minor"
+
+    # Invalid revision_type with approve verdict → defaults to "none"
+    bad_type_approve = json.dumps({
+        "verdict": "approve",
+        "score": 0.92,
+        "revision_type": "invalid",
+        "issues": [],
+    })
+    result = agent._parse_review_response(bad_type_approve)
+    assert result is not None
+    assert result["revision_type"] == "none"
+
+    # Missing revision_type → defaults to "none"
+    no_type = json.dumps({
+        "verdict": "approve",
+        "score": 0.90,
+        "issues": [],
+    })
+    result = agent._parse_review_response(no_type)
+    assert result is not None
+    assert result["revision_type"] == "none"
+
+
+async def test_critic_default_revision_type_when_missing(
+    mock_llm_client: AsyncMock,
+    mock_heartbeat: Any,
+    mock_loop_detector: Any,
+):
+    """When LLM returns revise verdict without revision_type, should default to minor → dev."""
+    review_response = json.dumps({
+        "verdict": "revise",
+        "score": 0.75,
+        "issues": [{"severity": "minor", "category": "code", "description": "Small fix needed"}],
+        "passed_checks": ["security"],
+        "failed_checks": ["style"],
+        "revision_instructions": "Fix style issues.",
+    })
+    mock_llm_client.call = AsyncMock(return_value=(
+        AIMessage(content=review_response),
+        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+    ))
+
+    agent = CriticAgent(
+        llm_client=mock_llm_client,
+        heartbeat=mock_heartbeat,
+        loop_detector=mock_loop_detector,
+    )
+
+    state = _build_state(artifacts=_make_dev_artifacts())
+    with patch.object(agent, "_log_review_decision", new_callable=AsyncMock):
+        result = await agent._execute(state)
+
+    # Should default to minor → route to dev
+    assert result["next_agent"] == "dev"
     assert result["requires_hitl"] is False

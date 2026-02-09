@@ -314,13 +314,15 @@ def _route_after_critic(state: AgentState) -> str:
 
     The Critic may:
     - Approve and forward to Packager (``next_agent == "packager"``)
-    - Request revisions from Dev (``next_agent == "dev"``, max 3 cycles)
-    - Escalate to HITL review (``requires_hitl``)
+    - Request minor revisions from Dev (``next_agent == "dev"``, max 3 cycles)
+    - Request major revisions from Planner (``next_agent == "planner"``)
+    - Escalate to HITL review (``requires_hitl`` — reject or scope_creep)
     - Fail / terminate (fallback)
 
     Returns:
         ``"packager_node"`` on approval,
-        ``"dev_node"`` on revision (up to ``MAX_REVISION_CYCLES``),
+        ``"dev_node"`` on minor revision (up to ``MAX_REVISION_CYCLES``),
+        ``"planner_node"`` on major revision (re-decomposition),
         ``"hitl_review_node"`` when human review is needed,
         ``END`` on failure or when revision limit is exceeded.
     """
@@ -333,7 +335,15 @@ def _route_after_critic(state: AgentState) -> str:
         logger.info("critic_route_to_packager", thread_id=state["thread_id"])
         return "packager_node"
 
-    # REVISION -- send back to Dev, respecting the cycle limit
+    # MAJOR REVISION -- send back to Planner for re-decomposition
+    if state.get("next_agent") == "planner":
+        logger.info(
+            "critic_route_to_planner_major_revision",
+            thread_id=state["thread_id"],
+        )
+        return "planner_node"
+
+    # MINOR REVISION -- send back to Dev, respecting the cycle limit
     if state.get("next_agent") == "dev":
         revision_count = state.get("retry_count", 0)
         if revision_count < MAX_REVISION_CYCLES:
@@ -352,7 +362,7 @@ def _route_after_critic(state: AgentState) -> str:
         )
         return "hitl_review_node"
 
-    # HITL escalation requested by Critic
+    # HITL escalation requested by Critic (reject or scope_creep)
     if state.get("requires_hitl"):
         logger.info("critic_route_to_hitl_review", thread_id=state["thread_id"])
         return "hitl_review_node"
@@ -516,13 +526,14 @@ def build_full_pipeline_graph(checkpointer: Any | None = None) -> CompiledGraph:
         },
     )
 
-    # Critic -> Packager | Dev (revision) | HITL(review) | END
+    # Critic -> Packager | Dev (minor revision) | Planner (major revision) | HITL(review) | END
     graph.add_conditional_edges(
         "critic_node",
         _route_after_critic,
         {
             "packager_node": "packager_node",
             "dev_node": "dev_node",
+            "planner_node": "planner_node",
             "hitl_review_node": "hitl_review_node",
             END: END,
         },

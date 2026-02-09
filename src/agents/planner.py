@@ -43,6 +43,10 @@ PLANNER_ALLOWED_TOOLS: list[str] = [
 # Maximum re-plans per project before HITL escalation.
 _MAX_REPLANS = 3
 
+# Plan complexity threshold: if total_estimated_hours exceeds this,
+# require HITL approval before execution begins.
+_HITL_PLAN_REVIEW_HOURS_THRESHOLD = 20.0
+
 
 class PlannerAgent(ConstrainedAgent):
     """Decomposes projects into actionable tasks and creates timelines.
@@ -159,11 +163,16 @@ class PlannerAgent(ConstrainedAgent):
         # 5. Determine the first execution agent from the plan.
         first_agent = self._determine_first_agent(plan)
 
+        # 5b. Check if plan requires HITL review (complex plans or re-plans
+        # triggered by Critic major revisions).
+        needs_hitl = self._should_request_plan_review(state, plan)
+
         # 6. Log the planning action.
         await self._log_planning_action(
             project_id=project_id,
             plan=plan,
             thread_id=state["thread_id"],
+            note="HITL plan review requested" if needs_hitl else "",
         )
 
         self._log.info(
@@ -172,7 +181,19 @@ class PlannerAgent(ConstrainedAgent):
             total_hours=plan.get("total_estimated_hours"),
             phases=len(plan.get("phases", [])),
             next_agent=first_agent,
+            needs_hitl=needs_hitl,
         )
+
+        if needs_hitl:
+            return update_state(
+                state,
+                current_agent="planner",
+                next_agent=first_agent,
+                artifacts=artifacts,
+                requires_hitl=True,
+                hitl_request_id=str(uuid.uuid4()),
+                status="paused",
+            )
 
         return update_state(
             state,
@@ -293,6 +314,37 @@ class PlannerAgent(ConstrainedAgent):
                     return assigned
 
         return "dev"
+
+    # ------------------------------------------------------------------
+    # Helper: HITL plan review gate
+    # ------------------------------------------------------------------
+
+    def _should_request_plan_review(self, state: AgentState, plan: dict[str, Any]) -> bool:
+        """Determine whether this plan should go through HITL review.
+
+        HITL plan review is triggered when:
+        1. The plan is complex (estimated hours exceed threshold).
+        2. This is a re-plan triggered by a Critic major revision.
+        """
+        # Complex plan check: high estimated hours.
+        total_hours = plan.get("total_estimated_hours", 0.0)
+        if total_hours >= _HITL_PLAN_REVIEW_HOURS_THRESHOLD:
+            self._log.info(
+                "plan_review_triggered_by_complexity",
+                total_hours=total_hours,
+                threshold=_HITL_PLAN_REVIEW_HOURS_THRESHOLD,
+            )
+            return True
+
+        # Re-plan from Critic major revision check.
+        artifacts = state.get("artifacts") or {}
+        revision_type_data = artifacts.get("_critic_revision_type", [])
+        if revision_type_data and isinstance(revision_type_data, list) and len(revision_type_data) > 0:
+            if revision_type_data[0] == "major":
+                self._log.info("plan_review_triggered_by_major_revision")
+                return True
+
+        return False
 
     # ------------------------------------------------------------------
     # Helper: minimal plan for empty requirements

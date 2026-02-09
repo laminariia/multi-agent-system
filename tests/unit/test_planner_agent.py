@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 from langchain_core.messages import AIMessage
 
-from src.agents.planner import _MAX_REPLANS, PlannerAgent
+from src.agents.planner import _HITL_PLAN_REVIEW_HOURS_THRESHOLD, _MAX_REPLANS, PlannerAgent
 from src.core.llm_client import CallMetrics
 from src.core.state import AgentState, create_initial_state
 
@@ -380,3 +380,121 @@ async def test_planner_determines_content_as_first_agent(
         result = await agent._execute(state)
 
     assert result["next_agent"] == "content"
+
+
+# ---------------------------------------------------------------------------
+# Plan Review HITL Gate Tests
+# ---------------------------------------------------------------------------
+
+
+async def test_planner_complex_plan_triggers_hitl(
+    mock_llm_client: AsyncMock,
+    mock_heartbeat: Any,
+    mock_loop_detector: Any,
+):
+    """Plans exceeding the hours threshold should require HITL review."""
+    # Create a plan with hours above the threshold.
+    plan_json = _make_plan_json(total_hours=_HITL_PLAN_REVIEW_HOURS_THRESHOLD + 5.0)
+    mock_llm_client.call = AsyncMock(return_value=(
+        AIMessage(content=plan_json),
+        CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
+    ))
+
+    agent = PlannerAgent(
+        llm_client=mock_llm_client,
+        heartbeat=mock_heartbeat,
+        loop_detector=mock_loop_detector,
+    )
+
+    state = _build_state()
+    with patch.object(agent, "_log_planning_action", new_callable=AsyncMock):
+        result = await agent._execute(state)
+
+    assert result["requires_hitl"] is True
+    assert result["status"] == "paused"
+    assert result["hitl_request_id"] is not None
+    # The next_agent should still be set for after HITL approval.
+    assert result["next_agent"] == "dev"
+
+
+async def test_planner_major_revision_triggers_hitl(
+    mock_llm_client: AsyncMock,
+    mock_heartbeat: Any,
+    mock_loop_detector: Any,
+):
+    """Re-plans triggered by Critic major revision should require HITL review."""
+    plan_json = _make_plan_json(total_hours=5.0)  # Below threshold.
+    mock_llm_client.call = AsyncMock(return_value=(
+        AIMessage(content=plan_json),
+        CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
+    ))
+
+    agent = PlannerAgent(
+        llm_client=mock_llm_client,
+        heartbeat=mock_heartbeat,
+        loop_detector=mock_loop_detector,
+    )
+
+    # State includes _critic_revision_type = "major" from Critic's routing.
+    state = _build_state(artifacts={"_critic_revision_type": ["major"]})
+    with patch.object(agent, "_log_planning_action", new_callable=AsyncMock):
+        result = await agent._execute(state)
+
+    assert result["requires_hitl"] is True
+    assert result["status"] == "paused"
+    assert result["hitl_request_id"] is not None
+
+
+async def test_planner_simple_plan_no_hitl(
+    mock_llm_client: AsyncMock,
+    mock_heartbeat: Any,
+    mock_loop_detector: Any,
+):
+    """Simple plans (below threshold, no major revision) should NOT trigger HITL."""
+    plan_json = _make_plan_json(total_hours=8.0)  # Well below threshold.
+    mock_llm_client.call = AsyncMock(return_value=(
+        AIMessage(content=plan_json),
+        CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
+    ))
+
+    agent = PlannerAgent(
+        llm_client=mock_llm_client,
+        heartbeat=mock_heartbeat,
+        loop_detector=mock_loop_detector,
+    )
+
+    state = _build_state()
+    with patch.object(agent, "_log_planning_action", new_callable=AsyncMock):
+        result = await agent._execute(state)
+
+    assert result["requires_hitl"] is False
+    assert result["status"] == "active"
+    assert result["next_agent"] == "dev"
+
+
+async def test_planner_minor_revision_no_hitl(
+    mock_llm_client: AsyncMock,
+    mock_heartbeat: Any,
+    mock_loop_detector: Any,
+):
+    """Minor revisions from Critic should NOT trigger plan review HITL."""
+    plan_json = _make_plan_json(total_hours=5.0)
+    mock_llm_client.call = AsyncMock(return_value=(
+        AIMessage(content=plan_json),
+        CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
+    ))
+
+    agent = PlannerAgent(
+        llm_client=mock_llm_client,
+        heartbeat=mock_heartbeat,
+        loop_detector=mock_loop_detector,
+    )
+
+    # State includes _critic_revision_type = "minor" — should NOT trigger HITL.
+    state = _build_state(artifacts={"_critic_revision_type": ["minor"]})
+    with patch.object(agent, "_log_planning_action", new_callable=AsyncMock):
+        result = await agent._execute(state)
+
+    assert result["requires_hitl"] is False
+    assert result["status"] == "active"
+    assert result["next_agent"] == "dev"
