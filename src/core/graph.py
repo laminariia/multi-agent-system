@@ -66,7 +66,7 @@ MAX_REVISION_CYCLES: int = 3
 # HITL node functions
 # ---------------------------------------------------------------------------
 
-async def hitl_bid_node(state: AgentState) -> AgentState:
+async def hitl_bid_node(state: dict[str, Any]) -> dict[str, Any]:
     """HITL interrupt node for bid approval.
 
     Pauses the workflow so a human can review and approve/reject the
@@ -91,7 +91,7 @@ async def hitl_bid_node(state: AgentState) -> AgentState:
     return state
 
 
-async def hitl_review_node(state: AgentState) -> AgentState:
+async def hitl_review_node(state: dict[str, Any]) -> dict[str, Any]:
     """HITL interrupt node for final delivery review.
 
     Pauses the workflow so a human can inspect the packaged deliverables
@@ -120,7 +120,7 @@ async def hitl_review_node(state: AgentState) -> AgentState:
 # Legacy HITL node (kept for backward compatibility with build_scout_bid_graph)
 # ---------------------------------------------------------------------------
 
-async def hitl_node(state: AgentState) -> AgentState:
+async def hitl_node(state: dict[str, Any]) -> dict[str, Any]:
     """Generic HITL interrupt node (legacy, Scout -> Bid pipeline only).
 
     Marks the workflow as paused and returns state unchanged.  The caller
@@ -144,7 +144,7 @@ async def hitl_node(state: AgentState) -> AgentState:
 # Routing functions -- Scout/Bid (shared between legacy and full pipeline)
 # ---------------------------------------------------------------------------
 
-def _route_after_scout(state: AgentState) -> str:
+def _route_after_scout(state: dict[str, Any]) -> str:
     """Determine the next node after the Scout Agent completes.
 
     Returns:
@@ -163,7 +163,7 @@ def _route_after_scout(state: AgentState) -> str:
     return END
 
 
-def _route_after_bid(state: AgentState) -> str:
+def _route_after_bid(state: dict[str, Any]) -> str:
     """Determine the next node after the Bid Agent completes.
 
     Returns:
@@ -191,7 +191,7 @@ def _route_after_bid(state: AgentState) -> str:
 # Routing functions -- legacy (Scout -> Bid -> HITL only)
 # ---------------------------------------------------------------------------
 
-def _route_after_bid_legacy(state: AgentState) -> str:
+def _route_after_bid_legacy(state: dict[str, Any]) -> str:
     """Route after Bid in the legacy Scout -> Bid -> HITL graph."""
     if state.get("status") == "failed":
         logger.warning("bid_route_to_end_failed", thread_id=state["thread_id"])
@@ -213,7 +213,7 @@ def _route_after_bid_legacy(state: AgentState) -> str:
 # Routing functions -- Full pipeline
 # ---------------------------------------------------------------------------
 
-def _route_after_hitl_bid(state: AgentState) -> str:
+def _route_after_hitl_bid(state: dict[str, Any]) -> str:
     """Route after the bid-approval HITL node.
 
     Returns:
@@ -228,7 +228,7 @@ def _route_after_hitl_bid(state: AgentState) -> str:
     return "planner_node"
 
 
-def _route_after_planner(state: AgentState) -> str:
+def _route_after_planner(state: dict[str, Any]) -> str:
     """Route after the Planner Agent.
 
     Returns:
@@ -252,7 +252,7 @@ def _route_after_planner(state: AgentState) -> str:
     return END
 
 
-def _route_after_dev(state: AgentState) -> str:
+def _route_after_dev(state: dict[str, Any]) -> str:
     """Route after the Dev Agent.
 
     Returns:
@@ -271,7 +271,7 @@ def _route_after_dev(state: AgentState) -> str:
     return END
 
 
-def _route_after_content(state: AgentState) -> str:
+def _route_after_content(state: dict[str, Any]) -> str:
     """Route after the Content Agent.
 
     Returns:
@@ -290,7 +290,7 @@ def _route_after_content(state: AgentState) -> str:
     return END
 
 
-def _route_after_design(state: AgentState) -> str:
+def _route_after_design(state: dict[str, Any]) -> str:
     """Route after the Design Agent.
 
     Returns:
@@ -309,7 +309,7 @@ def _route_after_design(state: AgentState) -> str:
     return END
 
 
-def _route_after_critic(state: AgentState) -> str:
+def _route_after_critic(state: dict[str, Any]) -> str:
     """Route after the Critic Agent -- the most complex routing point.
 
     The Critic may:
@@ -371,7 +371,7 @@ def _route_after_critic(state: AgentState) -> str:
     return END
 
 
-def _route_after_packager(state: AgentState) -> str:
+def _route_after_packager(state: dict[str, Any]) -> str:
     """Route after the Packager Agent.
 
     Packager ALWAYS requires HITL for final delivery review.
@@ -397,7 +397,7 @@ def _route_after_packager(state: AgentState) -> str:
     return END
 
 
-def _route_after_hitl_review(state: AgentState) -> str:
+def _route_after_hitl_review(state: dict[str, Any]) -> str:
     """Route after the final-review HITL node.
 
     In Phase 1 this always terminates the graph.  The state will have
