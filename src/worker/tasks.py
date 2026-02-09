@@ -65,7 +65,7 @@ async def run_project_pipeline(payload: dict[str, Any]) -> dict[str, Any]:
     state = create_initial_state(
         project=project,
         first_agent="planner",
-        thread_id=f"pipeline-{project.project_id}",
+        thread_id=f"pipeline-{project["project_id"]}",
     )
 
     graph = build_full_pipeline_graph()
@@ -74,13 +74,13 @@ async def run_project_pipeline(payload: dict[str, Any]) -> dict[str, Any]:
     final_status = result.get("status", "unknown")
     logger.info(
         "project_pipeline_complete",
-        project_id=project.project_id,
+        project_id=project["project_id"],
         status=final_status,
     )
 
     return {
         "task": "project_pipeline",
-        "project_id": project.project_id,
+        "project_id": project["project_id"],
         "status": final_status,
     }
 
