@@ -154,8 +154,14 @@ def main() -> None:
     parser.add_argument("--data", default="{}", help="JSON string with event data")
     args = parser.parse_args()
 
+    # Support NOTIFY_DATA env var as fallback — PowerShell 5 on Windows
+    # strips double quotes from JSON when passing via CLI arguments.
+    raw_data = args.data
+    if raw_data == "{}" and os.environ.get("NOTIFY_DATA"):
+        raw_data = os.environ["NOTIFY_DATA"]
+
     try:
-        data = json.loads(args.data)
+        data = json.loads(raw_data)
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON data: {exc}", file=sys.stderr)
         sys.exit(1)
