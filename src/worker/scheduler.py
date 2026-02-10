@@ -1,9 +1,10 @@
 """APScheduler-based background scheduler for periodic MAS tasks.
 
 Runs:
-- Scout cycle every 5 minutes (job discovery).
-- Metrics collection every 60 seconds.
-- Heartbeat cleanup every 10 minutes.
+- Scout cycle every SCOUT_INTERVAL_MINUTES (default 5) minutes.
+- Metrics collection every METRICS_INTERVAL_SECONDS (default 60) seconds.
+- Heartbeat cleanup every HEARTBEAT_CLEANUP_MINUTES (default 10) minutes.
+- Pipeline B geo-scan every PIPELINE_B_SCAN_INTERVAL_HOURS (default 24) hours.
 """
 from __future__ import annotations
 
@@ -17,19 +18,23 @@ logger = structlog.get_logger(__name__)
 class WorkerScheduler:
     """Manages periodic background tasks via APScheduler.
 
-    Args:
-        scout_interval_minutes: How often to run the Scout cycle.
-        metrics_interval_seconds: How often to collect metrics.
-        heartbeat_cleanup_minutes: How often to clean up stale heartbeats.
+    Reads intervals from :class:`~src.core.config.Settings` by default.
+    Constructor kwargs override the corresponding settings value when provided.
     """
 
     def __init__(
         self,
         *,
-        scout_interval_minutes: int = 5,
-        metrics_interval_seconds: int = 60,
-        heartbeat_cleanup_minutes: int = 10,
+        scout_interval_minutes: int | None = None,
+        metrics_interval_seconds: int | None = None,
+        heartbeat_cleanup_minutes: int | None = None,
+        pipeline_b_scan_interval_hours: int | None = None,
+        pipeline_b_cities: list[str] | None = None,
     ) -> None:
+        from src.core.config import get_settings
+
+        settings = get_settings()
+
         self._scheduler = AsyncIOScheduler(
             job_defaults={
                 "coalesce": True,
@@ -37,9 +42,31 @@ class WorkerScheduler:
                 "misfire_grace_time": 60,
             },
         )
-        self._scout_interval = scout_interval_minutes
-        self._metrics_interval = metrics_interval_seconds
-        self._heartbeat_interval = heartbeat_cleanup_minutes
+        self._scout_interval = (
+            scout_interval_minutes
+            if scout_interval_minutes is not None
+            else settings.SCOUT_INTERVAL_MINUTES
+        )
+        self._metrics_interval = (
+            metrics_interval_seconds
+            if metrics_interval_seconds is not None
+            else settings.METRICS_INTERVAL_SECONDS
+        )
+        self._heartbeat_interval = (
+            heartbeat_cleanup_minutes
+            if heartbeat_cleanup_minutes is not None
+            else settings.HEARTBEAT_CLEANUP_MINUTES
+        )
+        self._pipeline_b_interval = (
+            pipeline_b_scan_interval_hours
+            if pipeline_b_scan_interval_hours is not None
+            else settings.PIPELINE_B_SCAN_INTERVAL_HOURS
+        )
+        self._pipeline_b_cities = (
+            pipeline_b_cities
+            if pipeline_b_cities is not None
+            else [c.strip() for c in settings.PIPELINE_B_CITIES.split(",") if c.strip()]
+        )
 
     async def start(self) -> None:
         """Register all periodic jobs and start the scheduler."""
@@ -67,12 +94,24 @@ class WorkerScheduler:
             replace_existing=True,
         )
 
+        if self._pipeline_b_cities:
+            self._scheduler.add_job(
+                _run_pipeline_b_scan,
+                trigger=IntervalTrigger(hours=self._pipeline_b_interval),
+                id="pipeline_b_scan",
+                name="Pipeline B geo-scan",
+                replace_existing=True,
+                kwargs={"cities": self._pipeline_b_cities},
+            )
+
         self._scheduler.start()
         logger.info(
             "scheduler_started",
             scout_interval_min=self._scout_interval,
             metrics_interval_sec=self._metrics_interval,
             heartbeat_interval_min=self._heartbeat_interval,
+            pipeline_b_interval_hrs=self._pipeline_b_interval,
+            pipeline_b_cities=self._pipeline_b_cities,
         )
 
     async def stop(self) -> None:
@@ -135,6 +174,36 @@ async def _execute_scout() -> None:
     from src.agents.scout import scout_node
 
     await scout_node(state)
+
+
+async def _run_pipeline_b_scan(*, cities: list[str]) -> None:
+    """Execute Pipeline B geo-scan for each configured city with distributed lock."""
+    from src.core.database import get_valkey
+
+    valkey = get_valkey()
+
+    lock_acquired = await valkey.set("pipeline_b:lock", "1", nx=True, ex=3600)
+    if not lock_acquired:
+        logger.debug("pipeline_b_scan_skipped", reason="lock held by another instance")
+        return
+
+    try:
+        logger.info("pipeline_b_scan_start", cities=cities)
+        for city in cities:
+            try:
+                from src.worker.tasks import dispatch_task
+
+                await dispatch_task("pipeline_b_scan", {"city": city})
+            except Exception:
+                logger.exception("pipeline_b_city_scan_failed", city=city)
+        logger.info("pipeline_b_scan_complete", cities_count=len(cities))
+    except Exception:
+        logger.exception("pipeline_b_scan_failed")
+    finally:
+        try:
+            await valkey.delete("pipeline_b:lock")
+        except Exception:
+            logger.warning("pipeline_b_lock_release_failed", exc_info=True)
 
 
 async def _collect_metrics() -> None:

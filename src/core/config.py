@@ -104,6 +104,13 @@ class Settings(BaseSettings):
     SEMANTIC_CACHE_TTL_TRANSLATION: int = 604_800    # 7 d
     SEMANTIC_CACHE_TTL_DEFAULT: int = 21_600         # 6 h
 
+    # ── Scheduler ────────────────────────────────────────────────────
+    SCOUT_INTERVAL_MINUTES: int = 5
+    METRICS_INTERVAL_SECONDS: int = 60
+    HEARTBEAT_CLEANUP_MINUTES: int = 10
+    PIPELINE_B_SCAN_INTERVAL_HOURS: int = 24
+    PIPELINE_B_CITIES: str = ""  # Comma-separated city names
+
     # ── Email / SMTP ─────────────────────────────────────────────────
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587
