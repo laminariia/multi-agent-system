@@ -360,3 +360,86 @@ def test_record_metric_hitl_paused(infra):
         gm.return_value = mi
         agent._record_metric("hitl_paused", 2.0)
         assert mi.record_agent_run.call_args[1]["status"] == "hitl_paused"
+
+
+# ===== _sentry_transaction ====================================================
+
+
+def test_sentry_transaction_returns_context_manager(infra):
+    """_sentry_transaction returns a context manager from start_agent_transaction."""
+    agent = _agent(AsyncMock(), infra)
+    mock_txn = MagicMock()
+
+    with patch(
+        "src.monitoring.sentry_config.start_agent_transaction",
+    ) as mock_start:
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _fake_cm(name, tid):
+            yield mock_txn
+
+        mock_start.side_effect = _fake_cm
+        cm = agent._sentry_transaction("thread-test-001")
+        with cm as txn:
+            assert txn is mock_txn
+
+
+def test_sentry_transaction_falls_back_to_nullcontext(infra):
+    """_sentry_transaction returns nullcontext when import fails."""
+    agent = _agent(AsyncMock(), infra)
+    with patch(
+        "src.agents.base.ConstrainedAgent._sentry_transaction",
+        wraps=agent._sentry_transaction,
+    ):
+        # Simulate start_agent_transaction raising ImportError
+        with patch(
+            "src.monitoring.sentry_config.start_agent_transaction",
+            side_effect=ImportError("no sentry"),
+        ):
+            cm = agent._sentry_transaction("thread-test-001")
+            with cm as val:
+                assert val is None
+
+
+async def test_invoke_creates_sentry_transaction(sample_state, infra):
+    """invoke() wraps _execute in a Sentry transaction."""
+    async def ok(state):
+        return update_state(state, next_agent="bid", status="active")
+
+    mock_txn = MagicMock()
+
+    with patch(
+        "src.monitoring.sentry_config.start_agent_transaction",
+    ) as mock_start:
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _fake_cm(name, tid):
+            yield mock_txn
+
+        mock_start.side_effect = _fake_cm
+        result = await _agent(ok, infra).invoke(sample_state)
+
+    assert result["status"] == "active"
+    mock_start.assert_called_once_with("scout", sample_state["thread_id"])
+
+
+async def test_invoke_sentry_transaction_includes_agent_role(sample_state, infra):
+    """invoke() passes agent_name to start_agent_transaction."""
+    async def ok(state):
+        return update_state(state, next_agent="critic", status="active")
+
+    with patch(
+        "src.monitoring.sentry_config.start_agent_transaction",
+    ) as mock_start:
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _fake_cm(name, tid):
+            yield MagicMock()
+
+        mock_start.side_effect = _fake_cm
+        await _agent(ok, infra, agent_name="dev", allowed_tools=["write_code"]).invoke(sample_state)
+
+    mock_start.assert_called_once_with("dev", sample_state["thread_id"])

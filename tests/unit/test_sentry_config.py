@@ -474,3 +474,162 @@ class TestBeforeSend:
                 assert result is None, f"{exc_name} should be filtered"
             else:
                 assert result is event, f"{exc_name} should NOT be filtered"
+
+
+class TestInitSentryLitestarIntegration:
+    """Tests for Litestar integration in init_sentry."""
+
+    def test_includes_litestar_integration_when_available(self):
+        """init_sentry includes LitestarIntegration when importable."""
+        mock_sdk = MagicMock()
+        mock_asyncio_mod = MagicMock()
+        mock_sqlalchemy_mod = MagicMock()
+        mock_litestar_mod = MagicMock()
+        mock_litestar_inst = MagicMock()
+        mock_litestar_mod.LitestarIntegration.return_value = mock_litestar_inst
+
+        with patch.dict(
+            sys.modules,
+            {
+                "sentry_sdk": mock_sdk,
+                "sentry_sdk.integrations": MagicMock(),
+                "sentry_sdk.integrations.asyncio": mock_asyncio_mod,
+                "sentry_sdk.integrations.sqlalchemy": mock_sqlalchemy_mod,
+                "sentry_sdk.integrations.litestar": mock_litestar_mod,
+            },
+        ):
+            from src.monitoring.sentry_config import init_sentry
+
+            init_sentry("https://example@sentry.io/123")
+
+            call_kwargs = mock_sdk.init.call_args.kwargs
+            assert mock_litestar_inst in call_kwargs["integrations"]
+
+    def test_works_without_litestar_integration(self):
+        """init_sentry works if LitestarIntegration import fails."""
+        mock_sdk = MagicMock()
+        mock_asyncio_mod = MagicMock()
+        mock_sqlalchemy_mod = MagicMock()
+
+        # Make litestar integration import fail
+        with patch.dict(
+            sys.modules,
+            {
+                "sentry_sdk": mock_sdk,
+                "sentry_sdk.integrations": MagicMock(),
+                "sentry_sdk.integrations.asyncio": mock_asyncio_mod,
+                "sentry_sdk.integrations.sqlalchemy": mock_sqlalchemy_mod,
+                "sentry_sdk.integrations.litestar": None,  # simulate ImportError
+            },
+        ):
+            from src.monitoring.sentry_config import init_sentry
+
+            # Should not raise
+            init_sentry("https://example@sentry.io/123")
+
+            mock_sdk.init.assert_called_once()
+            call_kwargs = mock_sdk.init.call_args.kwargs
+            # Should have 2 integrations (asyncio + sqlalchemy), not 3
+            assert len(call_kwargs["integrations"]) == 2
+
+
+class TestStartAgentTransaction:
+    """Tests for start_agent_transaction context manager."""
+
+    def test_creates_transaction_with_agent_op_and_name(self):
+        """start_agent_transaction creates transaction with op='agent' and name=agent_name."""
+        mock_sdk = MagicMock()
+        mock_txn = MagicMock()
+        mock_sdk.start_transaction.return_value = mock_txn
+
+        with patch.dict(sys.modules, {"sentry_sdk": mock_sdk}):
+            from src.monitoring.sentry_config import start_agent_transaction
+
+            with start_agent_transaction("scout", "thread-001") as txn:
+                assert txn is mock_txn
+
+            mock_sdk.start_transaction.assert_called_once_with(
+                op="agent",
+                name="scout",
+            )
+
+    def test_sets_agent_role_tag(self):
+        """start_agent_transaction sets agent.role tag."""
+        mock_sdk = MagicMock()
+        mock_txn = MagicMock()
+        mock_sdk.start_transaction.return_value = mock_txn
+
+        with patch.dict(sys.modules, {"sentry_sdk": mock_sdk}):
+            from src.monitoring.sentry_config import start_agent_transaction
+
+            with start_agent_transaction("bid", "thread-002"):
+                pass
+
+            mock_txn.set_tag.assert_any_call("agent.role", "bid")
+
+    def test_sets_thread_id_tag(self):
+        """start_agent_transaction sets thread.id tag."""
+        mock_sdk = MagicMock()
+        mock_txn = MagicMock()
+        mock_sdk.start_transaction.return_value = mock_txn
+
+        with patch.dict(sys.modules, {"sentry_sdk": mock_sdk}):
+            from src.monitoring.sentry_config import start_agent_transaction
+
+            with start_agent_transaction("dev", "thread-xyz"):
+                pass
+
+            mock_txn.set_tag.assert_any_call("thread.id", "thread-xyz")
+
+    def test_sets_ok_status_on_success(self):
+        """start_agent_transaction sets status='ok' when body succeeds."""
+        mock_sdk = MagicMock()
+        mock_txn = MagicMock()
+        mock_sdk.start_transaction.return_value = mock_txn
+
+        with patch.dict(sys.modules, {"sentry_sdk": mock_sdk}):
+            from src.monitoring.sentry_config import start_agent_transaction
+
+            with start_agent_transaction("scout", "thread-001"):
+                pass
+
+            mock_txn.set_status.assert_called_with("ok")
+            mock_txn.finish.assert_called_once()
+
+    def test_sets_internal_error_status_on_exception(self):
+        """start_agent_transaction sets status='internal_error' and re-raises on exception."""
+        mock_sdk = MagicMock()
+        mock_txn = MagicMock()
+        mock_sdk.start_transaction.return_value = mock_txn
+
+        with patch.dict(sys.modules, {"sentry_sdk": mock_sdk}):
+            from src.monitoring.sentry_config import start_agent_transaction
+
+            with pytest.raises(ValueError, match="boom"):
+                with start_agent_transaction("scout", "thread-001"):
+                    raise ValueError("boom")
+
+            mock_txn.set_status.assert_called_with("internal_error")
+            mock_txn.finish.assert_called_once()
+
+    def test_yields_none_when_sentry_not_installed(self):
+        """start_agent_transaction yields None when sentry_sdk is not importable."""
+        with patch.dict(sys.modules, {"sentry_sdk": None}):
+            from src.monitoring.sentry_config import start_agent_transaction
+
+            with start_agent_transaction("scout", "thread-001") as txn:
+                assert txn is None
+
+    def test_finishes_transaction_on_success(self):
+        """start_agent_transaction calls finish() on the transaction."""
+        mock_sdk = MagicMock()
+        mock_txn = MagicMock()
+        mock_sdk.start_transaction.return_value = mock_txn
+
+        with patch.dict(sys.modules, {"sentry_sdk": mock_sdk}):
+            from src.monitoring.sentry_config import start_agent_transaction
+
+            with start_agent_transaction("planner", "t-1"):
+                pass
+
+            mock_txn.finish.assert_called_once()

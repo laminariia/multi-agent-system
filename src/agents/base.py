@@ -246,7 +246,10 @@ class ConstrainedAgent(abc.ABC):
                     attempt=attempt,
                 )
                 t0 = time.perf_counter()
-                result_state = await self._execute(state)
+
+                with self._sentry_transaction(state["thread_id"]):
+                    result_state = await self._execute(state)
+
                 elapsed_ms = (time.perf_counter() - t0) * 1000
 
                 # 5. Finalise state
@@ -330,6 +333,25 @@ class ConstrainedAgent(abc.ABC):
 
         # Exhausted all retries
         return update_state(state, status="failed", next_agent=None)
+
+    # ------------------------------------------------------------------
+    # Sentry transaction helper
+    # ------------------------------------------------------------------
+
+    def _sentry_transaction(self, thread_id: str):
+        """Return a Sentry transaction context manager for this agent run.
+
+        If ``sentry_sdk`` is not installed, returns a no-op context manager
+        so the caller never needs to guard imports.
+        """
+        try:
+            from src.monitoring.sentry_config import start_agent_transaction  # noqa: PLC0415
+
+            return start_agent_transaction(self.agent_name, thread_id)
+        except Exception:  # noqa: BLE001
+            from contextlib import nullcontext  # noqa: PLC0415
+
+            return nullcontext()
 
     # ------------------------------------------------------------------
     # Metrics helper
