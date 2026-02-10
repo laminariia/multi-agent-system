@@ -99,7 +99,7 @@ class TestRunProjectPipeline:
 
         with (
             patch("src.worker.tasks.ProjectContext", return_value=mock_project),
-            patch("src.core.graph.build_full_pipeline_graph") as mock_build,
+            patch("src.core.graph.build_planner_pipeline_graph") as mock_build,
         ):
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value={"status": "completed"})
@@ -119,15 +119,15 @@ class TestRunProjectPipeline:
             assert result["project_id"] == "proj-123"
 
     @pytest.mark.asyncio
-    async def test_calls_build_full_pipeline_graph_and_ainvoke(self) -> None:
-        """Should build graph and invoke it."""
+    async def test_calls_build_planner_pipeline_graph_and_ainvoke(self) -> None:
+        """Should build planner pipeline graph and invoke it."""
         from unittest.mock import MagicMock
         mock_project = MagicMock()
         mock_project.project_id = "proj-123"
 
         with (
             patch("src.worker.tasks.ProjectContext", return_value=mock_project),
-            patch("src.core.graph.build_full_pipeline_graph") as mock_build,
+            patch("src.core.graph.build_planner_pipeline_graph") as mock_build,
         ):
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value={"status": "in_progress"})
@@ -159,7 +159,7 @@ class TestRunProjectPipeline:
 
         with (
             patch("src.worker.tasks.ProjectContext", return_value=mock_project),
-            patch("src.core.graph.build_full_pipeline_graph") as mock_build,
+            patch("src.core.graph.build_planner_pipeline_graph") as mock_build,
         ):
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value={"status": "delivered"})
@@ -242,7 +242,7 @@ class TestDispatchTask:
 
         with (
             patch("src.worker.tasks.ProjectContext", return_value=mock_project),
-            patch("src.core.graph.build_full_pipeline_graph") as mock_build,
+            patch("src.core.graph.build_planner_pipeline_graph") as mock_build,
         ):
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value={"status": "completed"})
@@ -290,15 +290,16 @@ class TestTaskRegistry:
     """Test TASK_REGISTRY constant."""
 
     def test_contains_all_registered_tasks(self) -> None:
-        """Registry should contain all 3 task handlers."""
-        assert len(TASK_REGISTRY) == 3
+        """Registry should contain all 4 task handlers."""
+        assert len(TASK_REGISTRY) == 4
         assert "scout_cycle" in TASK_REGISTRY
         assert "project_pipeline" in TASK_REGISTRY
         assert "bid_generation" in TASK_REGISTRY
+        assert "pipeline_b_scan" in TASK_REGISTRY
 
     def test_keys_match_expected_task_type_names(self) -> None:
         """Registry keys should match expected task types."""
-        expected_keys = {"scout_cycle", "project_pipeline", "bid_generation"}
+        expected_keys = {"scout_cycle", "project_pipeline", "bid_generation", "pipeline_b_scan"}
         assert set(TASK_REGISTRY.keys()) == expected_keys
 
     def test_handlers_are_callable(self) -> None:

@@ -5,20 +5,29 @@ graph compilation.  Each routing function is a pure function that inspects
 state fields and returns the next node name or END.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from langgraph.graph import END
 
 from src.core.graph import (
     MAX_REVISION_CYCLES,
+    _apply_email_approval,
     _route_after_bid,
+    _route_after_bid_submission,
     _route_after_content,
     _route_after_critic,
     _route_after_design,
     _route_after_dev,
     _route_after_hitl_bid,
+    _route_after_hitl_email,
     _route_after_hitl_review,
     _route_after_packager,
     _route_after_planner,
     _route_after_scout,
+    bid_submission_node,
+    build_planner_pipeline_graph,
+    create_graph_with_persistence,
 )
 
 # ---------------------------------------------------------------------------
@@ -73,9 +82,9 @@ def test_route_after_bid_no_hitl():
 # ---------------------------------------------------------------------------
 
 def test_route_after_hitl_bid_approved():
-    """HITL bid routes to planner_node when not failed (approved)."""
+    """HITL bid routes to bid_submission_node when not failed (approved)."""
     state = {"thread_id": "t1", "status": "active"}
-    assert _route_after_hitl_bid(state) == "planner_node"
+    assert _route_after_hitl_bid(state) == "bid_submission_node"
 
 
 def test_route_after_hitl_bid_rejected():
@@ -177,31 +186,32 @@ def test_route_after_critic_approved():
 
 
 def test_route_after_critic_minor_revision():
-    """Critic routes to dev_node for minor revision (retry_count < limit)."""
+    """Critic routes to dev_node for minor revision (revision count < limit)."""
+    # No artifacts yet — defaults to count=0
     state = {
         "thread_id": "t1",
         "status": "active",
         "next_agent": "dev",
-        "retry_count": 0,
     }
     assert _route_after_critic(state) == "dev_node"
 
+    # Explicit count below limit
     state2 = {
         "thread_id": "t2",
         "status": "active",
         "next_agent": "dev",
-        "retry_count": 2,
+        "artifacts": {"_critic_revision_count": 2},
     }
     assert _route_after_critic(state2) == "dev_node"
 
 
 def test_route_after_critic_revision_limit_exceeded():
-    """Critic routes to HITL when retry_count >= MAX_REVISION_CYCLES."""
+    """Critic routes to HITL when artifacts._critic_revision_count >= MAX_REVISION_CYCLES."""
     state = {
         "thread_id": "t1",
         "status": "active",
         "next_agent": "dev",
-        "retry_count": MAX_REVISION_CYCLES,
+        "artifacts": {"_critic_revision_count": MAX_REVISION_CYCLES},
     }
     assert _route_after_critic(state) == "hitl_review_node"
 
@@ -209,7 +219,7 @@ def test_route_after_critic_revision_limit_exceeded():
         "thread_id": "t2",
         "status": "active",
         "next_agent": "dev",
-        "retry_count": MAX_REVISION_CYCLES + 1,
+        "artifacts": {"_critic_revision_count": MAX_REVISION_CYCLES + 1},
     }
     assert _route_after_critic(state2) == "hitl_review_node"
 
@@ -310,12 +320,210 @@ def test_route_after_critic_hitl_takes_precedence_over_dev():
     # next_agent=dev is checked first, so it should route to dev_node
     assert _route_after_critic(state) == "dev_node"
 
-    # But if retry_count >= MAX, HITL takes precedence
+    # But if revision count >= MAX, HITL takes precedence
     state2 = {
         "thread_id": "t2",
         "status": "active",
         "next_agent": "dev",
         "requires_hitl": True,
-        "retry_count": MAX_REVISION_CYCLES,
+        "artifacts": {"_critic_revision_count": MAX_REVISION_CYCLES},
     }
     assert _route_after_critic(state2) == "hitl_review_node"
+
+
+# ---------------------------------------------------------------------------
+# Pipeline B: email HITL routing
+# ---------------------------------------------------------------------------
+
+def test_route_after_hitl_email_always_ends():
+    """hitl_email always routes to END (emails sent after resume, not continuation)."""
+    state = {"thread_id": "t1", "status": "paused"}
+    assert _route_after_hitl_email(state) == END
+
+
+# ---------------------------------------------------------------------------
+# _apply_email_approval tests
+# ---------------------------------------------------------------------------
+
+def test_apply_email_approval_approve():
+    """Approve sets emails_approved=True and status=completed."""
+    saved = {"thread_id": "t1", "status": "paused", "artifacts": {"outreach": []}}
+    result = _apply_email_approval(saved, "approve", {}, "t1")
+    assert result["status"] == "completed"
+    assert result["artifacts"]["emails_approved"] is True
+    assert result["requires_hitl"] is False
+
+
+def test_apply_email_approval_reject():
+    """Reject sets status=failed with error message."""
+    saved = {"thread_id": "t1", "status": "paused", "errors": []}
+    result = _apply_email_approval(saved, "reject", {}, "t1")
+    assert result["status"] == "failed"
+    assert "rejected" in result["errors"][-1].lower()
+
+
+def test_apply_email_approval_edit():
+    """Edit merges edits into artifacts and marks approved."""
+    saved = {"thread_id": "t1", "status": "paused", "artifacts": {}}
+    edits = {"subject": "Updated subject"}
+    result = _apply_email_approval(saved, "edit", {"edits": edits}, "t1")
+    assert result["status"] == "completed"
+    assert result["artifacts"]["emails_approved"] is True
+    assert result["artifacts"]["hitl_edits"] == [edits]
+
+
+def test_apply_email_approval_unknown_action():
+    """Unknown action defaults to approve with emails_approved=True."""
+    saved = {"thread_id": "t1", "status": "paused", "artifacts": {}}
+    result = _apply_email_approval(saved, "later", {}, "t1")
+    assert result["status"] == "completed"
+    assert result["artifacts"]["emails_approved"] is True
+
+
+# ---------------------------------------------------------------------------
+# create_graph_with_persistence Pipeline B option
+# ---------------------------------------------------------------------------
+
+@patch("src.core.graph.HybridCheckpointSaver")
+@patch("src.core.graph.build_pipeline_b_graph")
+def test_create_graph_with_persistence_pipeline_b(mock_build, _mock_cp):
+    """create_graph_with_persistence(pipeline_b=True) builds Pipeline B graph."""
+    create_graph_with_persistence(MagicMock(), MagicMock(), pipeline_b=True)
+    mock_build.assert_called_once()
+
+
+@patch("src.core.graph.HybridCheckpointSaver")
+@patch("src.core.graph.build_full_pipeline_graph")
+def test_create_graph_with_persistence_full_pipeline(mock_build, _mock_cp):
+    """create_graph_with_persistence(full_pipeline=True) builds Pipeline A graph."""
+    create_graph_with_persistence(MagicMock(), MagicMock(), full_pipeline=True)
+    mock_build.assert_called_once()
+
+
+@patch("src.core.graph.HybridCheckpointSaver")
+@patch("src.core.graph.build_full_pipeline_graph")
+@patch("src.core.graph.build_pipeline_b_graph")
+def test_create_graph_with_persistence_pipeline_b_overrides_full(mock_build_b, mock_build_a, _mock_cp):
+    """pipeline_b=True takes precedence over full_pipeline=True."""
+    create_graph_with_persistence(MagicMock(), MagicMock(), full_pipeline=True, pipeline_b=True)
+    mock_build_b.assert_called_once()
+    mock_build_a.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Bid submission routing tests
+# ---------------------------------------------------------------------------
+
+
+def test_route_after_bid_submission_to_planner():
+    """Bid submission always routes to planner_node (normal path)."""
+    state = {"thread_id": "t1", "status": "active"}
+    assert _route_after_bid_submission(state) == "planner_node"
+
+
+def test_route_after_bid_submission_failed():
+    """Bid submission routes to END when status=failed."""
+    state = {"thread_id": "t1", "status": "failed"}
+    assert _route_after_bid_submission(state) == END
+
+
+# ---------------------------------------------------------------------------
+# bid_submission_node tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bid_submission_node_freelancer():
+    """bid_submission_node calls FreelancerClient.submit_bid for freelancer platform."""
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "project": {"platform": "freelancer", "job_id": "proj-123"},
+        "artifacts": {"bid": {"proposal": "I can do this", "amount": 500}},
+        "current_agent": "hitl_bid",
+        "next_agent": None,
+    }
+
+    mock_client = MagicMock()
+    mock_client.submit_bid = AsyncMock(return_value={"bid_id": "b-1"})
+
+    with patch(
+        "src.adapters.freelancer.FreelancerClient",
+        return_value=mock_client,
+    ):
+        result = await bid_submission_node(state)
+
+    assert result["artifacts"]["bid_submitted"] is True
+    assert result["artifacts"]["bid_submission_result"] == {"bid_id": "b-1"}
+    assert result["next_agent"] == "planner"
+    mock_client.submit_bid.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_bid_submission_node_non_freelancer():
+    """bid_submission_node marks non-freelancer platforms as manual_submit_required."""
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "project": {"platform": "kwork"},
+        "artifacts": {"bid": {"proposal": "I can do this"}},
+        "current_agent": "hitl_bid",
+        "next_agent": None,
+    }
+
+    result = await bid_submission_node(state)
+
+    assert result["artifacts"]["bid_submitted"] is False
+    assert result["artifacts"]["manual_submit_required"] is True
+    assert result["next_agent"] == "planner"
+
+
+@pytest.mark.asyncio
+async def test_bid_submission_node_freelancer_failure():
+    """bid_submission_node handles FreelancerClient failure gracefully."""
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "project": {"platform": "freelancer", "job_id": "proj-123"},
+        "artifacts": {"bid": {}},
+        "current_agent": "hitl_bid",
+        "next_agent": None,
+    }
+
+    with patch(
+        "src.adapters.freelancer.FreelancerClient",
+        side_effect=ConnectionError("API down"),
+    ):
+        result = await bid_submission_node(state)
+
+    assert result["artifacts"]["bid_submitted"] is False
+    assert "API down" in result["artifacts"]["bid_submission_error"]
+    assert result["next_agent"] == "planner"
+
+
+@pytest.mark.asyncio
+async def test_bid_submission_node_missing_project():
+    """bid_submission_node handles missing project gracefully (non-freelancer path)."""
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "artifacts": {},
+        "current_agent": "hitl_bid",
+        "next_agent": None,
+    }
+
+    result = await bid_submission_node(state)
+
+    assert result["artifacts"]["manual_submit_required"] is True
+    assert result["next_agent"] == "planner"
+
+
+# ---------------------------------------------------------------------------
+# build_planner_pipeline_graph tests
+# ---------------------------------------------------------------------------
+
+
+def test_build_planner_pipeline_graph_compiles():
+    """build_planner_pipeline_graph returns a compiled graph starting at planner."""
+    graph = build_planner_pipeline_graph()
+    assert graph is not None

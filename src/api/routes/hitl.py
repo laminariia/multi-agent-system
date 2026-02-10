@@ -82,6 +82,27 @@ _NEXT_ACTION_MAP: dict[str, dict[str, str]] = {
         "skip": "alert_skipped",
         "later": "alert_deferred",
     },
+    "email_approval": {
+        "approve": "emails_will_be_sent",
+        "reject": "emails_discarded",
+        "edit": "emails_revised_and_sent",
+        "skip": "emails_skipped",
+        "later": "emails_deferred",
+    },
+    "final_review": {
+        "approve": "work_delivered_to_client",
+        "reject": "work_rejected_for_rework",
+        "edit": "work_revised_and_delivered",
+        "skip": "delivery_skipped",
+        "later": "delivery_deferred",
+    },
+    "job_review": {
+        "approve": "job_accepted_for_bidding",
+        "reject": "job_rejected",
+        "edit": "job_criteria_modified",
+        "skip": "job_skipped",
+        "later": "job_review_deferred",
+    },
 }
 
 

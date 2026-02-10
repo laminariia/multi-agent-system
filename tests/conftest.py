@@ -12,11 +12,28 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage
+from langgraph.graph import StateGraph
 
 from src.core.heartbeat import HeartbeatConfig, HeartbeatMonitor
 from src.core.llm_client import CallMetrics, CostTracker, LLMClient
 from src.core.loop_detector import LoopDetector
 from src.core.state import AgentState, ProjectContext, create_initial_state
+
+# Save the original compile method BEFORE Sentry can patch it.
+_original_compile = StateGraph.compile
+
+
+@pytest.fixture(autouse=True)
+def _restore_langgraph_compile():
+    """Prevent Sentry SDK's LangGraph integration from leaking across tests.
+
+    Sentry monkey-patches ``StateGraph.compile`` via its LangGraphIntegration.
+    The patched version calls ``compiled_graph.get_graph()`` which fails for
+    graphs using ``StateGraph(dict)`` with multiple nodes writing the same key.
+    This fixture restores the original ``compile`` after every test.
+    """
+    yield
+    StateGraph.compile = _original_compile
 
 # ---------------------------------------------------------------------------
 # Infrastructure mocks
