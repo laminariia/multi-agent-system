@@ -1,7 +1,7 @@
 # 🔌 API Specification — Multi-Agent System
 
-**Version:** 1.0  
-**Framework:** Litestar + Python 3.12  
+**Version:** 1.0
+**Framework:** Litestar + Python 3.12+
 **Real-time:** WebSocket (Litestar ChannelsPlugin)
 
 ---
@@ -15,13 +15,17 @@
 │                                                                              │
 │  HTTP REST                           WebSocket                               │
 │  ─────────                           ─────────                               │
-│  /api/v1/auth/*                      /ws/events                              │
-│  /api/v1/hitl/*                        ├── agent:heartbeat                   │
-│  /api/v1/agents/*                      ├── agent:log                         │
-│  /api/v1/projects/*                    ├── hitl:new                          │
-│  /api/v1/jobs/*                        ├── hitl:resolved                     │
-│  /api/v1/outreach/*                    ├── project:update                    │
-│  /api/v1/analytics/*                   └── notification                      │
+│  /api/v1/auth/register               /ws/events                              │
+│  /api/v1/auth/*                        ├── agent:heartbeat                   │
+│  /api/v1/hitl/*                        ├── agent:log                         │
+│  /api/v1/agents/*                      ├── hitl:new                          │
+│  /api/v1/users/*                       ├── hitl:resolved                     │
+│  /api/v1/projects/* (Phase 3+)         ├── project:update                    │
+│  /api/v1/jobs/*                        └── notification                      │
+│  /api/v1/outreach/* (Phase 3+)                                               │
+│  /api/v1/analytics/* (Phase 3+)                                              │
+│  /health                                                                     │
+│  /metrics                                                                    │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -29,6 +33,47 @@
 ---
 
 ## 🔐 Authentication
+
+### POST `/api/v1/auth/register`
+Register a new user. First user is auto-approved as owner with active status. Subsequent users require approval and receive pending_approval status.
+
+**Request:**
+```json
+{
+  "email": "user@example.com",
+  "password": "secret123",
+  "name": "John Doe"
+}
+```
+
+**Response (200) — First user:**
+```json
+{
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "name": "John Doe",
+    "role": "owner",
+    "status": "active"
+  }
+}
+```
+
+**Response (202) — Subsequent users:**
+```json
+{
+  "message": "Registration successful. Your account is pending approval.",
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "name": "John Doe",
+    "role": "viewer",
+    "status": "pending_approval"
+  }
+}
+```
 
 ### POST `/api/v1/auth/login`
 Login with email/password.
@@ -50,7 +95,8 @@ Login with email/password.
     "id": "uuid",
     "email": "user@example.com",
     "name": "John",
-    "role": "owner"
+    "role": "owner",
+    "status": "active"
   }
 }
 ```
@@ -63,6 +109,24 @@ Invalidate tokens.
 
 ### GET `/api/v1/auth/me`
 Get current user info.
+
+### POST `/api/v1/auth/telegram-link`
+Link Telegram account to user.
+
+**Request:**
+```json
+{
+  "link_code": "ABC123"
+}
+```
+
+**Response (200):**
+```json
+{
+  "status": "linked",
+  "telegram_chat_id": "123456789"
+}
+```
 
 ---
 
@@ -222,6 +286,8 @@ Resume agent processing.
 
 ## 📋 Projects
 
+> **Status:** Planned endpoints. Job tracking is implemented via `/api/v1/jobs/*`.
+
 ### GET `/api/v1/projects`
 List projects with Kanban data.
 
@@ -270,6 +336,145 @@ Add digitalization project to processing queue.
 
 ---
 
+## 👥 User Management
+
+All endpoints require `owner` or `co_owner` role.
+
+### GET `/api/v1/users`
+List all users.
+
+**Response:**
+```json
+{
+  "users": [
+    {
+      "id": "uuid",
+      "email": "owner@example.com",
+      "name": "Owner User",
+      "role": "owner",
+      "status": "active",
+      "telegram_chat_id": "123456789",
+      "created_at": "2026-01-15T10:00:00Z"
+    },
+    {
+      "id": "uuid",
+      "email": "pending@example.com",
+      "name": "Pending User",
+      "role": "viewer",
+      "status": "pending_approval",
+      "telegram_chat_id": null,
+      "created_at": "2026-02-09T08:30:00Z"
+    }
+  ],
+  "total": 2
+}
+```
+
+### POST `/api/v1/users/{id}/approve`
+Approve a pending user.
+
+**Request:**
+```json
+{
+  "role": "moderator"
+}
+```
+
+**Response (200):**
+```json
+{
+  "id": "uuid",
+  "status": "active",
+  "role": "moderator"
+}
+```
+
+### POST `/api/v1/users/{id}/reject`
+Reject a pending user.
+
+**Request:**
+```json
+{
+  "reason": "Spam account"
+}
+```
+
+**Response (200):**
+```json
+{
+  "id": "uuid",
+  "status": "rejected"
+}
+```
+
+### PATCH `/api/v1/users/{id}/role`
+Change user role.
+
+**Request:**
+```json
+{
+  "role": "moderator"
+}
+```
+
+**Roles:**
+- `owner` — Full control (1 only)
+- `co_owner` — Same as owner, except cannot modify owner/co_owner accounts
+- `moderator` — Can manage jobs, HITL, agents
+- `viewer` — Read-only access
+
+**Response (200):**
+```json
+{
+  "id": "uuid",
+  "role": "moderator"
+}
+```
+
+### PATCH `/api/v1/users/{id}/status`
+Change user status.
+
+**Request:**
+```json
+{
+  "status": "suspended"
+}
+```
+
+**Statuses:**
+- `active` — Normal access
+- `pending_approval` — Awaiting approval
+- `rejected` — Registration rejected
+- `suspended` — Account suspended
+
+**Response (200):**
+```json
+{
+  "id": "uuid",
+  "status": "suspended"
+}
+```
+
+### DELETE `/api/v1/users/{id}`
+Delete a user.
+
+**Response (204):**
+No content.
+
+### POST `/api/v1/users/{id}/transfer-ownership`
+Transfer owner role to another user. Only the current owner can perform this action. The current owner becomes a co_owner after transfer.
+
+**Response (200):**
+```json
+{
+  "new_owner_id": "uuid",
+  "previous_owner_id": "uuid",
+  "message": "Ownership transferred successfully"
+}
+```
+
+---
+
 ## 🔍 Jobs
 
 ### GET `/api/v1/jobs`
@@ -289,6 +494,8 @@ Manually disqualify a job.
 ---
 
 ## 🗺️ Outreach (Pipeline B)
+
+> **Status:** Not yet implemented. Planned for Phase 3+.
 
 ### POST `/api/v1/outreach/scan`
 Start a geo scan.
@@ -349,6 +556,8 @@ Resume campaign.
 ---
 
 ## 📈 Analytics
+
+> **Status:** Not yet implemented. Planned for Phase 3+.
 
 ### GET `/api/v1/analytics/dashboard`
 Main dashboard KPIs.
@@ -510,6 +719,73 @@ ws.onmessage = (event) => {
 
 ---
 
+## 🏥 Health & Metrics
+
+### GET `/health`
+System health check endpoint.
+
+**Response (200) — Healthy:**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-02-09T12:00:00Z",
+  "components": {
+    "database": "healthy",
+    "valkey": "healthy",
+    "llm_api": "healthy"
+  }
+}
+```
+
+**Response (200) — Degraded:**
+```json
+{
+  "status": "degraded",
+  "timestamp": "2026-02-09T12:00:00Z",
+  "components": {
+    "database": "healthy",
+    "valkey": "unhealthy",
+    "llm_api": "healthy"
+  }
+}
+```
+
+**Response (503) — Unhealthy:**
+```json
+{
+  "status": "unhealthy",
+  "timestamp": "2026-02-09T12:00:00Z",
+  "components": {
+    "database": "unhealthy",
+    "valkey": "healthy",
+    "llm_api": "healthy"
+  }
+}
+```
+
+### GET `/metrics`
+Prometheus metrics endpoint.
+
+**Response (200):**
+```
+# HELP mas_agent_heartbeats_total Total agent heartbeats
+# TYPE mas_agent_heartbeats_total counter
+mas_agent_heartbeats_total{agent="scout"} 1523
+mas_agent_heartbeats_total{agent="bid"} 987
+
+# HELP mas_llm_calls_total Total LLM API calls
+# TYPE mas_llm_calls_total counter
+mas_llm_calls_total{model="gemini-3-flash"} 4521
+
+# HELP mas_hitl_pending HITL items pending
+# TYPE mas_hitl_pending gauge
+mas_hitl_pending 3
+```
+
+**Content-Type:** `text/plain; charset=utf-8`
+
+---
+
 ## ⚠️ Error Responses
 
 All errors follow this format:
@@ -544,11 +820,11 @@ All errors follow this format:
 
 | Endpoint Group | Limit |
 |----------------|-------|
-| `/api/v1/auth/*` | 10/min |
-| `/api/v1/hitl/*` | 60/min |
-| `/api/v1/agents/*` | 30/min |
-| `/api/v1/outreach/scan` | 5/hour |
+| Global (all endpoints) | 300/min |
+| `/api/v1/auth/*` | 60/min |
 | WebSocket events | 100/sec |
+
+**Note:** Rate limiting uses `X-Forwarded-For` header for client identification. On Railway and similar proxy environments, all client IPs may appear as a single proxy IP, making IP-based rate limits effectively global across all users.
 
 ### Litestar Rate Limit Implementation
 
@@ -601,19 +877,36 @@ When exceeded (HTTP 429):
 
 | Command | Description |
 |---------|-------------|
+| `/start` | Welcome message |
 | `/status` | System health overview |
 | `/pending` | List pending HITL items |
 | `/stats` | Today's statistics |
 | `/approve {id}` | Quick approve HITL |
 | `/skip {id}` | Skip HITL item |
+| `/run` | Start orchestrator pipeline |
+| `/stop` | Stop orchestrator pipeline |
+| `/orch` | Orchestrator control panel (inline keyboard) |
+| `/goals` | View goal queue |
+| `/health` | Detailed system health |
+| `/milestones` | View phase milestones |
+| `/logs` | Recent agent logs |
+| `/add_goal` | Add new goal to queue |
 
 ### Inline Keyboards
 
-HITL notifications include inline buttons:
+**HITL notifications** include inline buttons:
 - ✅ Approve
-- ❌ Skip  
+- ❌ Skip
 - ⏸️ Later
 - 🔗 Open Dashboard
+
+**Orchestrator control panel** (`/orch` command):
+- ▶️ Start Pipeline (callback: `orch:run`)
+- ⏹️ Stop Pipeline (callback: `orch:stop`)
+- 🎯 View Goals (callback: `orch:goals`)
+- 🏥 System Health (callback: `orch:health`)
+- 🎯 Milestones (callback: `orch:milestones`)
+- 📋 Recent Logs (callback: `orch:logs`)
 
 ---
 
