@@ -10,6 +10,9 @@ import type {
   JobListResponse,
   UserListResponse,
   User,
+  LeadListResponse,
+  PipelineBStats,
+  ScanResponse,
 } from "./types";
 
 declare global {
@@ -343,5 +346,36 @@ export async function deleteUser(id: string): Promise<{ message: string }> {
 export async function transferOwnership(userId: string): Promise<{ message: string }> {
   return apiFetch<{ message: string }>(`/users/${userId}/transfer-ownership`, {
     method: "POST",
+  });
+}
+
+// --- Pipeline B ---
+
+export async function fetchLeads(params?: {
+  city?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<LeadListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.city) searchParams.set("city", params.city);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+
+  const query = searchParams.toString();
+  return apiFetch<LeadListResponse>(
+    `/pipeline-b/leads${query ? `?${query}` : ""}`
+  );
+}
+
+export async function fetchPipelineBStats(): Promise<PipelineBStats> {
+  return apiFetch<PipelineBStats>("/pipeline-b/stats");
+}
+
+export async function startScan(city: string): Promise<ScanResponse> {
+  return apiFetch<ScanResponse>("/pipeline-b/scan", {
+    method: "POST",
+    body: JSON.stringify({ city }),
   });
 }

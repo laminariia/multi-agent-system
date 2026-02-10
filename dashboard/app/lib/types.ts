@@ -130,3 +130,36 @@ export interface JobListResponse {
   jobs: Job[];
   total: number;
 }
+
+// --- Pipeline B ---
+
+export interface Lead {
+  id: string;
+  name: string;
+  category: string | null;
+  city: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  status: string;
+  enrichment_source: string | null;
+  discovered_at: string | null;
+}
+
+export interface LeadListResponse {
+  leads: Lead[];
+  total: number;
+}
+
+export interface PipelineBStats {
+  total_leads: number;
+  by_status: Record<string, number>;
+  top_cities: { city: string; count: number }[];
+}
+
+export interface ScanResponse {
+  status: string;
+  thread_id: string;
+  city: string;
+  message: string;
+}
