@@ -99,7 +99,7 @@ class TestRunProjectPipeline:
 
         with (
             patch("src.worker.tasks.ProjectContext", return_value=mock_project),
-            patch("src.core.graph.build_full_pipeline_graph") as mock_build,
+            patch("src.core.graph.build_planner_pipeline_graph") as mock_build,
         ):
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value={"status": "completed"})
@@ -119,15 +119,15 @@ class TestRunProjectPipeline:
             assert result["project_id"] == "proj-123"
 
     @pytest.mark.asyncio
-    async def test_calls_build_full_pipeline_graph_and_ainvoke(self) -> None:
-        """Should build graph and invoke it."""
+    async def test_calls_build_planner_pipeline_graph_and_ainvoke(self) -> None:
+        """Should build planner pipeline graph and invoke it."""
         from unittest.mock import MagicMock
         mock_project = MagicMock()
         mock_project.project_id = "proj-123"
 
         with (
             patch("src.worker.tasks.ProjectContext", return_value=mock_project),
-            patch("src.core.graph.build_full_pipeline_graph") as mock_build,
+            patch("src.core.graph.build_planner_pipeline_graph") as mock_build,
         ):
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value={"status": "in_progress"})
@@ -159,7 +159,7 @@ class TestRunProjectPipeline:
 
         with (
             patch("src.worker.tasks.ProjectContext", return_value=mock_project),
-            patch("src.core.graph.build_full_pipeline_graph") as mock_build,
+            patch("src.core.graph.build_planner_pipeline_graph") as mock_build,
         ):
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value={"status": "delivered"})
@@ -242,7 +242,7 @@ class TestDispatchTask:
 
         with (
             patch("src.worker.tasks.ProjectContext", return_value=mock_project),
-            patch("src.core.graph.build_full_pipeline_graph") as mock_build,
+            patch("src.core.graph.build_planner_pipeline_graph") as mock_build,
         ):
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value={"status": "completed"})

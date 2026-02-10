@@ -104,6 +104,14 @@ class Settings(BaseSettings):
     SEMANTIC_CACHE_TTL_TRANSLATION: int = 604_800    # 7 d
     SEMANTIC_CACHE_TTL_DEFAULT: int = 21_600         # 6 h
 
+    # ── Email / SMTP ─────────────────────────────────────────────────
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+    MAX_EMAILS_PER_DAY: int = 50
+
     # ── Application ────────────────────────────────────────────────────
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False

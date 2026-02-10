@@ -5,14 +5,16 @@ graph compilation.  Each routing function is a pure function that inspects
 state fields and returns the next node name or END.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from langgraph.graph import END
 
 from src.core.graph import (
     MAX_REVISION_CYCLES,
     _apply_email_approval,
     _route_after_bid,
+    _route_after_bid_submission,
     _route_after_content,
     _route_after_critic,
     _route_after_design,
@@ -23,6 +25,8 @@ from src.core.graph import (
     _route_after_packager,
     _route_after_planner,
     _route_after_scout,
+    bid_submission_node,
+    build_planner_pipeline_graph,
     create_graph_with_persistence,
 )
 
@@ -78,9 +82,9 @@ def test_route_after_bid_no_hitl():
 # ---------------------------------------------------------------------------
 
 def test_route_after_hitl_bid_approved():
-    """HITL bid routes to planner_node when not failed (approved)."""
+    """HITL bid routes to bid_submission_node when not failed (approved)."""
     state = {"thread_id": "t1", "status": "active"}
-    assert _route_after_hitl_bid(state) == "planner_node"
+    assert _route_after_hitl_bid(state) == "bid_submission_node"
 
 
 def test_route_after_hitl_bid_rejected():
@@ -404,3 +408,122 @@ def test_create_graph_with_persistence_pipeline_b_overrides_full(mock_build_b, m
     create_graph_with_persistence(MagicMock(), MagicMock(), full_pipeline=True, pipeline_b=True)
     mock_build_b.assert_called_once()
     mock_build_a.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Bid submission routing tests
+# ---------------------------------------------------------------------------
+
+
+def test_route_after_bid_submission_to_planner():
+    """Bid submission always routes to planner_node (normal path)."""
+    state = {"thread_id": "t1", "status": "active"}
+    assert _route_after_bid_submission(state) == "planner_node"
+
+
+def test_route_after_bid_submission_failed():
+    """Bid submission routes to END when status=failed."""
+    state = {"thread_id": "t1", "status": "failed"}
+    assert _route_after_bid_submission(state) == END
+
+
+# ---------------------------------------------------------------------------
+# bid_submission_node tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bid_submission_node_freelancer():
+    """bid_submission_node calls FreelancerClient.submit_bid for freelancer platform."""
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "project": {"platform": "freelancer", "job_id": "proj-123"},
+        "artifacts": {"bid": {"proposal": "I can do this", "amount": 500}},
+        "current_agent": "hitl_bid",
+        "next_agent": None,
+    }
+
+    mock_client = MagicMock()
+    mock_client.submit_bid = AsyncMock(return_value={"bid_id": "b-1"})
+
+    with patch(
+        "src.adapters.freelancer.FreelancerClient",
+        return_value=mock_client,
+    ):
+        result = await bid_submission_node(state)
+
+    assert result["artifacts"]["bid_submitted"] is True
+    assert result["artifacts"]["bid_submission_result"] == {"bid_id": "b-1"}
+    assert result["next_agent"] == "planner"
+    mock_client.submit_bid.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_bid_submission_node_non_freelancer():
+    """bid_submission_node marks non-freelancer platforms as manual_submit_required."""
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "project": {"platform": "kwork"},
+        "artifacts": {"bid": {"proposal": "I can do this"}},
+        "current_agent": "hitl_bid",
+        "next_agent": None,
+    }
+
+    result = await bid_submission_node(state)
+
+    assert result["artifacts"]["bid_submitted"] is False
+    assert result["artifacts"]["manual_submit_required"] is True
+    assert result["next_agent"] == "planner"
+
+
+@pytest.mark.asyncio
+async def test_bid_submission_node_freelancer_failure():
+    """bid_submission_node handles FreelancerClient failure gracefully."""
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "project": {"platform": "freelancer", "job_id": "proj-123"},
+        "artifacts": {"bid": {}},
+        "current_agent": "hitl_bid",
+        "next_agent": None,
+    }
+
+    with patch(
+        "src.adapters.freelancer.FreelancerClient",
+        side_effect=ConnectionError("API down"),
+    ):
+        result = await bid_submission_node(state)
+
+    assert result["artifacts"]["bid_submitted"] is False
+    assert "API down" in result["artifacts"]["bid_submission_error"]
+    assert result["next_agent"] == "planner"
+
+
+@pytest.mark.asyncio
+async def test_bid_submission_node_missing_project():
+    """bid_submission_node handles missing project gracefully (non-freelancer path)."""
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "artifacts": {},
+        "current_agent": "hitl_bid",
+        "next_agent": None,
+    }
+
+    result = await bid_submission_node(state)
+
+    assert result["artifacts"]["manual_submit_required"] is True
+    assert result["next_agent"] == "planner"
+
+
+# ---------------------------------------------------------------------------
+# build_planner_pipeline_graph tests
+# ---------------------------------------------------------------------------
+
+
+def test_build_planner_pipeline_graph_compiles():
+    """build_planner_pipeline_graph returns a compiled graph starting at planner."""
+    graph = build_planner_pipeline_graph()
+    assert graph is not None
