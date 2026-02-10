@@ -290,15 +290,16 @@ class TestTaskRegistry:
     """Test TASK_REGISTRY constant."""
 
     def test_contains_all_registered_tasks(self) -> None:
-        """Registry should contain all 3 task handlers."""
-        assert len(TASK_REGISTRY) == 3
+        """Registry should contain all 4 task handlers."""
+        assert len(TASK_REGISTRY) == 4
         assert "scout_cycle" in TASK_REGISTRY
         assert "project_pipeline" in TASK_REGISTRY
         assert "bid_generation" in TASK_REGISTRY
+        assert "pipeline_b_scan" in TASK_REGISTRY
 
     def test_keys_match_expected_task_type_names(self) -> None:
         """Registry keys should match expected task types."""
-        expected_keys = {"scout_cycle", "project_pipeline", "bid_generation"}
+        expected_keys = {"scout_cycle", "project_pipeline", "bid_generation", "pipeline_b_scan"}
         assert set(TASK_REGISTRY.keys()) == expected_keys
 
     def test_handlers_are_callable(self) -> None:
