@@ -7,6 +7,7 @@ helpers so the bot shares connection pools with the rest of the system.
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import string
 import uuid
@@ -25,6 +26,9 @@ from src.core.database import get_db_session, get_valkey
 from src.core.models import AgentHeartbeat, HITLQueue, User
 
 logger = structlog.get_logger(__name__)
+
+# Strong references to background scan tasks so they aren't garbage-collected.
+_scan_tasks: set[asyncio.Task[object]] = set()
 
 # ---------------------------------------------------------------------------
 # Decorator: require a linked MAS account
@@ -406,8 +410,6 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     city = " ".join(args)
 
-    import asyncio  # noqa: PLC0415
-
     from src.core.graph import run_pipeline_b  # noqa: PLC0415
 
     thread_id = uuid.uuid4().hex
@@ -419,8 +421,10 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             parse_mode=ParseMode.HTML,
         )
 
-        # Run pipeline in background
-        asyncio.create_task(run_pipeline_b(city, thread_id=thread_id))
+        # Run pipeline in background (stored to prevent GC)
+        task = asyncio.create_task(run_pipeline_b(city, thread_id=thread_id))
+        _scan_tasks.add(task)
+        task.add_done_callback(_scan_tasks.discard)
 
     except Exception as exc:
         logger.exception("scan_command_error", city=city, error=str(exc))

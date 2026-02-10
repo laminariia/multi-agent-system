@@ -16,6 +16,9 @@ from src.core.models import Lead
 
 logger = structlog.get_logger(__name__)
 
+# Strong references to background tasks so they aren't garbage-collected.
+_background_tasks: set[asyncio.Task[Any]] = set()
+
 
 class PipelineBController(Controller):
     """Pipeline B API endpoints for geo scanning and outreach."""
@@ -41,8 +44,10 @@ class PipelineBController(Controller):
 
         from src.core.graph import run_pipeline_b  # noqa: PLC0415
 
-        # Start the pipeline as a background task
-        asyncio.create_task(run_pipeline_b(city, thread_id=thread_id))
+        # Start the pipeline as a background task (stored to prevent GC)
+        task = asyncio.create_task(run_pipeline_b(city, thread_id=thread_id))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
 
         logger.info("pipeline_b_scan_started", city=city, thread_id=thread_id)
 

@@ -428,9 +428,6 @@ class OutreachAgent(ConstrainedAgent):
             await session.refresh(hitl)
             return hitl.id
 
-        # Unreachable -- satisfies type checker for async context manager.
-        return uuid.uuid4()  # pragma: no cover
-
 
 # ======================================================================
 # Helpers
