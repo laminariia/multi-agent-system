@@ -46,7 +46,14 @@ def create_bot_application() -> Application:
             "Add it to .env or export it as an environment variable."
         )
 
-    builder = Application.builder().token(token)
+    builder = (
+        Application.builder()
+        .token(token)
+        .connect_timeout(30)
+        .read_timeout(30)
+        .get_updates_connect_timeout(30)
+        .get_updates_read_timeout(30)
+    )
     app = builder.build()
 
     # -- HITL command handlers -----------------------------------------------

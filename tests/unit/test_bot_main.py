@@ -52,7 +52,8 @@ class TestBotMain:
             main()
 
             mock_app.run_polling.assert_called_once_with(
-                allowed_updates=["message", "callback_query"]
+                allowed_updates=["message", "callback_query"],
+                bootstrap_retries=3,
             )
 
     def test_main_with_create_failure(self) -> None:

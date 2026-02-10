@@ -41,9 +41,13 @@ def mock_application():
         mock_app.add_handler = mock_add_handler
         mock_app._added_handlers = added_handlers  # Store for inspection
 
-        # Mock builder chain
+        # Mock builder chain (token -> connect_timeout -> read_timeout -> ... -> build)
         mock_builder = MagicMock()
         mock_builder.token.return_value = mock_builder
+        mock_builder.connect_timeout.return_value = mock_builder
+        mock_builder.read_timeout.return_value = mock_builder
+        mock_builder.get_updates_connect_timeout.return_value = mock_builder
+        mock_builder.get_updates_read_timeout.return_value = mock_builder
         mock_builder.build.return_value = mock_app
 
         mock_builder_fn.return_value = mock_builder
