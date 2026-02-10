@@ -20,6 +20,7 @@ from src.bot.orchestrator_commands import (
     health_command,
     logs_command,
     milestones_command,
+    orch_button_callback,
     orch_command,
     run_command,
     stop_command,
@@ -65,7 +66,8 @@ def create_bot_application() -> Application:
     app.add_handler(CommandHandler("logs", logs_command))
     app.add_handler(CommandHandler("add_goal", add_goal_command))
 
-    # -- Inline-keyboard callback handler ----------------------------------
+    # -- Inline-keyboard callback handlers ---------------------------------
+    app.add_handler(CallbackQueryHandler(orch_button_callback, pattern=r"^orch:"))
     app.add_handler(CallbackQueryHandler(button_callback))
 
     logger.info("telegram_bot.created", handlers=14)
