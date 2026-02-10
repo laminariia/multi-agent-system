@@ -7,10 +7,13 @@ Canonical variable names follow TECH_STACK.md exactly.
 from __future__ import annotations
 
 import json
+import logging
 from functools import lru_cache
 
 from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -81,11 +84,25 @@ class Settings(BaseSettings):
             if isinstance(parsed, list):
                 return [str(u) for u in parsed]
         except (json.JSONDecodeError, ValueError):
-            pass
+            _logger.warning("CORS_ALLOWED_ORIGINS is not valid JSON, falling back to comma-separated parsing: %s", raw)
         # Handle [url1,url2] (no JSON quotes) or comma-separated
         if raw.startswith("[") and raw.endswith("]"):
             raw = raw[1:-1]
         return [u.strip() for u in raw.split(",") if u.strip()]
+
+    # ── Heartbeat ─────────────────────────────────────────────────────
+    HEARTBEAT_INTERVAL_SECONDS: int = 90
+    HEARTBEAT_TIMEOUT_SECONDS: int = 180
+    HEARTBEAT_MAX_RESTARTS: int = 3
+    HEARTBEAT_MONITOR_POLL_SECONDS: int = 30
+
+    # ── Semantic Cache ────────────────────────────────────────────────
+    SEMANTIC_CACHE_SIMILARITY_THRESHOLD: float = 0.92
+    SEMANTIC_CACHE_TTL_PROPOSAL: int = 86_400       # 24 h
+    SEMANTIC_CACHE_TTL_CODE: int = 3_600             # 1 h
+    SEMANTIC_CACHE_TTL_CONTENT: int = 43_200         # 12 h
+    SEMANTIC_CACHE_TTL_TRANSLATION: int = 604_800    # 7 d
+    SEMANTIC_CACHE_TTL_DEFAULT: int = 21_600         # 6 h
 
     # ── Application ────────────────────────────────────────────────────
     APP_VERSION: str = "1.0.0"
