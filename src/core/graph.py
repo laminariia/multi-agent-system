@@ -371,7 +371,8 @@ def _route_after_critic(state: dict[str, Any]) -> str:
 
     # MINOR REVISION -- send back to Dev, respecting the cycle limit
     if state.get("next_agent") == "dev":
-        revision_count = state.get("retry_count", 0)
+        artifacts = state.get("artifacts") or {}
+        revision_count = artifacts.get("_critic_revision_count", 0)
         if revision_count < MAX_REVISION_CYCLES:
             logger.info(
                 "critic_route_to_dev_revision",
@@ -723,6 +724,7 @@ def create_graph_with_persistence(
     db_pool: asyncpg.Pool,
     *,
     full_pipeline: bool = True,
+    pipeline_b: bool = False,
 ) -> CompiledGraph:
     """Build a graph backed by hybrid persistence.
 
@@ -731,11 +733,15 @@ def create_graph_with_persistence(
         db_pool: An ``asyncpg.Pool`` connected to PostgreSQL.
         full_pipeline: When ``True`` (default) builds the full Phase 1
             pipeline.  When ``False`` builds the legacy Scout -> Bid graph.
+            Ignored when *pipeline_b* is ``True``.
+        pipeline_b: When ``True`` builds the Pipeline B (Outreach) graph.
 
     Returns:
         A compiled graph with :class:`HybridCheckpointSaver` attached.
     """
     checkpointer = HybridCheckpointSaver(valkey=valkey, db_pool=db_pool)
+    if pipeline_b:
+        return build_pipeline_b_graph(checkpointer=checkpointer)
     if full_pipeline:
         return build_full_pipeline_graph(checkpointer=checkpointer)
     return build_scout_bid_graph(checkpointer=checkpointer)
@@ -950,6 +956,8 @@ async def resume_from_hitl(
                 resolved_type = "bid_approval"
             elif current_agent == "hitl_review":
                 resolved_type = "final_review"
+            elif current_agent == "hitl_email":
+                resolved_type = "email_approval"
             else:
                 # Fall back to legacy behaviour (Phase 1 Scout -> Bid only).
                 resolved_type = "bid_approval"
@@ -999,6 +1007,24 @@ async def resume_from_hitl(
 
             logger.info(
                 "hitl_review_resumed",
+                thread_id=thread_id,
+                action=action,
+                new_status=resumed_state["status"],
+            )
+            return resumed_state  # type: ignore[return-value]
+
+        # ----- email_approval (Pipeline B) -----------------------------------
+        if resolved_type == "email_approval":
+            resumed_state = _apply_email_approval(
+                saved_state, action, hitl_response, thread_id
+            )
+
+            await checkpointer.aput(
+                config, resumed_state, {"source": "hitl_resume", "action": action}
+            )
+
+            logger.info(
+                "hitl_email_resumed",
                 thread_id=thread_id,
                 action=action,
                 new_status=resumed_state["status"],
@@ -1126,4 +1152,69 @@ def _apply_final_review(
         hitl_request_id=None,
         status="completed",
         next_agent=None,
+    )
+
+
+def _apply_email_approval(
+    saved_state: dict[str, Any],
+    action: str,
+    hitl_response: dict[str, Any],
+    thread_id: str,
+) -> AgentState:
+    """Apply the human's email-approval decision to the saved state.
+
+    On **approve** the emails are marked as approved for sending.
+    On **reject** the campaign is cancelled.
+    """
+    if action == "approve":
+        artifacts = dict(saved_state.get("artifacts") or {})
+        artifacts["emails_approved"] = True
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="completed",
+            next_agent=None,
+            artifacts=artifacts,
+        )
+
+    if action == "reject":
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="failed",
+            next_agent=None,
+            errors=[
+                *saved_state.get("errors", []),
+                "HITL: outreach emails rejected by human",
+            ],
+        )
+
+    if action == "edit":
+        edits = hitl_response.get("edits", {})
+        artifacts = dict(saved_state.get("artifacts") or {})
+        artifacts["emails_approved"] = True
+        if edits:
+            artifacts["hitl_edits"] = [edits] if not isinstance(edits, list) else edits
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="completed",
+            next_agent=None,
+            artifacts=artifacts,
+        )
+
+    # Unknown action -- treat as approve with a warning.
+    logger.warning("hitl_email_unknown_action", action=action, thread_id=thread_id)
+    artifacts = dict(saved_state.get("artifacts") or {})
+    artifacts["emails_approved"] = True
+    return update_state(
+        saved_state,  # type: ignore[arg-type]
+        requires_hitl=False,
+        hitl_request_id=None,
+        status="completed",
+        next_agent=None,
+        artifacts=artifacts,
     )
