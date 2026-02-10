@@ -97,8 +97,8 @@ class TestCreateBotApplication:
             with pytest.raises(RuntimeError, match="TELEGRAM_BOT_TOKEN is not set"):
                 create_bot_application()
 
-    def test_registers_six_command_handlers(self, mock_settings, mock_application):
-        """create_bot_application registers 6 command handlers."""
+    def test_registers_fourteen_command_handlers(self, mock_settings, mock_application):
+        """create_bot_application registers 14 command handlers (6 HITL + 8 orchestrator)."""
         from src.bot.handler import create_bot_application
 
         mock_app, _ = mock_application
@@ -108,10 +108,10 @@ class TestCreateBotApplication:
         command_handlers = [
             h for h in mock_app._added_handlers if isinstance(h, CommandHandler)
         ]
-        assert len(command_handlers) == 6
+        assert len(command_handlers) == 14
 
     def test_command_names_are_correct(self, mock_settings, mock_application):
-        """create_bot_application command names are start, status, pending, stats, approve, skip."""
+        """create_bot_application registers all 14 expected command names."""
         from src.bot.handler import create_bot_application
 
         mock_app, _ = mock_application
@@ -125,11 +125,14 @@ class TestCreateBotApplication:
         for h in command_handlers:
             all_commands.update(h.commands)
 
-        expected_commands = {"start", "status", "pending", "stats", "approve", "skip"}
+        expected_commands = {
+            "start", "status", "pending", "stats", "approve", "skip",
+            "run", "stop", "orch", "goals", "health", "milestones", "logs", "add_goal",
+        }
         assert all_commands == expected_commands
 
-    def test_registers_callback_query_handler(self, mock_settings, mock_application):
-        """create_bot_application registers callback query handler."""
+    def test_registers_two_callback_query_handlers(self, mock_settings, mock_application):
+        """create_bot_application registers 2 callback query handlers (orch + HITL)."""
         from src.bot.handler import create_bot_application
 
         mock_app, _ = mock_application
@@ -139,16 +142,16 @@ class TestCreateBotApplication:
         callback_handlers = [
             h for h in mock_app._added_handlers if isinstance(h, CallbackQueryHandler)
         ]
-        assert len(callback_handlers) == 1
+        assert len(callback_handlers) == 2
 
-    def test_total_seven_handlers_registered(self, mock_settings, mock_application):
-        """create_bot_application total 7 handlers registered."""
+    def test_total_sixteen_handlers_registered(self, mock_settings, mock_application):
+        """create_bot_application total 16 handlers registered (14 commands + 2 callbacks)."""
         from src.bot.handler import create_bot_application
 
         mock_app, _ = mock_application
         create_bot_application()
 
-        assert len(mock_app._added_handlers) == 7
+        assert len(mock_app._added_handlers) == 16
 
     def test_logs_creation_with_handler_count(self, mock_settings, mock_application):
         """create_bot_application logs creation with handler count."""
@@ -157,7 +160,7 @@ class TestCreateBotApplication:
         with patch("src.bot.handler.logger") as mock_logger:
             create_bot_application()
 
-            mock_logger.info.assert_called_once_with("telegram_bot.created", handlers=6)
+            mock_logger.info.assert_called_once_with("telegram_bot.created", handlers=16)
 
     def test_command_handler_start_is_registered(self, mock_settings, mock_application):
         """create_bot_application registers start command handler."""

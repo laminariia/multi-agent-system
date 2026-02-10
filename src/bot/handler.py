@@ -70,5 +70,5 @@ def create_bot_application() -> Application:
     app.add_handler(CallbackQueryHandler(orch_button_callback, pattern=r"^orch:"))
     app.add_handler(CallbackQueryHandler(button_callback))
 
-    logger.info("telegram_bot.created", handlers=14)
+    logger.info("telegram_bot.created", handlers=16)
     return app
