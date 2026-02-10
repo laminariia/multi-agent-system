@@ -39,6 +39,7 @@ dependencies = [
     "aiosmtplib>=3.0",
 
     # Monitoring
+    "langsmith>=0.2",
     "prometheus-client>=0.21",
     "sentry-sdk[litestar]>=2.0",
 

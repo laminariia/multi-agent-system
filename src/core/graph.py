@@ -57,6 +57,7 @@ from src.agents.scout import scout_node
 from src.core.checkpoints import HybridCheckpointSaver
 from src.core.config import get_settings
 from src.core.state import AgentState, ProjectContext, create_initial_state, update_state
+from src.core.tracing import build_langsmith_config
 
 logger = structlog.get_logger(__name__)
 
@@ -946,9 +947,13 @@ async def run_full_pipeline(
     )
 
     graph = build_full_pipeline_graph()
+    config = build_langsmith_config(
+        pipeline_name="full_pipeline",
+        thread_id=tid,
+    )
 
     logger.info("full_pipeline_start", thread_id=tid)
-    result: AgentState = await graph.ainvoke(initial_state)
+    result: AgentState = await graph.ainvoke(initial_state, config=config or None)
     logger.info(
         "full_pipeline_finished",
         thread_id=tid,
@@ -987,9 +992,13 @@ async def run_scout_bid_pipeline(
     )
 
     graph = build_scout_bid_graph()
+    config = build_langsmith_config(
+        pipeline_name="scout_bid_pipeline",
+        thread_id=tid,
+    )
 
     logger.info("pipeline_start", thread_id=tid)
-    result: AgentState = await graph.ainvoke(initial_state)
+    result: AgentState = await graph.ainvoke(initial_state, config=config or None)
     logger.info(
         "pipeline_finished",
         thread_id=tid,
@@ -1034,9 +1043,14 @@ async def run_pipeline_b(
     initial_state["artifacts"] = {"_scan_city": city}
 
     graph = build_pipeline_b_graph()
+    config = build_langsmith_config(
+        pipeline_name="pipeline_b",
+        thread_id=tid,
+        extra_metadata={"city": city},
+    )
 
     logger.info("pipeline_b_start", thread_id=tid, city=city)
-    result: AgentState = await graph.ainvoke(initial_state)
+    result: AgentState = await graph.ainvoke(initial_state, config=config or None)
     logger.info(
         "pipeline_b_finished",
         thread_id=tid,
