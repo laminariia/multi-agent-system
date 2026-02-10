@@ -1,11 +1,12 @@
 """Unit tests for src/core/database.py — AsyncEngine, session factory, and Valkey client.
 
 Tests database engine configuration, async session factory settings, get_db_session context
-manager behavior (commit/rollback/close), and get_valkey lazy pool creation.
+manager behavior (commit/rollback/close), and get_valkey lazy pool creation with thread-safety.
 """
 
 from __future__ import annotations
 
+import threading
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -285,5 +286,41 @@ class TestGetValkey:
                 # First positional arg is the URL from settings
                 call_args = mock_pool_cls.call_args[0]
                 assert call_args[0] == database._settings.valkey_redis_url
+        finally:
+            database._valkey_pool = original_pool
+
+    def test_pool_lock_exists(self):
+        """Module has a threading.Lock for pool initialisation."""
+        assert isinstance(database._valkey_pool_lock, type(threading.Lock()))
+
+    def test_thread_safe_pool_creation(self):
+        """Concurrent calls to get_valkey create pool only once."""
+        original_pool = database._valkey_pool
+        database._valkey_pool = None
+        creation_count = 0
+
+        try:
+            def counting_from_url(*args, **kwargs):
+                nonlocal creation_count
+                creation_count += 1
+                mock_pool = MagicMock()
+                mock_pool.connection_kwargs = {"protocol": 2}
+                return mock_pool
+
+            with (
+                patch("redis.asyncio.ConnectionPool.from_url", side_effect=counting_from_url),
+                patch("redis.asyncio.Redis", return_value=MagicMock()),
+            ):
+                threads = []
+                for _ in range(10):
+                    t = threading.Thread(target=database.get_valkey)
+                    threads.append(t)
+                    t.start()
+
+                for t in threads:
+                    t.join()
+
+                # Pool should be created exactly once despite 10 concurrent calls
+                assert creation_count == 1
         finally:
             database._valkey_pool = original_pool

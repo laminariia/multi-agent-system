@@ -271,8 +271,8 @@ class DockerExecutor(SandboxExecutor):
                     timed_out = True
                     try:
                         container.stop(timeout=5)
-                    except Exception:  # noqa: S110
-                        pass  # Best-effort stop; container will be removed in cleanup.
+                    except Exception as stop_exc:  # noqa: BLE001
+                        logger.debug("container_stop_failed", error=str(stop_exc))
 
                 return container, timed_out
             finally:
@@ -318,8 +318,8 @@ class DockerExecutor(SandboxExecutor):
         def _sync_remove() -> None:
             try:
                 container.remove(force=True)
-            except Exception:  # noqa: S110
-                pass  # Best-effort removal; container may already be gone.
+            except Exception as rm_exc:  # noqa: BLE001
+                logger.debug("container_remove_failed", error=str(rm_exc))
 
         await asyncio.to_thread(_sync_remove)
 
