@@ -390,6 +390,47 @@ async def _resolve_command(
 
 
 # ---------------------------------------------------------------------------
+# /scan <city> -- Trigger Pipeline B geo scan
+# ---------------------------------------------------------------------------
+
+
+@require_linked_account
+async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /scan <city> -- trigger Pipeline B geo scan."""
+    args = context.args or []
+    if not args:
+        await update.effective_message.reply_text(  # type: ignore[union-attr]
+            "Usage: /scan <city>\nExample: /scan Berlin"
+        )
+        return
+
+    city = " ".join(args)
+
+    import asyncio  # noqa: PLC0415
+
+    from src.core.graph import run_pipeline_b  # noqa: PLC0415
+
+    thread_id = uuid.uuid4().hex
+    try:
+        await update.effective_message.reply_text(  # type: ignore[union-attr]
+            f"Starting geo scan for <b>{_esc(city)}</b>...\n"
+            f"Thread: <code>{thread_id[:8]}</code>\n\n"
+            "This may take a few minutes. I'll notify you when results are ready.",
+            parse_mode=ParseMode.HTML,
+        )
+
+        # Run pipeline in background
+        asyncio.create_task(run_pipeline_b(city, thread_id=thread_id))
+
+    except Exception as exc:
+        logger.exception("scan_command_error", city=city, error=str(exc))
+        await update.effective_message.reply_text(  # type: ignore[union-attr]
+            f"Failed to start scan: {_esc(str(exc))}",
+            parse_mode=ParseMode.HTML,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

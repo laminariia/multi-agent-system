@@ -49,6 +49,8 @@ from src.agents.content import content_node
 from src.agents.critic import critic_node
 from src.agents.design import design_node
 from src.agents.dev import dev_node
+from src.agents.geo_scout import geo_scout_node
+from src.agents.outreach import outreach_node
 from src.agents.packager import packager_node
 from src.agents.planner import planner_node
 from src.agents.scout import scout_node
@@ -111,6 +113,30 @@ async def hitl_review_node(state: dict[str, Any]) -> dict[str, Any]:
             status="paused",
             requires_hitl=True,
             current_agent="hitl_review",
+        )
+
+    return state
+
+
+async def hitl_email_node(state: dict[str, Any]) -> dict[str, Any]:
+    """HITL interrupt node for email batch approval.
+
+    Pauses the workflow so a human can review and approve/reject
+    the generated cold emails before they are sent.
+    """
+    logger.info(
+        "hitl_email_node_entered",
+        thread_id=state["thread_id"],
+        hitl_request_id=state.get("hitl_request_id"),
+        status=state["status"],
+    )
+
+    if state["status"] != "paused":
+        return update_state(
+            state,
+            status="paused",
+            requires_hitl=True,
+            current_agent="hitl_email",
         )
 
     return state
@@ -416,6 +442,35 @@ def _route_after_hitl_review(state: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Routing functions -- Pipeline B (Geo Scout -> Outreach)
+# ---------------------------------------------------------------------------
+
+
+def _route_after_geo_scout(state: dict[str, Any]) -> str:
+    """Route after GeoScout: outreach or END."""
+    if state.get("status") == "failed":
+        return END
+    if state.get("next_agent") == "outreach":
+        return "outreach_node"
+    return END
+
+
+def _route_after_outreach(state: dict[str, Any]) -> str:
+    """Route after Outreach: HITL email approval or END."""
+    if state.get("status") == "failed":
+        return END
+    if state.get("requires_hitl"):
+        return "hitl_email_node"
+    # No emails drafted -- completed without HITL
+    return END
+
+
+def _route_after_hitl_email(state: dict[str, Any]) -> str:
+    """Route after email HITL: always END for now."""
+    return END
+
+
+# ---------------------------------------------------------------------------
 # Graph builders
 # ---------------------------------------------------------------------------
 
@@ -616,6 +671,49 @@ def build_scout_bid_graph(checkpointer: Any | None = None) -> CompiledGraph:
     return compiled
 
 
+def build_pipeline_b_graph(checkpointer: Any | None = None) -> CompiledGraph:
+    """Build and compile the Pipeline B (Outreach) graph.
+
+    Flow: GeoScout -> Outreach -> [HITL email approval] -> END
+
+    Args:
+        checkpointer: Optional checkpoint saver for persistence.
+
+    Returns:
+        A compiled LangGraph.
+    """
+    graph = StateGraph(dict)
+
+    # Nodes
+    graph.add_node("geo_scout_node", geo_scout_node)
+    graph.add_node("outreach_node", outreach_node)
+    graph.add_node("hitl_email_node", hitl_email_node)
+
+    # Entry point
+    graph.set_entry_point("geo_scout_node")
+
+    # Edges
+    graph.add_conditional_edges(
+        "geo_scout_node",
+        _route_after_geo_scout,
+        {"outreach_node": "outreach_node", END: END},
+    )
+    graph.add_conditional_edges(
+        "outreach_node",
+        _route_after_outreach,
+        {"hitl_email_node": "hitl_email_node", END: END},
+    )
+    graph.add_conditional_edges(
+        "hitl_email_node",
+        _route_after_hitl_email,
+        {END: END},
+    )
+
+    compiled = graph.compile(checkpointer=checkpointer)
+    logger.info("pipeline_b_graph_compiled", has_checkpointer=checkpointer is not None)
+    return compiled
+
+
 # ---------------------------------------------------------------------------
 # Persistence helper
 # ---------------------------------------------------------------------------
@@ -721,6 +819,53 @@ async def run_scout_bid_pipeline(
     result: AgentState = await graph.ainvoke(initial_state)
     logger.info(
         "pipeline_finished",
+        thread_id=tid,
+        status=result.get("status"),
+        requires_hitl=result.get("requires_hitl"),
+    )
+    return result
+
+
+async def run_pipeline_b(
+    city: str,
+    thread_id: str | None = None,
+) -> AgentState:
+    """Run Pipeline B (Geo Scout -> Outreach) for a city.
+
+    Args:
+        city: City name to scan for offline businesses.
+        thread_id: Optional thread identifier.
+
+    Returns:
+        Final AgentState after pipeline completes or pauses for HITL.
+    """
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    tid = thread_id or uuid.uuid4().hex
+    # Create a minimal project context for Pipeline B
+    project = ProjectContext(
+        project_id=f"pipeline_b_{tid[:8]}",
+        job_id="",
+        platform="outreach",
+        client={},
+        requirements=city,
+        budget=0.0,
+        deadline=datetime.now(tz=UTC),
+    )
+    initial_state = create_initial_state(
+        project=project,
+        first_agent="geoscout",
+        thread_id=tid,
+    )
+    # Set city in artifacts for the geo_scout agent
+    initial_state["artifacts"] = {"_scan_city": city}
+
+    graph = build_pipeline_b_graph()
+
+    logger.info("pipeline_b_start", thread_id=tid, city=city)
+    result: AgentState = await graph.ainvoke(initial_state)
+    logger.info(
+        "pipeline_b_finished",
         thread_id=tid,
         status=result.get("status"),
         requires_hitl=result.get("requires_hitl"),

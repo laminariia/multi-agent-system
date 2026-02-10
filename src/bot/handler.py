@@ -8,6 +8,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler
 from src.bot.commands import (
     approve_command,
     pending_command,
+    scan_command,
     skip_command,
     start_command,
     stats_command,
@@ -55,6 +56,7 @@ def create_bot_application() -> Application:
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("approve", approve_command))
     app.add_handler(CommandHandler("skip", skip_command))
+    app.add_handler(CommandHandler("scan", scan_command))
 
     # -- Orchestrator command handlers ----------------------------------------
     app.add_handler(CommandHandler("run", run_command))
@@ -70,5 +72,5 @@ def create_bot_application() -> Application:
     app.add_handler(CallbackQueryHandler(orch_button_callback, pattern=r"^orch:"))
     app.add_handler(CallbackQueryHandler(button_callback))
 
-    logger.info("telegram_bot.created", handlers=16)
+    logger.info("telegram_bot.created", handlers=17)
     return app
