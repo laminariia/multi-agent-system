@@ -157,6 +157,7 @@ class OrchestratorController(Controller):
 
     @delete(
         "/goals/{goal_id:str}",
+        status_code=200,
         summary="Delete a goal",
         guards=[require_role("owner", "co_owner")],
     )
