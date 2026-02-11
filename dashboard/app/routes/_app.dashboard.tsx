@@ -7,7 +7,7 @@ import { AgentCard } from "~/components/agent-card";
 import { PipelineFlow } from "~/components/pipeline-flow";
 import { ActivityFeed, type ActivityEvent } from "~/components/activity-feed";
 import { JobsByPlatformChart, HITLByTypeChart, AgentStatusChart } from "~/components/charts";
-import { fetchAgentStatus, fetchHITLStats, fetchJobs } from "~/lib/api";
+import { fetchAgentStatus, fetchHITLStats, fetchJobs, fetchJobStats } from "~/lib/api";
 import { OrchStatusWidget } from "~/components/orch-status-widget";
 
 export default function DashboardPage() {
@@ -29,23 +29,27 @@ export default function DashboardPage() {
     refetchInterval: 60_000,
   });
 
+  const { data: jobStats } = useQuery({
+    queryKey: ["job-stats"],
+    queryFn: fetchJobStats,
+    refetchInterval: 60_000,
+  });
+
   const agents = agentData?.agents ?? [];
   const workingAgents = agents.filter((a) => a.status === "working" || a.status === "idle").length;
-  const activeJobs = jobsData?.jobs?.filter((j) => j.status === "in_progress" || j.status === "qualified" || j.status === "bid_sent").length ?? 0;
+  const activeJobs = useMemo(() => {
+    const byStatus = jobStats?.by_status ?? {};
+    return (byStatus["in_progress"] ?? 0) + (byStatus["qualified"] ?? 0) + (byStatus["bid_sent"] ?? 0);
+  }, [jobStats]);
   const pendingHitl = hitlStats?.today?.pending ?? 0;
 
-  // Chart data: jobs by platform
+  // Chart data: jobs by platform (from stats endpoint)
   const jobsByPlatform = useMemo(() => {
-    const jobs = jobsData?.jobs ?? [];
-    const counts: Record<string, number> = {};
-    jobs.forEach((j) => {
-      counts[j.platform] = (counts[j.platform] ?? 0) + 1;
-    });
-    return Object.entries(counts).map(([platform, count]) => ({
-      platform: platform.replace("_", "."),
-      count,
+    return (jobStats?.by_platform ?? []).map((item) => ({
+      platform: item.platform.replace("_", "."),
+      count: item.count,
     }));
-  }, [jobsData]);
+  }, [jobStats]);
 
   // Chart data: HITL by type
   const hitlByType = useMemo(() => {

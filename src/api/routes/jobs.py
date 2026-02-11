@@ -63,6 +63,10 @@ class JobController(Controller):
             le=1.0,
             description="Minimum match score (0.0 - 1.0)",
         ),
+        search: str | None = Parameter(
+            default=None,
+            description="Search jobs by title (case-insensitive substring)",
+        ),
         limit: int = Parameter(default=20, ge=1, le=100),
         offset: int = Parameter(default=0, ge=0),
     ) -> JobListResponseSchema:
@@ -75,6 +79,8 @@ class JobController(Controller):
             stmt = stmt.where(Job.platform == platform)
         if min_score is not None:
             stmt = stmt.where(Job.score >= Decimal(str(min_score)))
+        if search is not None:
+            stmt = stmt.where(Job.title.ilike(f"%{search}%"))
 
         # Total count
         count_stmt = select(func.count()).select_from(stmt.subquery())
@@ -88,6 +94,48 @@ class JobController(Controller):
         jobs = [_job_to_schema(row) for row in rows]
 
         return JobListResponseSchema(jobs=jobs, total=total)
+
+    # -----------------------------------------------------------------
+    # GET /api/v1/jobs/stats
+    # -----------------------------------------------------------------
+
+    @get(
+        "/stats",
+        summary="Job statistics for dashboard charts",
+    )
+    async def stats(
+        self,
+        db_session: AsyncSession,
+    ) -> dict[str, Any]:
+        """Return aggregated job stats: counts by platform and by status."""
+        # By platform
+        platform_stmt = (
+            select(Job.platform, func.count())
+            .group_by(Job.platform)
+        )
+        platform_rows = (await db_session.execute(platform_stmt)).all()
+        by_platform = [
+            {"platform": row[0], "count": row[1]}
+            for row in platform_rows
+        ]
+
+        # By status
+        status_stmt = (
+            select(Job.status, func.count())
+            .group_by(Job.status)
+        )
+        status_rows = (await db_session.execute(status_stmt)).all()
+        by_status = {row[0]: row[1] for row in status_rows}
+
+        # Total
+        total_stmt = select(func.count()).select_from(Job)
+        total = (await db_session.execute(total_stmt)).scalar_one()
+
+        return {
+            "total": total,
+            "by_platform": by_platform,
+            "by_status": by_status,
+        }
 
     # -----------------------------------------------------------------
     # GET /api/v1/jobs/{job_id}

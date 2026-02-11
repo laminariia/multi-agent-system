@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "~/components/ui/card";
+import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
@@ -31,18 +32,32 @@ const platformOptions = [
 export default function JobsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [platformFilter, setPlatformFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(0);
 
   // Reset page on filter change
   const handleStatusChange = (v: string) => { setStatusFilter(v); setPage(0); };
   const handlePlatformChange = (v: string) => { setPlatformFilter(v); setPage(0); };
 
+  // Debounce search query
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(id);
+  }, [searchQuery]);
+
+  const handleSearchChange = (v: string) => {
+    setSearchQuery(v);
+    setPage(0);
+  };
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ["jobs", statusFilter, platformFilter, page],
+    queryKey: ["jobs", statusFilter, platformFilter, debouncedSearch, page],
     queryFn: () =>
       fetchJobs({
         status: statusFilter === "all" ? undefined : statusFilter,
         platform: platformFilter === "all" ? undefined : platformFilter,
+        search: debouncedSearch || undefined,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       }),
@@ -65,18 +80,26 @@ export default function JobsPage() {
           )}
         </div>
 
-        <Select value={platformFilter} onValueChange={handlePlatformChange}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {platformOptions.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-3">
+          <Input
+            placeholder="Search jobs..."
+            value={searchQuery}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            className="w-[200px]"
+          />
+          <Select value={platformFilter} onValueChange={handlePlatformChange}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {platformOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Status filter tabs */}

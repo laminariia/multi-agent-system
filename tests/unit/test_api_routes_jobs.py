@@ -304,6 +304,143 @@ class TestListJobs:
 
 
 # ---------------------------------------------------------------------------
+# Tests: stats
+# ---------------------------------------------------------------------------
+
+
+class TestJobStats:
+    """Tests for the GET /api/v1/jobs/stats endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_returns_by_platform_and_by_status(self) -> None:
+        """Should return aggregated counts by platform and by status."""
+        controller = JobController(owner=MagicMock())
+        db_session = _create_mock_db_session()
+
+        # Mock three execute calls: by_platform, by_status, total
+        platform_result = MagicMock()
+        platform_result.all.return_value = [
+            ("freelancer", 5),
+            ("upwork", 3),
+        ]
+
+        status_result = MagicMock()
+        status_result.all.return_value = [
+            ("new", 4),
+            ("qualified", 2),
+            ("bid_sent", 2),
+        ]
+
+        total_result = MagicMock()
+        total_result.scalar_one.return_value = 8
+
+        db_session.execute.side_effect = [platform_result, status_result, total_result]
+
+        result = await controller.stats.fn(controller, db_session=db_session)
+
+        assert result["total"] == 8
+        assert len(result["by_platform"]) == 2
+        assert result["by_platform"][0] == {"platform": "freelancer", "count": 5}
+        assert result["by_status"]["new"] == 4
+        assert result["by_status"]["qualified"] == 2
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_stats_when_no_jobs(self) -> None:
+        """Should return zeros when there are no jobs."""
+        controller = JobController(owner=MagicMock())
+        db_session = _create_mock_db_session()
+
+        platform_result = MagicMock()
+        platform_result.all.return_value = []
+
+        status_result = MagicMock()
+        status_result.all.return_value = []
+
+        total_result = MagicMock()
+        total_result.scalar_one.return_value = 0
+
+        db_session.execute.side_effect = [platform_result, status_result, total_result]
+
+        result = await controller.stats.fn(controller, db_session=db_session)
+
+        assert result["total"] == 0
+        assert result["by_platform"] == []
+        assert result["by_status"] == {}
+
+
+# ---------------------------------------------------------------------------
+# Tests: list_jobs search
+# ---------------------------------------------------------------------------
+
+
+class TestListJobsSearch:
+    """Tests for the search parameter on GET /api/v1/jobs."""
+
+    @pytest.mark.asyncio
+    async def test_search_filters_by_title(self) -> None:
+        """Should pass search parameter to filter jobs by title."""
+        controller = JobController(owner=MagicMock())
+        db_session = _create_mock_db_session()
+
+        job = _create_mock_job()
+        job.title = "React landing page"
+
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 1
+
+        fetch_result = MagicMock()
+        fetch_result.scalars.return_value.unique.return_value.all.return_value = [job]
+
+        db_session.execute.side_effect = [count_result, fetch_result]
+
+        result = await controller.list_jobs.fn(
+            controller,
+            db_session=db_session,
+            status=None,
+            platform=None,
+            min_score=None,
+            search="React",
+            limit=20,
+            offset=0,
+        )
+
+        assert result.total == 1
+        assert len(result.jobs) == 1
+        # Verify that execute was called (we trust the SQL filter works)
+        assert db_session.execute.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_search_none_returns_all(self) -> None:
+        """Should return all jobs when search is None."""
+        controller = JobController(owner=MagicMock())
+        db_session = _create_mock_db_session()
+
+        job1 = _create_mock_job()
+        job2 = _create_mock_job()
+
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 2
+
+        fetch_result = MagicMock()
+        fetch_result.scalars.return_value.unique.return_value.all.return_value = [job1, job2]
+
+        db_session.execute.side_effect = [count_result, fetch_result]
+
+        result = await controller.list_jobs.fn(
+            controller,
+            db_session=db_session,
+            status=None,
+            platform=None,
+            min_score=None,
+            search=None,
+            limit=20,
+            offset=0,
+        )
+
+        assert result.total == 2
+
+
+# ---------------------------------------------------------------------------
 # Tests: get_job
 # ---------------------------------------------------------------------------
 

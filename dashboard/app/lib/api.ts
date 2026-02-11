@@ -8,6 +8,7 @@ import type {
   AgentLogList,
   Job,
   JobListResponse,
+  JobStats,
   UserListResponse,
   User,
   LeadListResponse,
@@ -269,6 +270,7 @@ export async function fetchJobs(params?: {
   status?: string;
   platform?: string;
   min_score?: number;
+  search?: string;
   limit?: number;
   offset?: number;
 }): Promise<JobListResponse> {
@@ -276,6 +278,7 @@ export async function fetchJobs(params?: {
   if (params?.status) searchParams.set("status", params.status);
   if (params?.platform) searchParams.set("platform", params.platform);
   if (params?.min_score != null) searchParams.set("min_score", String(params.min_score));
+  if (params?.search) searchParams.set("search", params.search);
   if (params?.limit) searchParams.set("limit", String(params.limit));
   if (params?.offset) searchParams.set("offset", String(params.offset));
 
@@ -287,6 +290,10 @@ export async function fetchJobs(params?: {
 
 export async function fetchJob(id: string): Promise<Job> {
   return apiFetch<Job>(`/jobs/${id}`);
+}
+
+export async function fetchJobStats(): Promise<JobStats> {
+  return apiFetch<JobStats>("/jobs/stats");
 }
 
 export async function disqualifyJob(id: string, reason: string) {

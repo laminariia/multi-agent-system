@@ -131,6 +131,12 @@ export interface JobListResponse {
   total: number;
 }
 
+export interface JobStats {
+  total: number;
+  by_platform: { platform: string; count: number }[];
+  by_status: Record<string, number>;
+}
+
 // --- Pipeline B ---
 
 export interface Lead {
