@@ -11,6 +11,7 @@ import argparse
 import asyncio
 import os
 import re
+import sys
 from pathlib import Path
 
 from sqlalchemy import select
@@ -113,6 +114,7 @@ async def migrate(apply: bool = False) -> None:
 
 
 def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Migrate goals from YAML to PostgreSQL")
     parser.add_argument("--apply", action="store_true", help="Actually insert into DB")
     args = parser.parse_args()
