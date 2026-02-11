@@ -451,6 +451,7 @@ class TestResolve:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
+            channels=MagicMock(),
         )
 
         assert isinstance(result, HITLResolveResponseSchema)
@@ -488,6 +489,7 @@ class TestResolve:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
+            channels=MagicMock(),
         )
 
         assert result.resolution == "reject"
@@ -522,6 +524,7 @@ class TestResolve:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
+            channels=MagicMock(),
         )
 
         assert result.resolution == "edit"
@@ -553,6 +556,7 @@ class TestResolve:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
+            channels=MagicMock(),
         )
 
         assert result.resolution == "skip"
@@ -580,6 +584,7 @@ class TestResolve:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
+            channels=MagicMock(),
         )
 
         assert result.resolution == "later"
@@ -607,6 +612,7 @@ class TestResolve:
                 request=mock_request,
                 db_session=db_session,
                 valkey=AsyncMock(),
+                channels=MagicMock(),
             )
 
         assert f"HITL item {item_id} not found" in str(exc_info.value)
@@ -634,6 +640,7 @@ class TestResolve:
                 request=mock_request,
                 db_session=db_session,
                 valkey=AsyncMock(),
+                channels=MagicMock(),
             )
 
         assert "already been resolved" in str(exc_info.value)
@@ -664,6 +671,7 @@ class TestResolve:
                 request=mock_request,
                 db_session=db_session,
                 valkey=AsyncMock(),
+                channels=MagicMock(),
             )
 
         assert "expired" in str(exc_info.value)
@@ -697,6 +705,7 @@ class TestResolve:
                 request=mock_request,
                 db_session=db_session,
                 valkey=AsyncMock(),
+                channels=MagicMock(),
             )
 
         assert "not available" in str(exc_info.value)
@@ -727,6 +736,7 @@ class TestResolve:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
+            channels=MagicMock(),
         )
 
         after_resolve = datetime.now(UTC)
@@ -758,6 +768,7 @@ class TestResolve:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
+            channels=MagicMock(),
         )
 
         # Payload should remain unchanged
@@ -785,6 +796,7 @@ class TestResolve:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
+            channels=MagicMock(),
         )
 
         assert result.next_action == "code_accepted"
@@ -811,6 +823,7 @@ class TestResolve:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
+            channels=MagicMock(),
         )
 
         assert result.next_action == "delivery_rejected"
@@ -1206,6 +1219,7 @@ class TestResolveResumePipeline:
                     request=mock_request,
                     db_session=db_session,
                     valkey=AsyncMock(),
+                    channels=MagicMock(),
                 )
 
         assert result.status == "resolved"
@@ -1244,6 +1258,7 @@ class TestResolveResumePipeline:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
+            channels=MagicMock(),
         )
 
         assert result.status == "resolved"
@@ -1281,6 +1296,7 @@ class TestResolveResumePipeline:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
+            channels=MagicMock(),
         )
 
         assert result.status == "resolved"
@@ -1317,6 +1333,7 @@ class TestResolveResumePipeline:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
+            channels=MagicMock(),
         )
 
         assert result.status == "resolved"
@@ -1356,6 +1373,7 @@ class TestResolveResumePipeline:
                 request=mock_request,
                 db_session=db_session,
                 valkey=AsyncMock(),
+                channels=MagicMock(),
             )
 
         # Should still succeed despite resume failure

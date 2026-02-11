@@ -11,6 +11,7 @@ from typing import Any
 import redis.asyncio as aioredis
 import structlog
 from litestar import Controller, Request, get, post
+from litestar.channels import ChannelsPlugin
 from litestar.exceptions import NotFoundException
 from litestar.params import Parameter
 from litestar.security.jwt import Token
@@ -25,6 +26,7 @@ from src.api.schemas import (
     AgentStatusListSchema,
     AgentStatusSchema,
 )
+from src.api.websocket import CHANNEL_AGENT_HEARTBEAT, publish_event
 from src.core.models import AgentHeartbeat, AgentLog, User
 
 logger = structlog.get_logger(__name__)
@@ -189,6 +191,7 @@ class AgentController(Controller):
         db_session: AsyncSession,
         valkey: aioredis.Redis,
         request: Request[User, Token, Any],
+        channels: ChannelsPlugin,
     ) -> AgentActionResponseSchema:
         """Publish a restart command via Valkey pub/sub and increment the restart counter."""
         heartbeat = await _get_heartbeat_or_404(name, db_session)
@@ -203,6 +206,15 @@ class AgentController(Controller):
         await valkey.publish(f"agent:command:{name}", "restart")
 
         logger.info("agent.restart", agent=name, requested_by=str(request.user.id))
+
+        # Notify dashboard clients
+        try:
+            await publish_event(channels, CHANNEL_AGENT_HEARTBEAT, {
+                "type": "agent:heartbeat",
+                "data": {"agent": name, "action": "restart", "status": "idle"},
+            })
+        except Exception:
+            logger.debug("agent.ws_publish_failed", agent=name, exc_info=True)
 
         return AgentActionResponseSchema(
             agent=name,
@@ -226,6 +238,7 @@ class AgentController(Controller):
         db_session: AsyncSession,
         valkey: aioredis.Redis,
         request: Request[User, Token, Any],
+        channels: ChannelsPlugin,
     ) -> AgentActionResponseSchema:
         """Set the agent status to ``paused`` and publish a pause command."""
         heartbeat = await _get_heartbeat_or_404(name, db_session)
@@ -237,6 +250,14 @@ class AgentController(Controller):
         await valkey.publish(f"agent:command:{name}", "pause")
 
         logger.info("agent.pause", agent=name, requested_by=str(request.user.id))
+
+        try:
+            await publish_event(channels, CHANNEL_AGENT_HEARTBEAT, {
+                "type": "agent:heartbeat",
+                "data": {"agent": name, "action": "pause", "status": "paused"},
+            })
+        except Exception:
+            logger.debug("agent.ws_publish_failed", agent=name, exc_info=True)
 
         return AgentActionResponseSchema(
             agent=name,
@@ -260,6 +281,7 @@ class AgentController(Controller):
         db_session: AsyncSession,
         valkey: aioredis.Redis,
         request: Request[User, Token, Any],
+        channels: ChannelsPlugin,
     ) -> AgentActionResponseSchema:
         """Set the agent status back to ``idle`` and publish a resume command."""
         heartbeat = await _get_heartbeat_or_404(name, db_session)
@@ -270,6 +292,14 @@ class AgentController(Controller):
         await valkey.publish(f"agent:command:{name}", "resume")
 
         logger.info("agent.resume", agent=name, requested_by=str(request.user.id))
+
+        try:
+            await publish_event(channels, CHANNEL_AGENT_HEARTBEAT, {
+                "type": "agent:heartbeat",
+                "data": {"agent": name, "action": "resume", "status": "idle"},
+            })
+        except Exception:
+            logger.debug("agent.ws_publish_failed", agent=name, exc_info=True)
 
         return AgentActionResponseSchema(
             agent=name,

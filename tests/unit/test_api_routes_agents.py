@@ -538,6 +538,7 @@ class TestRestart:
             db_session=db_session,
             valkey=valkey,
             request=request,
+            channels=MagicMock(),
         )
 
         assert result.agent == "scout"
@@ -570,6 +571,7 @@ class TestRestart:
                 db_session=db_session,
                 valkey=valkey,
                 request=request,
+                channels=MagicMock(),
             )
 
 
@@ -602,6 +604,7 @@ class TestPause:
             db_session=db_session,
             valkey=valkey,
             request=request,
+            channels=MagicMock(),
         )
 
         assert result.agent == "scout"
@@ -632,6 +635,7 @@ class TestPause:
                 db_session=db_session,
                 valkey=valkey,
                 request=request,
+                channels=MagicMock(),
             )
 
 
@@ -663,6 +667,7 @@ class TestResume:
             db_session=db_session,
             valkey=valkey,
             request=request,
+            channels=MagicMock(),
         )
 
         assert result.agent == "scout"
@@ -692,6 +697,7 @@ class TestResume:
                 db_session=db_session,
                 valkey=valkey,
                 request=request,
+                channels=MagicMock(),
             )
 
 

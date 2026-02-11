@@ -10,6 +10,7 @@ from typing import Any
 
 import structlog
 from litestar import Controller, Request, delete, get, post
+from litestar.channels import ChannelsPlugin
 from litestar.exceptions import ClientException, NotFoundException
 from litestar.security.jwt import Token
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +34,7 @@ from src.api.schemas import (
     PhaseSchema,
 )
 from src.api.services.orchestrator import OrchestratorService
+from src.api.websocket import CHANNEL_ORCH_GOAL, CHANNEL_ORCH_STATUS, publish_event
 from src.core.models import User
 
 logger = structlog.get_logger(__name__)
@@ -71,6 +73,7 @@ class OrchestratorController(Controller):
     async def start(
         self,
         request: Request[User, Token, Any],
+        channels: ChannelsPlugin,
     ) -> OrchestratorStartResponseSchema:
         """Launch the runner as a detached process (agent-driven sessions)."""
         try:
@@ -79,6 +82,15 @@ class OrchestratorController(Controller):
             raise ClientException(detail=str(exc), status_code=409) from exc
 
         logger.info("orchestrator.api.started", user=str(request.user.id))
+
+        try:
+            await publish_event(channels, CHANNEL_ORCH_STATUS, {
+                "type": "orch:status",
+                "data": {"action": "started", "pid": result.get("pid")},
+            })
+        except Exception:
+            logger.debug("orch.ws_publish_failed", exc_info=True)
+
         return OrchestratorStartResponseSchema(**result)
 
     # ------------------------------------------------------------------
@@ -93,6 +105,7 @@ class OrchestratorController(Controller):
     async def stop(
         self,
         request: Request[User, Token, Any],
+        channels: ChannelsPlugin,
     ) -> OrchestratorStopResponseSchema:
         """Terminate the runner process."""
         try:
@@ -101,6 +114,15 @@ class OrchestratorController(Controller):
             raise ClientException(detail=str(exc), status_code=409) from exc
 
         logger.info("orchestrator.api.stopped", user=str(request.user.id))
+
+        try:
+            await publish_event(channels, CHANNEL_ORCH_STATUS, {
+                "type": "orch:status",
+                "data": {"action": "stopped"},
+            })
+        except Exception:
+            logger.debug("orch.ws_publish_failed", exc_info=True)
+
         return OrchestratorStopResponseSchema(**result)
 
     # ------------------------------------------------------------------
@@ -140,6 +162,7 @@ class OrchestratorController(Controller):
         data: GoalAddRequestSchema,
         db_session: AsyncSession,
         request: Request[User, Token, Any],
+        channels: ChannelsPlugin,
     ) -> GoalAddResponseSchema:
         """Create a new goal in the database."""
         result = await _svc.add_goal(
@@ -149,6 +172,15 @@ class OrchestratorController(Controller):
             category=data.category,
         )
         logger.info("orchestrator.api.goal_added", user=str(request.user.id))
+
+        try:
+            await publish_event(channels, CHANNEL_ORCH_GOAL, {
+                "type": "orch:goal",
+                "data": {"action": "added", "goal_id": result.get("id"), "title": data.title},
+            })
+        except Exception:
+            logger.debug("orch.ws_publish_failed", exc_info=True)
+
         return GoalAddResponseSchema(**result)
 
     # ------------------------------------------------------------------
@@ -166,6 +198,7 @@ class OrchestratorController(Controller):
         goal_id: str,
         db_session: AsyncSession,
         request: Request[User, Token, Any],
+        channels: ChannelsPlugin,
     ) -> GoalDeleteResponseSchema:
         """Delete a goal by its human-readable ID (e.g. g_001)."""
         try:
@@ -174,6 +207,15 @@ class OrchestratorController(Controller):
             raise NotFoundException(detail=str(exc)) from exc
 
         logger.info("orchestrator.api.goal_deleted", user=str(request.user.id), goal_id=goal_id)
+
+        try:
+            await publish_event(channels, CHANNEL_ORCH_GOAL, {
+                "type": "orch:goal",
+                "data": {"action": "deleted", "goal_id": goal_id},
+            })
+        except Exception:
+            logger.debug("orch.ws_publish_failed", exc_info=True)
+
         return GoalDeleteResponseSchema(**result)
 
     # ------------------------------------------------------------------
