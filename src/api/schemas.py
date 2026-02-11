@@ -438,10 +438,11 @@ class OrchestratorStatusSchema(_BaseSchema):
 
 
 class OrchestratorStartRequestSchema(_BaseSchema):
-    """Parameters for starting the orchestrator runner."""
+    """Start request — no time parameters.
 
-    total_hours: int = Field(default=12, ge=1, le=168, description="Total runtime in hours")
-    session_minutes: int = Field(default=60, ge=10, le=480, description="Max minutes per session")
+    Sessions are agent-driven: the agent decides when to finish based on
+    work completion (code review clean, goals done, etc.).
+    """
 
 
 class OrchestratorStartResponseSchema(_BaseSchema):

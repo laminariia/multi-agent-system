@@ -384,7 +384,7 @@ class TestRunCommand:
     @pytest.mark.anyio()
     async def test_successful_start(self, tmp_path: Path) -> None:
         update = _make_update()
-        ctx = _make_context(["4", "90"])
+        ctx = _make_context()
 
         script = tmp_path / "runner.ps1"
         script.write_text("# dummy")
@@ -410,21 +410,8 @@ class TestRunCommand:
         reply.assert_awaited_once()
         text = reply.call_args[0][0]
         assert "запущен" in text
-        assert "4ч" in text
-        assert "90мин" in text
+        assert "agent-driven" in text
         assert "1 целей" in text
-
-    @pytest.mark.anyio()
-    async def test_invalid_args(self) -> None:
-        update = _make_update()
-        ctx = _make_context(["abc"])
-        with (
-            patch("src.bot.orchestrator_commands._is_runner_alive", return_value=(False, None)),
-            patch("src.bot.orchestrator_commands.RUNNER_SCRIPT", MagicMock(exists=MagicMock(return_value=True))),
-        ):
-            await run_command(update, ctx)
-        reply = update.effective_message.reply_text
-        assert "Usage" in reply.call_args[0][0]
 
 
 class TestStopCommand:

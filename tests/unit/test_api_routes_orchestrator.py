@@ -162,11 +162,11 @@ class TestStartRunner:
             mock_dir.mkdir = MagicMock()
             mock_pid.write_text = MagicMock()
 
-            result = svc.start_runner(total_hours=6, session_minutes=30)
+            result = svc.start_runner()
 
         assert result["status"] == "started"
         assert result["pid"] == 9999
-        assert "self-direct" in result["message"]
+        assert "agent-driven" in result["message"]
 
     def test_start_already_running(self, svc: OrchestratorService) -> None:
         with patch(f"{PARSERS}.is_runner_alive", return_value=(True, 1234)):
@@ -540,7 +540,7 @@ class TestSchemaConstruction:
             mock_script.exists.return_value = True
             mock_dir.mkdir = MagicMock()
             mock_pid.write_text = MagicMock()
-            data = svc.start_runner(total_hours=6, session_minutes=30)
+            data = svc.start_runner()
 
         schema = OrchestratorStartResponseSchema(**data)
         assert schema.status == "started"

@@ -24,7 +24,6 @@ from src.api.schemas import (
     LogLineSchema,
     LogResponseSchema,
     MilestoneSchema,
-    OrchestratorStartRequestSchema,
     OrchestratorStartResponseSchema,
     OrchestratorStatusSchema,
     OrchestratorStopResponseSchema,
@@ -68,15 +67,11 @@ class OrchestratorController(Controller):
     )
     async def start(
         self,
-        data: OrchestratorStartRequestSchema,
         request: Request[User, Token, Any],
     ) -> OrchestratorStartResponseSchema:
-        """Launch the runner as a detached process."""
+        """Launch the runner as a detached process (agent-driven sessions)."""
         try:
-            result = _svc.start_runner(
-                total_hours=data.total_hours,
-                session_minutes=data.session_minutes,
-            )
+            result = _svc.start_runner()
         except (RuntimeError, FileNotFoundError) as exc:
             from litestar.exceptions import ClientException
 

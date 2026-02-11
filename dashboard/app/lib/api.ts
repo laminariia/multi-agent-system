@@ -391,13 +391,9 @@ export async function fetchOrchestratorStatus(): Promise<OrchestratorStatus> {
   return apiFetch<OrchestratorStatus>("/orchestrator/status");
 }
 
-export async function startOrchestrator(params?: {
-  total_hours?: number;
-  session_minutes?: number;
-}): Promise<{ status: string; pid: number; message: string }> {
+export async function startOrchestrator(): Promise<{ status: string; pid: number; message: string }> {
   return apiFetch("/orchestrator/start", {
     method: "POST",
-    body: JSON.stringify(params ?? {}),
   });
 }
 

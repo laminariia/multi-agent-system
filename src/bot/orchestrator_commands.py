@@ -631,21 +631,6 @@ async def run_command(
         )
         return
 
-    # Parse arguments: /run [hours] [session_minutes]
-    args = context.args or []
-    total_hours = 12
-    session_minutes = 60
-    try:
-        if len(args) >= 1:
-            total_hours = int(args[0])
-        if len(args) >= 2:
-            session_minutes = int(args[1])
-    except ValueError:
-        await update.effective_message.reply_text(  # type: ignore[union-attr]
-            "Usage: /run [hours] [session_minutes]\nExample: /run 4 90",
-        )
-        return
-
     goals = _parse_goals_yaml()
     pending_count = sum(1 for g in goals if g.get("status") == "pending")
 
@@ -655,8 +640,6 @@ async def run_command(
         "-ExecutionPolicy", "Bypass",
         "-File", str(RUNNER_SCRIPT),
         "-Mode", "self-direct",
-        "-TotalRunTimeHours", str(total_hours),
-        "-SessionTimeoutMinutes", str(session_minutes),
     ]
 
     try:
@@ -671,17 +654,11 @@ async def run_command(
         ORCH_DIR.mkdir(parents=True, exist_ok=True)
         PID_FILE.write_text(str(proc.pid))
 
-        logger.info(
-            "orchestrator.started",
-            pid=proc.pid,
-            hours=total_hours,
-            session_min=session_minutes,
-        )
+        logger.info("orchestrator.started", pid=proc.pid)
 
         await update.effective_message.reply_text(  # type: ignore[union-attr]
             f"\U0001f680 Оркестратор запущен\n"
-            f"\u23f1 Режим: self-direct"
-            f" ({total_hours}ч, {session_minutes}мин/сессия)\n"
+            f"\u23f1 Режим: self-direct (agent-driven sessions)\n"
             f"\U0001f916 Модель: opus\n"
             f"\U0001f4ca Pending: {pending_count} целей",
             reply_markup=_kb_after_run(),

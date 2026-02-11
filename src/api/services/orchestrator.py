@@ -84,8 +84,11 @@ class OrchestratorService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def start_runner(total_hours: int = 12, session_minutes: int = 60) -> dict:
+    def start_runner() -> dict:
         """Start the orchestrator runner as a detached process.
+
+        The agent decides when to finish each session based on work
+        completion (code review clean, all goals done, etc.).
 
         Raises:
             RuntimeError: If the runner is already alive or the script is missing.
@@ -103,8 +106,6 @@ class OrchestratorService:
             "-ExecutionPolicy", "Bypass",
             "-File", str(RUNNER_SCRIPT),
             "-Mode", "self-direct",
-            "-TotalRunTimeHours", str(total_hours),
-            "-SessionTimeoutMinutes", str(session_minutes),
         ]
 
         proc = subprocess.Popen(  # noqa: S603
@@ -119,20 +120,12 @@ class OrchestratorService:
         ORCH_DIR.mkdir(parents=True, exist_ok=True)
         PID_FILE.write_text(str(proc.pid))
 
-        logger.info(
-            "orchestrator.started",
-            pid=proc.pid,
-            hours=total_hours,
-            session_min=session_minutes,
-        )
+        logger.info("orchestrator.started", pid=proc.pid)
 
         return {
             "status": "started",
             "pid": proc.pid,
-            "message": (
-                f"Orchestrator started in self-direct mode "
-                f"({total_hours}h, {session_minutes}min/session)"
-            ),
+            "message": "Orchestrator started in self-direct mode (agent-driven sessions)",
         }
 
     @staticmethod

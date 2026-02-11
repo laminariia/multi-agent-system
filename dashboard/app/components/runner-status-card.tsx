@@ -1,19 +1,7 @@
-import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
-import { Input } from "~/components/ui/input";
-import { Label } from "~/components/ui/label";
 import { Skeleton } from "~/components/ui/skeleton";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogTrigger,
-} from "~/components/ui/dialog";
 import { fetchOrchestratorStatus, startOrchestrator, stopOrchestrator } from "~/lib/api";
 import { toast } from "~/hooks/use-toast";
 import { cn } from "~/lib/utils";
@@ -28,9 +16,6 @@ function formatUptime(seconds: number | null): string {
 
 export function RunnerStatusCard() {
   const queryClient = useQueryClient();
-  const [startOpen, setStartOpen] = useState(false);
-  const [totalHours, setTotalHours] = useState("8");
-  const [sessionMinutes, setSessionMinutes] = useState("30");
 
   const { data, isLoading } = useQuery({
     queryKey: ["orch-status"],
@@ -43,7 +28,6 @@ export function RunnerStatusCard() {
     onSuccess: (res) => {
       toast({ title: "Orchestrator started", description: res.message });
       queryClient.invalidateQueries({ queryKey: ["orch-status"] });
-      setStartOpen(false);
     },
     onError: (err) => {
       toast({
@@ -99,56 +83,13 @@ export function RunnerStatusCard() {
                 {stopMutation.isPending ? "Stopping..." : "Stop"}
               </Button>
             ) : (
-              <Dialog open={startOpen} onOpenChange={setStartOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm">Start</Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Start Orchestrator</DialogTitle>
-                    <DialogDescription>
-                      Configure session parameters before starting the runner.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="total-hours">Total Hours</Label>
-                      <Input
-                        id="total-hours"
-                        type="number"
-                        min="1"
-                        max="168"
-                        value={totalHours}
-                        onChange={(e) => setTotalHours(e.target.value)}
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="session-minutes">Session Minutes</Label>
-                      <Input
-                        id="session-minutes"
-                        type="number"
-                        min="5"
-                        max="120"
-                        value={sessionMinutes}
-                        onChange={(e) => setSessionMinutes(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button
-                      disabled={startMutation.isPending}
-                      onClick={() => {
-                        startMutation.mutate({
-                          total_hours: Number(totalHours) || 8,
-                          session_minutes: Number(sessionMinutes) || 30,
-                        });
-                      }}
-                    >
-                      {startMutation.isPending ? "Starting..." : "Start Runner"}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+              <Button
+                size="sm"
+                disabled={startMutation.isPending}
+                onClick={() => startMutation.mutate()}
+              >
+                {startMutation.isPending ? "Starting..." : "Start"}
+              </Button>
             )}
           </div>
         </div>
