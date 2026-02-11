@@ -633,13 +633,37 @@ class LanggraphCheckpoint(Base):
 
     thread_id: Mapped[str] = mapped_column(String(255), primary_key=True)
     checkpoint_id: Mapped[str] = mapped_column(String(255), primary_key=True)
-    parent_id: Mapped[str | None] = mapped_column(String(255))
-    checkpoint: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    parent_checkpoint_id: Mapped[str | None] = mapped_column(String(255))
+    state_data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    current_agent: Mapped[str | None] = mapped_column(String(100))
+    status: Mapped[str | None] = mapped_column(String(50))
+    requires_hitl: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     __table_args__ = (
         Index("idx_checkpoints_thread", "thread_id", "created_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 14b. langgraph_checkpoint_history
+# ---------------------------------------------------------------------------
+
+class LanggraphCheckpointHistory(Base):
+    __tablename__ = "langgraph_checkpoint_history"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    thread_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    checkpoint_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    state_data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()"), default=_utcnow,
+    )
+
+    __table_args__ = (
+        Index("idx_checkpoint_history_thread", "thread_id", "created_at"),
+        Index("idx_checkpoint_history_checkpoint", "thread_id", "checkpoint_id"),
     )
 
 

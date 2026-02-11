@@ -131,7 +131,7 @@ class BidAgent(ConstrainedAgent):
             created_bid_ids.append(bid_id)
 
             # 5. Create HITL queue entry.
-            hitl_id = await self._create_hitl_entry(job_dict, proposal, bid_id)
+            hitl_id = await self._create_hitl_entry(job_dict, proposal, bid_id, state["thread_id"])
             hitl_request_ids.append(hitl_id)
 
             # 6. Log the action.
@@ -435,6 +435,7 @@ class BidAgent(ConstrainedAgent):
         job: dict[str, Any],
         proposal: dict[str, Any],
         bid_id: str,
+        thread_id: str = "",
     ) -> str:
         """Create an HITL queue entry for bid approval.
 
@@ -460,6 +461,7 @@ class BidAgent(ConstrainedAgent):
                     "proposal": proposal,
                     "bid_id": bid_id,
                     "source_agent": "bid",
+                    "thread_id": thread_id,
                 },
                 available_actions=["approve", "edit", "skip", "later"],
                 status="pending",

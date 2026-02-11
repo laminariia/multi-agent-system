@@ -132,7 +132,8 @@ class OrchestratorService:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=(
-                subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
+                subprocess.CREATE_NO_WINDOW
+                | subprocess.CREATE_NEW_PROCESS_GROUP
             ),
         )
 
@@ -218,13 +219,11 @@ class OrchestratorService:
         category: str = "feature",
     ) -> dict:
         """Add a new goal to the database and return its ID."""
-        # Determine next goal_id
-        max_num_result = await session.execute(
-            select(func.max(OrchestratorGoal.goal_id)),
-        )
-        max_id = max_num_result.scalar_one_or_none()
-        if max_id and (m := re.match(r"g_(\d+)", max_id)):
-            next_num = int(m.group(1)) + 1
+        # Determine next goal_id (numeric max, not lexicographic)
+        id_result = await session.execute(select(OrchestratorGoal.goal_id))
+        all_ids = [row[0] for row in id_result.all()]
+        if all_ids:
+            next_num = max(int(gid.split("_")[1]) for gid in all_ids if "_" in gid) + 1
         else:
             next_num = 1
         new_id = f"g_{next_num:03d}"

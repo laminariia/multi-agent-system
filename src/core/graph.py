@@ -90,7 +90,11 @@ async def bid_submission_node(state: dict[str, Any]) -> dict[str, Any]:
         try:
             from src.adapters.freelancer import FreelancerClient  # noqa: PLC0415
 
-            client = FreelancerClient()
+            settings = get_settings()
+            client = FreelancerClient(
+                client_id=settings.FREELANCER_CLIENT_ID or "",
+                client_secret=settings.FREELANCER_CLIENT_SECRET or "",
+            )
             project_id = bid_data.get("project_id") or (
                 state.get("project") or {}
             ).get("job_id", "")
@@ -212,6 +216,81 @@ async def hitl_email_node(state: dict[str, Any]) -> dict[str, Any]:
         )
 
     return state
+
+
+# ---------------------------------------------------------------------------
+# Email sending node (Pipeline B)
+# ---------------------------------------------------------------------------
+
+
+async def email_sending_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Send approved outreach emails after HITL approval.
+
+    Checks ``artifacts["emails_approved"]`` and, when ``True``, calls
+    :func:`~src.enrichment.email_sender.send_approved_emails` with the
+    campaign ID from artifacts.  Results are stored back in artifacts.
+    """
+    artifacts = dict(state.get("artifacts") or {})
+
+    if not artifacts.get("emails_approved"):
+        logger.info(
+            "email_sending_skipped",
+            thread_id=state["thread_id"],
+            reason="emails_not_approved",
+        )
+        return update_state(
+            state,
+            current_agent="email_sending",
+            next_agent=None,
+            status="completed",
+            artifacts=artifacts,
+        )
+
+    campaign_id = artifacts.get("campaign_id")
+    if not campaign_id:
+        logger.warning(
+            "email_sending_no_campaign",
+            thread_id=state["thread_id"],
+        )
+        artifacts["email_send_result"] = {"sent": 0, "failed": 0, "error": "no campaign_id"}
+        return update_state(
+            state,
+            current_agent="email_sending",
+            next_agent=None,
+            status="completed",
+            artifacts=artifacts,
+        )
+
+    try:
+        from src.core.database import get_db_session  # noqa: PLC0415
+        from src.enrichment.email_sender import send_approved_emails  # noqa: PLC0415
+
+        async with get_db_session() as session:
+            result = await send_approved_emails(campaign_id, session)
+
+        artifacts["email_send_result"] = result
+        logger.info(
+            "email_sending_complete",
+            thread_id=state["thread_id"],
+            campaign_id=str(campaign_id),
+            sent=result.get("sent", 0),
+            failed=result.get("failed", 0),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "email_sending_failed",
+            thread_id=state["thread_id"],
+            error=str(exc),
+        )
+        artifacts["email_send_result"] = {"sent": 0, "failed": 0, "error": str(exc)}
+
+    return update_state(
+        state,
+        current_agent="email_sending",
+        next_agent=None,
+        status="completed",
+        artifacts=artifacts,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -515,19 +594,36 @@ def _route_after_packager(state: dict[str, Any]) -> str:
 
 
 def _route_after_hitl_review(state: dict[str, Any]) -> str:
-    """Route after the final-review HITL node.
+    """Route after the HITL review node.
 
-    In Phase 1 this always terminates the graph.  The state will have
-    been updated by ``resume_from_hitl`` to reflect approval or rejection
-    before the graph is re-invoked.
+    For plan_review approvals, routes to ``"dev_node"`` so the pipeline
+    continues with implementation.  For final_review or rejections,
+    terminates the graph.
+
+    The ``_hitl_type`` artifact is set by ``resume_from_hitl`` to
+    distinguish between plan_review and final_review contexts.
 
     Returns:
-        ``END`` always (Phase 1).
+        ``"dev_node"`` when a plan_review was approved,
+        ``END`` otherwise.
     """
+    artifacts = state.get("artifacts") or {}
+    hitl_type = artifacts.get("_hitl_type", "")
+    status = state.get("status")
+
+    # Plan review approved -> continue to dev
+    if hitl_type == "plan_review" and status == "active":
+        logger.info(
+            "hitl_review_route_to_dev_plan_approved",
+            thread_id=state["thread_id"],
+        )
+        return "dev_node"
+
     logger.info(
         "hitl_review_route_to_end",
         thread_id=state["thread_id"],
-        status=state.get("status"),
+        status=status,
+        hitl_type=hitl_type,
     )
     return END
 
@@ -557,7 +653,12 @@ def _route_after_outreach(state: dict[str, Any]) -> str:
 
 
 def _route_after_hitl_email(state: dict[str, Any]) -> str:
-    """Route after email HITL: always END for now."""
+    """Route after email HITL: send emails if approved, else END."""
+    if state.get("status") == "failed":
+        return END
+    artifacts = state.get("artifacts") or {}
+    if artifacts.get("emails_approved"):
+        return "email_sending_node"
     return END
 
 
@@ -706,11 +807,12 @@ def build_full_pipeline_graph(checkpointer: Any | None = None) -> CompiledGraph:
         },
     )
 
-    # HITL(review) -> END (Phase 1)
+    # HITL(review) -> Dev (plan_review approved) | END
     graph.add_conditional_edges(
         "hitl_review_node",
         _route_after_hitl_review,
         {
+            "dev_node": "dev_node",
             END: END,
         },
     )
@@ -790,6 +892,7 @@ def build_pipeline_b_graph(checkpointer: Any | None = None) -> CompiledGraph:
     graph.add_node("geo_scout_node", geo_scout_node)
     graph.add_node("outreach_node", outreach_node)
     graph.add_node("hitl_email_node", hitl_email_node)
+    graph.add_node("email_sending_node", email_sending_node)
 
     # Entry point
     graph.set_entry_point("geo_scout_node")
@@ -808,8 +911,9 @@ def build_pipeline_b_graph(checkpointer: Any | None = None) -> CompiledGraph:
     graph.add_conditional_edges(
         "hitl_email_node",
         _route_after_hitl_email,
-        {END: END},
+        {"email_sending_node": "email_sending_node", END: END},
     )
+    graph.add_edge("email_sending_node", END)
 
     compiled = graph.compile(checkpointer=checkpointer)
     logger.info("pipeline_b_graph_compiled", has_checkpointer=checkpointer is not None)
@@ -875,7 +979,7 @@ def build_planner_pipeline_graph(checkpointer: Any | None = None) -> CompiledGra
     )
     graph.add_conditional_edges(
         "hitl_review_node", _route_after_hitl_review,
-        {END: END},
+        {"dev_node": "dev_node", END: END},
     )
 
     compiled = graph.compile(checkpointer=checkpointer)
@@ -893,6 +997,7 @@ def create_graph_with_persistence(
     *,
     full_pipeline: bool = True,
     pipeline_b: bool = False,
+    planner_pipeline: bool = False,
 ) -> CompiledGraph:
     """Build a graph backed by hybrid persistence.
 
@@ -901,8 +1006,10 @@ def create_graph_with_persistence(
         db_pool: An ``asyncpg.Pool`` connected to PostgreSQL.
         full_pipeline: When ``True`` (default) builds the full Phase 1
             pipeline.  When ``False`` builds the legacy Scout -> Bid graph.
-            Ignored when *pipeline_b* is ``True``.
+            Ignored when *pipeline_b* or *planner_pipeline* is ``True``.
         pipeline_b: When ``True`` builds the Pipeline B (Outreach) graph.
+        planner_pipeline: When ``True`` builds the Planner pipeline
+            (skipping Scout/Bid/HITL).  Used by ``run_project_pipeline``.
 
     Returns:
         A compiled graph with :class:`HybridCheckpointSaver` attached.
@@ -910,6 +1017,8 @@ def create_graph_with_persistence(
     checkpointer = HybridCheckpointSaver(valkey=valkey, db_pool=db_pool)
     if pipeline_b:
         return build_pipeline_b_graph(checkpointer=checkpointer)
+    if planner_pipeline:
+        return build_planner_pipeline_graph(checkpointer=checkpointer)
     if full_pipeline:
         return build_full_pipeline_graph(checkpointer=checkpointer)
     return build_scout_bid_graph(checkpointer=checkpointer)
@@ -1178,6 +1287,34 @@ async def resume_from_hitl(
             )
             return resumed_state  # type: ignore[return-value]
 
+        # ----- plan_review ------------------------------------------------
+        if resolved_type == "plan_review":
+            resumed_state = _apply_plan_review(saved_state, action, hitl_response, thread_id)
+
+            # On approval, re-invoke the pipeline so execution
+            # continues from hitl_review_node -> dev_node.
+            if action == "approve":
+                graph = build_full_pipeline_graph(checkpointer=checkpointer)
+                result = await graph.ainvoke(resumed_state, config=config)
+                logger.info(
+                    "hitl_plan_review_resumed_pipeline_finished",
+                    thread_id=thread_id,
+                    status=result.get("status"),
+                )
+                return result  # type: ignore[return-value]
+
+            await checkpointer.aput(
+                config, resumed_state, {"source": "hitl_resume", "action": action}
+            )
+
+            logger.info(
+                "hitl_plan_review_resumed",
+                thread_id=thread_id,
+                action=action,
+                new_status=resumed_state["status"],
+            )
+            return resumed_state  # type: ignore[return-value]
+
         # ----- final_review -----------------------------------------------
         if resolved_type == "final_review":
             resumed_state = _apply_final_review(saved_state, action, hitl_response, thread_id)
@@ -1199,6 +1336,18 @@ async def resume_from_hitl(
             resumed_state = _apply_email_approval(
                 saved_state, action, hitl_response, thread_id
             )
+
+            # On approval, re-invoke Pipeline B graph so the email_sending_node
+            # runs and actually sends the approved emails.
+            if action in ("approve", "edit"):
+                graph = build_pipeline_b_graph(checkpointer=checkpointer)
+                result = await graph.ainvoke(resumed_state, config=config)
+                logger.info(
+                    "hitl_email_resumed_pipeline_finished",
+                    thread_id=thread_id,
+                    status=result.get("status"),
+                )
+                return result  # type: ignore[return-value]
 
             await checkpointer.aput(
                 config, resumed_state, {"source": "hitl_resume", "action": action}
@@ -1279,6 +1428,70 @@ def _apply_bid_approval(
         status="active",
         next_agent="planner",
         current_agent="planner",
+    )
+
+
+def _apply_plan_review(
+    saved_state: dict[str, Any],
+    action: str,
+    hitl_response: dict[str, Any],
+    thread_id: str,
+) -> AgentState:
+    """Apply the human's plan-review decision to the saved state.
+
+    On **approve** the graph should continue to the Dev node, so we set
+    ``next_agent="dev"`` and ``status="active"``.  The ``_hitl_type``
+    artifact is set so ``_route_after_hitl_review`` routes correctly.
+    """
+    artifacts = dict(saved_state.get("artifacts") or {})
+    artifacts["_hitl_type"] = "plan_review"
+
+    if action == "approve":
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="active",
+            next_agent="dev",
+            current_agent="hitl_review",
+            artifacts=artifacts,
+        )
+
+    if action == "reject":
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="failed",
+            next_agent=None,
+            artifacts=artifacts,
+            errors=[*saved_state.get("errors", []), "HITL: plan rejected by human"],
+        )
+
+    if action == "edit":
+        edits = hitl_response.get("edits", {})
+        if edits:
+            artifacts["hitl_edits"] = [edits] if not isinstance(edits, list) else edits
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="active",
+            next_agent="dev",
+            current_agent="hitl_review",
+            artifacts=artifacts,
+        )
+
+    # Unknown action -- treat as approve with a warning.
+    logger.warning("hitl_plan_review_unknown_action", action=action, thread_id=thread_id)
+    return update_state(
+        saved_state,  # type: ignore[arg-type]
+        requires_hitl=False,
+        hitl_request_id=None,
+        status="active",
+        next_agent="dev",
+        current_agent="hitl_review",
+        artifacts=artifacts,
     )
 
 

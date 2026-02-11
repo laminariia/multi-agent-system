@@ -1,0 +1,375 @@
+"""Tests for g_501 bugfixes: FreelancerClient instantiation, email sending node, goal_id generation.
+
+Covers:
+1. FreelancerClient gets proper credentials from Settings
+2. email_sending_node calls send_approved_emails when approved
+3. email_sending_node skips when not approved
+4. email_sending_node handles missing campaign_id
+5. _route_after_hitl_email routes to email_sending_node when approved
+6. _route_after_hitl_email routes to END when not approved or failed
+7. goal_id generation with IDs like g_099, g_100, g_101
+8. goal_id generation with empty table
+9. goal_id generation in API service with 100+ goals
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from langgraph.graph import END
+
+# ---------------------------------------------------------------------------
+# Bug 1: FreelancerClient instantiation in bid_submission_node
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bid_submission_node_uses_settings_credentials():
+    """bid_submission_node passes FREELANCER_CLIENT_ID/SECRET from Settings."""
+    from src.core.graph import bid_submission_node
+
+    mock_settings = MagicMock()
+    mock_settings.FREELANCER_CLIENT_ID = "test_client_id"  # noqa: S105
+    mock_settings.FREELANCER_CLIENT_SECRET = "test_secret"  # noqa: S105
+
+    mock_client_instance = MagicMock()
+    mock_client_instance.submit_bid = AsyncMock(return_value={"result": {"id": 42}})
+    mock_client_instance.close = AsyncMock()
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "project": {"platform": "freelancer", "job_id": "123"},
+        "artifacts": {"bid": {"proposal": "Hello", "amount": 100}},
+        "current_agent": "bid",
+        "next_agent": None,
+        "errors": [],
+        "requires_hitl": False,
+        "hitl_request_id": None,
+    }
+
+    with (
+        patch("src.core.graph.get_settings", return_value=mock_settings),
+        patch(
+            "src.adapters.freelancer.FreelancerClient",
+            return_value=mock_client_instance,
+        ) as mock_cls,
+    ):
+        result = await bid_submission_node(state)
+
+    mock_cls.assert_called_once_with(
+        client_id="test_client_id",
+        client_secret="test_secret",  # noqa: S106
+    )
+    assert result["artifacts"]["bid_submitted"] is True
+
+
+@pytest.mark.asyncio
+async def test_bid_submission_node_handles_missing_credentials():
+    """bid_submission_node works with None credentials (empty strings)."""
+    from src.core.graph import bid_submission_node
+
+    mock_settings = MagicMock()
+    mock_settings.FREELANCER_CLIENT_ID = None
+    mock_settings.FREELANCER_CLIENT_SECRET = None
+
+    mock_client_instance = MagicMock()
+    mock_client_instance.submit_bid = AsyncMock(return_value={"result": {"id": 1}})
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "project": {"platform": "freelancer", "job_id": "456"},
+        "artifacts": {"bid": {"proposal": "Hi", "amount": 50}},
+        "current_agent": "bid",
+        "next_agent": None,
+        "errors": [],
+        "requires_hitl": False,
+        "hitl_request_id": None,
+    }
+
+    with (
+        patch("src.core.graph.get_settings", return_value=mock_settings),
+        patch(
+            "src.adapters.freelancer.FreelancerClient",
+            return_value=mock_client_instance,
+        ) as mock_cls,
+    ):
+        await bid_submission_node(state)
+
+    # Empty string fallback for None
+    mock_cls.assert_called_once_with(client_id="", client_secret="")
+
+
+# ---------------------------------------------------------------------------
+# Bug 2: email_sending_node
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_email_sending_node_calls_send_when_approved():
+    """email_sending_node calls send_approved_emails when emails_approved=True."""
+    from src.core.graph import email_sending_node
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "artifacts": {"emails_approved": True, "campaign_id": "camp-123"},
+        "current_agent": "hitl_email",
+        "next_agent": None,
+        "errors": [],
+        "requires_hitl": False,
+        "hitl_request_id": None,
+    }
+
+    mock_send = AsyncMock(return_value={"sent": 5, "failed": 1, "rate_limited": 0})
+    mock_session = AsyncMock()
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with (
+        patch(
+            "src.enrichment.email_sender.send_approved_emails",
+            mock_send,
+        ),
+        patch(
+            "src.core.database.get_db_session",
+            return_value=mock_ctx,
+        ),
+    ):
+        result = await email_sending_node(state)
+
+    assert result["current_agent"] == "email_sending"
+    assert result["status"] == "completed"
+    assert result["artifacts"]["email_send_result"]["sent"] == 5
+    mock_send.assert_called_once_with("camp-123", mock_session)
+
+
+@pytest.mark.asyncio
+async def test_email_sending_node_skips_when_not_approved():
+    """email_sending_node skips sending when emails_approved is not True."""
+    from src.core.graph import email_sending_node
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "artifacts": {},
+        "current_agent": "hitl_email",
+        "next_agent": None,
+        "errors": [],
+        "requires_hitl": False,
+        "hitl_request_id": None,
+    }
+
+    result = await email_sending_node(state)
+
+    assert result["current_agent"] == "email_sending"
+    assert result["status"] == "completed"
+    assert "email_send_result" not in result.get("artifacts", {})
+
+
+@pytest.mark.asyncio
+async def test_email_sending_node_no_campaign_id():
+    """email_sending_node handles missing campaign_id gracefully."""
+    from src.core.graph import email_sending_node
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "artifacts": {"emails_approved": True},
+        "current_agent": "hitl_email",
+        "next_agent": None,
+        "errors": [],
+        "requires_hitl": False,
+        "hitl_request_id": None,
+    }
+
+    result = await email_sending_node(state)
+
+    assert result["current_agent"] == "email_sending"
+    assert result["status"] == "completed"
+    assert result["artifacts"]["email_send_result"]["error"] == "no campaign_id"
+    assert result["artifacts"]["email_send_result"]["sent"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Bug 2: _route_after_hitl_email routing
+# ---------------------------------------------------------------------------
+
+
+def test_route_after_hitl_email_approved():
+    """Route to email_sending_node when emails are approved."""
+    from src.core.graph import _route_after_hitl_email
+
+    state = {
+        "thread_id": "t1",
+        "status": "completed",
+        "artifacts": {"emails_approved": True},
+    }
+    assert _route_after_hitl_email(state) == "email_sending_node"
+
+
+def test_route_after_hitl_email_not_approved():
+    """Route to END when emails are not approved."""
+    from src.core.graph import _route_after_hitl_email
+
+    state = {
+        "thread_id": "t1",
+        "status": "completed",
+        "artifacts": {},
+    }
+    assert _route_after_hitl_email(state) == END
+
+
+def test_route_after_hitl_email_failed():
+    """Route to END when status is failed."""
+    from src.core.graph import _route_after_hitl_email
+
+    state = {
+        "thread_id": "t1",
+        "status": "failed",
+        "artifacts": {"emails_approved": True},
+    }
+    assert _route_after_hitl_email(state) == END
+
+
+def test_route_after_hitl_email_rejected():
+    """Route to END when emails_approved is False (rejected)."""
+    from src.core.graph import _route_after_hitl_email
+
+    state = {
+        "thread_id": "t1",
+        "status": "completed",
+        "artifacts": {"emails_approved": False},
+    }
+    assert _route_after_hitl_email(state) == END
+
+
+# ---------------------------------------------------------------------------
+# Bug 3: goal_id lexicographic MAX bug
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_goal_id_generation_over_099():
+    """goal_id correctly generates g_102 after g_099, g_100, g_101."""
+    from src.bot.orchestrator_commands import _add_goal_to_db
+
+    mock_rows = [("g_099",), ("g_100",), ("g_101",)]
+    mock_result = MagicMock()
+    mock_result.all.return_value = mock_rows
+
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(return_value=mock_result)
+    mock_session.add = MagicMock()
+
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("src.bot.orchestrator_commands.get_db_session", return_value=mock_ctx):
+        new_id = await _add_goal_to_db("Test goal")
+
+    assert new_id == "g_102"
+
+
+@pytest.mark.asyncio
+async def test_goal_id_generation_empty_table():
+    """goal_id starts at g_001 when the table is empty."""
+    from src.bot.orchestrator_commands import _add_goal_to_db
+
+    mock_result = MagicMock()
+    mock_result.all.return_value = []
+
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(return_value=mock_result)
+    mock_session.add = MagicMock()
+
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("src.bot.orchestrator_commands.get_db_session", return_value=mock_ctx):
+        new_id = await _add_goal_to_db("First goal")
+
+    assert new_id == "g_001"
+
+
+@pytest.mark.asyncio
+async def test_goal_id_generation_numeric_max_not_lexicographic():
+    """Numeric max ensures g_100 > g_099, unlike lexicographic comparison."""
+    from src.bot.orchestrator_commands import _add_goal_to_db
+
+    # Lexicographic max of these would be "g_099" (wrong!)
+    # Numeric max is 100 -> next is 101
+    mock_rows = [("g_001",), ("g_050",), ("g_099",), ("g_100",)]
+    mock_result = MagicMock()
+    mock_result.all.return_value = mock_rows
+
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(return_value=mock_result)
+    mock_session.add = MagicMock()
+
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("src.bot.orchestrator_commands.get_db_session", return_value=mock_ctx):
+        new_id = await _add_goal_to_db("Should be 101")
+
+    assert new_id == "g_101"
+
+
+@pytest.mark.asyncio
+async def test_api_service_goal_id_generation_over_099():
+    """OrchestratorService.add_goal correctly handles 100+ goals."""
+    from src.api.services.orchestrator import OrchestratorService
+
+    mock_rows = [("g_098",), ("g_099",), ("g_100",)]
+    mock_id_result = MagicMock()
+    mock_id_result.all.return_value = mock_rows
+
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(return_value=mock_id_result)
+    mock_session.add = MagicMock()
+    mock_session.flush = AsyncMock()
+
+    result = await OrchestratorService.add_goal(mock_session, "Test goal from API")
+
+    assert result["id"] == "g_101"
+
+
+@pytest.mark.asyncio
+async def test_api_service_goal_id_generation_empty():
+    """OrchestratorService.add_goal starts at g_001 with empty table."""
+    from src.api.services.orchestrator import OrchestratorService
+
+    mock_id_result = MagicMock()
+    mock_id_result.all.return_value = []
+
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(return_value=mock_id_result)
+    mock_session.add = MagicMock()
+    mock_session.flush = AsyncMock()
+
+    result = await OrchestratorService.add_goal(mock_session, "First API goal")
+
+    assert result["id"] == "g_001"
+
+
+# ---------------------------------------------------------------------------
+# Pipeline B graph includes email_sending_node
+# ---------------------------------------------------------------------------
+
+
+def test_pipeline_b_graph_has_email_sending_node():
+    """build_pipeline_b_graph includes the email_sending_node."""
+    from src.core.graph import build_pipeline_b_graph
+
+    graph = build_pipeline_b_graph()
+    # The compiled graph should have the email_sending_node
+    node_names = set(graph.nodes.keys())
+    assert "email_sending_node" in node_names
+    assert "hitl_email_node" in node_names

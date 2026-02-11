@@ -226,10 +226,10 @@ async def _get_all_goals() -> list[dict]:
 async def _add_goal_to_db(title: str, priority: str = "medium", category: str = "feature") -> str:
     """Insert a new goal into the database. Returns the new goal_id."""
     async with get_db_session() as session:
-        max_result = await session.execute(select(func.max(OrchestratorGoal.goal_id)))
-        max_id = max_result.scalar_one_or_none()
-        if max_id and (m := re.match(r"g_(\d+)", max_id)):
-            next_num = int(m.group(1)) + 1
+        result = await session.execute(select(OrchestratorGoal.goal_id))
+        all_ids = [row[0] for row in result.all()]
+        if all_ids:
+            next_num = max(int(gid.split("_")[1]) for gid in all_ids if "_" in gid) + 1
         else:
             next_num = 1
         new_id = f"g_{next_num:03d}"
@@ -602,14 +602,14 @@ async def orch_button_callback(
                     stderr=subprocess.DEVNULL,
                     creationflags=(
                         subprocess.CREATE_NO_WINDOW
-                        | subprocess.DETACHED_PROCESS
+                        | subprocess.CREATE_NEW_PROCESS_GROUP
                     ),
                 )
                 ORCH_DIR.mkdir(parents=True, exist_ok=True)
                 PID_FILE.write_text(str(proc.pid))
                 text = (
                     f"\U0001f680 Оркестратор запущен\n"
-                    f"\u23f1 Режим: self-direct (12ч, 60мин/сессия)\n"
+                    f"\u23f1 Режим: self-direct (agent-driven sessions)\n"
                     f"\U0001f916 Модель: opus\n"
                     f"\U0001f4ca Pending: {pending} целей"
                 )
@@ -696,7 +696,8 @@ async def run_command(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=(
-                subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
+                subprocess.CREATE_NO_WINDOW
+                | subprocess.CREATE_NEW_PROCESS_GROUP
             ),
         )
         ORCH_DIR.mkdir(parents=True, exist_ok=True)

@@ -121,6 +121,9 @@ class _FakeResult:
     def scalars(self) -> _FakeScalars:
         return _FakeScalars(self._items)
 
+    def all(self):
+        return [(item,) for item in self._items]
+
 
 class _FakeSession:
     """Lightweight async-compatible session mock.
@@ -170,6 +173,12 @@ class _FakeSession:
             if self._goals:
                 return _FakeResult(value=self._goals[0], items=[self._goals[0]])
             return _FakeResult(value=None)
+
+        # Column-level SELECT for goal_id only (add_goal ID generation)
+        # Matches: SELECT orchestrator_goals.goal_id FROM ...
+        # But NOT: SELECT orchestrator_goals.id, orchestrator_goals.goal_id, ...
+        if "goal_id" in stmt_str and "title" not in stmt_str and "count" not in stmt_str:
+            return _FakeResult(items=[g.goal_id for g in self._goals])
 
         # General SELECT (list_goals)
         return _FakeResult(items=self._goals)

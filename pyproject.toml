@@ -64,6 +64,9 @@ dependencies = [
     # Utilities
     "python-dotenv>=1.0",
     "structlog>=24.0",
+
+    # Numeric
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
