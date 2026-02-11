@@ -567,3 +567,87 @@ class LogResponseSchema(_BaseSchema):
     lines: list[LogLineSchema] = Field(default_factory=list)
     total: int = Field(default=0, ge=0)
     log_file: str | None = Field(default=None)
+
+
+# =============================================================================
+# Settings / Credentials schemas
+# =============================================================================
+
+
+class PlatformAccountCreateSchema(_BaseSchema):
+    """Create a new platform account with encrypted credentials."""
+    platform: str = Field(
+        ...,
+        pattern=r"^(freelancer|upwork|fl_ru|kwork)$",
+        examples=["freelancer"],
+        description="Platform identifier",
+    )
+    username: str | None = Field(default=None, max_length=255, examples=["myuser"])
+    credentials: dict[str, Any] = Field(
+        ...,
+        description="Platform-specific credentials (will be encrypted at rest)",
+        examples=[{"client_id": "abc", "client_secret": "xyz"}],
+    )
+    profile_url: str | None = Field(default=None, max_length=1000)
+
+
+class PlatformAccountUpdateSchema(_BaseSchema):
+    """Update an existing platform account."""
+    username: str | None = Field(default=None, max_length=255)
+    credentials: dict[str, Any] | None = Field(
+        default=None,
+        description="New credentials (will be encrypted); omit to keep existing",
+    )
+    profile_url: str | None = Field(default=None, max_length=1000)
+    status: str | None = Field(
+        default=None,
+        pattern=r"^(active|suspended|rate_limited)$",
+    )
+
+
+class PlatformAccountResponseSchema(_BaseSchema):
+    """Platform account with masked credentials."""
+    id: uuid.UUID
+    platform: str = Field(..., examples=["freelancer"])
+    username: str | None = None
+    status: str = Field(default="active", examples=["active"])
+    profile_url: str | None = None
+    stats: dict[str, Any] = Field(default_factory=dict)
+    last_health_check: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PlatformAccountListResponseSchema(_BaseSchema):
+    """List of platform accounts."""
+    accounts: list[PlatformAccountResponseSchema]
+    total: int = Field(default=0, ge=0)
+
+
+class APIKeyStatusSchema(_BaseSchema):
+    """Status of a single API key (never exposes the actual key)."""
+    key_name: str = Field(..., examples=["gemini_api_key"])
+    display_name: str = Field(..., examples=["Gemini API"])
+    configured: bool = Field(default=False)
+    masked: str | None = Field(default=None, examples=["***abc123"])
+
+
+class APIKeySaveSchema(_BaseSchema):
+    """Save/update API keys. Only non-null fields are updated."""
+    openrouter_api_key: str | None = Field(default=None, max_length=500)
+    gemini_api_key: str | None = Field(default=None, max_length=500)
+    anthropic_api_key: str | None = Field(default=None, max_length=500)
+    openai_api_key: str | None = Field(default=None, max_length=500)
+    e2b_api_key: str | None = Field(default=None, max_length=500)
+    hunter_api_key: str | None = Field(default=None, max_length=500)
+    apollo_api_key: str | None = Field(default=None, max_length=500)
+    freelancer_client_id: str | None = Field(default=None, max_length=500)
+    freelancer_client_secret: str | None = Field(default=None, max_length=500)
+    brightdata_username: str | None = Field(default=None, max_length=500)
+    brightdata_password: str | None = Field(default=None, max_length=500)
+
+
+class CredentialsSummarySchema(_BaseSchema):
+    """Overall credentials status for the settings page."""
+    api_keys: list[APIKeyStatusSchema] = Field(default_factory=list)
+    platform_accounts: list[PlatformAccountResponseSchema] = Field(default_factory=list)

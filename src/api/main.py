@@ -38,6 +38,7 @@ from src.api.routes.jobs import JobController
 from src.api.routes.metrics import MetricsController
 from src.api.routes.orchestrator import OrchestratorController
 from src.api.routes.pipeline_b import PipelineBController
+from src.api.routes.settings import SettingsController
 from src.api.routes.users import UserController
 from src.api.schemas import ErrorResponseSchema, ErrorSchema
 from src.api.websocket import (
@@ -236,6 +237,7 @@ app = Litestar(
         MetricsController,
         OrchestratorController,
         PipelineBController,
+        SettingsController,
         UserController,
         ws_handler,
     ],

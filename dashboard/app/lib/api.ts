@@ -18,6 +18,8 @@ import type {
   HealthReport,
   Phase,
   LogResponse,
+  CredentialsSummary,
+  PlatformAccount,
 } from "./types";
 
 declare global {
@@ -442,4 +444,49 @@ export async function fetchOrchestratorLogs(params?: { n?: number }): Promise<Lo
   if (params?.n) searchParams.set("n", String(params.n));
   const query = searchParams.toString();
   return apiFetch<LogResponse>(`/orchestrator/logs${query ? `?${query}` : ""}`);
+}
+
+// --- Settings ---
+
+export async function fetchCredentials(): Promise<CredentialsSummary> {
+  return apiFetch<CredentialsSummary>("/settings/credentials");
+}
+
+export async function fetchPlatformAccounts(): Promise<{ accounts: PlatformAccount[]; total: number }> {
+  return apiFetch<{ accounts: PlatformAccount[]; total: number }>("/settings/platform-accounts");
+}
+
+export async function createPlatformAccount(data: {
+  platform: string;
+  username?: string;
+  credentials: Record<string, string>;
+  profile_url?: string;
+}): Promise<PlatformAccount> {
+  return apiFetch<PlatformAccount>("/settings/platform-accounts", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updatePlatformAccount(
+  id: string,
+  data: Record<string, any>
+): Promise<PlatformAccount> {
+  return apiFetch<PlatformAccount>(`/settings/platform-accounts/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deletePlatformAccount(id: string): Promise<{ message: string }> {
+  return apiFetch<{ message: string }>(`/settings/platform-accounts/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function saveAPIKeys(keys: Record<string, string>): Promise<{ api_keys: Record<string, any>; message: string }> {
+  return apiFetch<{ api_keys: Record<string, any>; message: string }>("/settings/api-keys", {
+    method: "PUT",
+    body: JSON.stringify(keys),
+  });
 }

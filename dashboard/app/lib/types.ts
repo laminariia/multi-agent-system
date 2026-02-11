@@ -236,3 +236,29 @@ export interface LogResponse {
   total: number;
   log_file: string | null;
 }
+
+// --- Settings ---
+
+export interface PlatformAccount {
+  id: string;
+  platform: string;
+  username: string | null;
+  status: string;
+  profile_url: string | null;
+  stats: Record<string, any>;
+  last_health_check: string | null;
+  credentials_masked: Record<string, string>;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface APIKeyStatus {
+  configured: boolean;
+  source: string | null;
+  masked: string | null;
+}
+
+export interface CredentialsSummary {
+  api_keys: Record<string, APIKeyStatus>;
+  platform_accounts: PlatformAccount[];
+}
