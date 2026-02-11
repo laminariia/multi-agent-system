@@ -195,11 +195,13 @@ export async function register(
 
 export async function fetchHITLPending(params?: {
   type?: string;
+  search?: string;
   limit?: number;
   offset?: number;
 }): Promise<HITLPendingResponse> {
   const searchParams = new URLSearchParams();
   if (params?.type) searchParams.set("type", params.type);
+  if (params?.search) searchParams.set("search", params.search);
   if (params?.limit) searchParams.set("limit", String(params.limit));
   if (params?.offset) searchParams.set("offset", String(params.offset));
 

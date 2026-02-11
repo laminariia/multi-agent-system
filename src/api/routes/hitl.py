@@ -132,12 +132,15 @@ class HITLController(Controller):
     @get(
         "/pending",
         summary="List pending HITL items",
-        description="Paginated list of HITL items awaiting resolution, optionally filtered by type.",
+        description="Paginated list of HITL items awaiting resolution, optionally filtered by type and search term.",
     )
     async def list_pending(
         self,
         db_session: AsyncSession,
         type: str | None = Parameter(default=None, description="Filter by type: bid_approval, code_review, etc."),
+        search: str | None = Parameter(
+            default=None, description="Case-insensitive title substring filter",
+        ),
         limit: int = Parameter(default=20, ge=1, le=100, description="Page size"),
         offset: int = Parameter(default=0, ge=0, description="Pagination offset"),
     ) -> HITLPendingResponseSchema:
@@ -146,6 +149,9 @@ class HITLController(Controller):
 
         if type is not None:
             base = base.where(HITLQueue.type == type)
+
+        if search is not None:
+            base = base.where(HITLQueue.title.ilike(f"%{search}%"))
 
         # Count total + urgent
         count_stmt = select(func.count()).select_from(base.subquery())

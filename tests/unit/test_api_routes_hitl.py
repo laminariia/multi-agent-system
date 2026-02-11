@@ -327,6 +327,104 @@ class TestListPending:
         assert returned_item.created_at == item.created_at
 
 
+class TestListPendingSearch:
+    """Tests for the search parameter on list_pending."""
+
+    @pytest.mark.asyncio
+    async def test_search_filters_by_title(self) -> None:
+        """Should filter items when search param is provided."""
+        db_session = _create_mock_db_session()
+
+        item = _create_mock_hitl_item()
+        item.title = "Fix login bug"
+
+        total_result = MagicMock()
+        total_result.scalar_one.return_value = 1
+
+        urgent_result = MagicMock()
+        urgent_result.scalar_one.return_value = 0
+
+        items_result = MagicMock()
+        items_result.scalars.return_value.all.return_value = [item]
+
+        db_session.execute.side_effect = [total_result, urgent_result, items_result]
+
+        result = await HITLController.list_pending.fn(
+            self=None,
+            db_session=db_session,
+            type=None,
+            search="login",
+            limit=20,
+            offset=0,
+        )
+
+        assert result.total == 1
+        assert len(result.items) == 1
+        assert result.items[0].title == "Fix login bug"
+
+    @pytest.mark.asyncio
+    async def test_search_none_returns_all(self) -> None:
+        """Should not filter when search is None."""
+        db_session = _create_mock_db_session()
+
+        item1 = _create_mock_hitl_item()
+        item2 = _create_mock_hitl_item()
+
+        total_result = MagicMock()
+        total_result.scalar_one.return_value = 2
+
+        urgent_result = MagicMock()
+        urgent_result.scalar_one.return_value = 0
+
+        items_result = MagicMock()
+        items_result.scalars.return_value.all.return_value = [item1, item2]
+
+        db_session.execute.side_effect = [total_result, urgent_result, items_result]
+
+        result = await HITLController.list_pending.fn(
+            self=None,
+            db_session=db_session,
+            type=None,
+            search=None,
+            limit=20,
+            offset=0,
+        )
+
+        assert result.total == 2
+        assert len(result.items) == 2
+
+    @pytest.mark.asyncio
+    async def test_search_with_type_filter(self) -> None:
+        """Should combine search and type filters."""
+        db_session = _create_mock_db_session()
+
+        item = _create_mock_hitl_item(item_type="code_review")
+        item.title = "Review auth module"
+
+        total_result = MagicMock()
+        total_result.scalar_one.return_value = 1
+
+        urgent_result = MagicMock()
+        urgent_result.scalar_one.return_value = 0
+
+        items_result = MagicMock()
+        items_result.scalars.return_value.all.return_value = [item]
+
+        db_session.execute.side_effect = [total_result, urgent_result, items_result]
+
+        result = await HITLController.list_pending.fn(
+            self=None,
+            db_session=db_session,
+            type="code_review",
+            search="auth",
+            limit=20,
+            offset=0,
+        )
+
+        assert result.total == 1
+        assert result.items[0].type == "code_review"
+
+
 class TestResolve:
     """Tests for the resolve route handler."""
 

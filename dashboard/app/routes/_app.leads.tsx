@@ -8,6 +8,8 @@ import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Pagination } from "~/components/pagination";
+import { JobsByPlatformChart } from "~/components/charts";
+import { MetricCard } from "~/components/metric-card";
 import { fetchLeads, fetchPipelineBStats, startScan } from "~/lib/api";
 import { toast } from "~/hooks/use-toast";
 import type { Lead } from "~/lib/types";
@@ -191,29 +193,49 @@ export default function LeadsPage() {
       </Card>
 
       {/* Stats summary */}
-      {stats && stats.top_cities.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Card className="border-border/50">
-            <CardContent className="pt-6">
-              <p className="text-sm text-muted-foreground">Total Leads</p>
-              <p className="text-2xl font-semibold mt-1">
-                {stats.total_leads}
-              </p>
-            </CardContent>
-          </Card>
-          {stats.top_cities.slice(0, 3).map((cityItem) => (
-            <Card key={cityItem.city} className="border-border/50">
-              <CardContent className="pt-6">
-                <p className="text-sm text-muted-foreground">
-                  {cityItem.city}
-                </p>
-                <p className="text-2xl font-semibold mt-1">
-                  {cityItem.count} leads
-                </p>
-              </CardContent>
-            </Card>
-          ))}
+      {stats && (
+        <div className="grid gap-4 md:grid-cols-3">
+          <MetricCard
+            icon={
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            }
+            label="Total Leads"
+            value={stats.total_leads}
+          />
+          <MetricCard
+            icon={
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+              </svg>
+            }
+            label="Enriched"
+            value={stats.by_status["enriched"] ?? 0}
+          />
+          <MetricCard
+            icon={
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 2L11 13" />
+                <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+              </svg>
+            }
+            label="Contacted"
+            value={stats.by_status["contacted"] ?? 0}
+          />
         </div>
+      )}
+
+      {/* Top cities chart */}
+      {stats && stats.top_cities.length > 0 && (
+        <JobsByPlatformChart
+          title="Leads by City"
+          data={stats.top_cities.map((c) => ({
+            platform: c.city ?? "Unknown",
+            count: c.count,
+          }))}
+        />
       )}
 
       {/* Filters */}

@@ -41,13 +41,13 @@ interface JobsByPlatformData {
   count: number;
 }
 
-export function JobsByPlatformChart({ data }: { data: JobsByPlatformData[] }) {
+export function JobsByPlatformChart({ data, title = "Jobs by Platform" }: { data: JobsByPlatformData[]; title?: string }) {
   if (!data.length) return null;
 
   return (
     <Card className="border-border/50">
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">Jobs by Platform</CardTitle>
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="h-[200px]">

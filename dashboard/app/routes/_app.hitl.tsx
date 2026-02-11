@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "~/components/ui/badge";
+import { Input } from "~/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Skeleton } from "~/components/ui/skeleton";
 import { HITLCard } from "~/components/hitl-card";
@@ -24,8 +25,17 @@ const filterTabs = [
 export default function HITLPage() {
   const queryClient = useQueryClient();
   const [activeFilter, setActiveFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(0);
   const user = useAuthStore((s) => s.user);
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(id);
+  }, [searchQuery]);
+
+  useEffect(() => { setPage(0); }, [debouncedSearch]);
 
   const handleFilterChange = (v: string) => { setActiveFilter(v); setPage(0); };
 
@@ -33,11 +43,13 @@ export default function HITLPage() {
     queryKey: [
       "hitl-pending",
       activeFilter === "all" ? undefined : activeFilter,
+      debouncedSearch || undefined,
       page,
     ],
     queryFn: () =>
       fetchHITLPending({
         type: activeFilter === "all" ? undefined : activeFilter,
+        search: debouncedSearch || undefined,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       }),
@@ -116,19 +128,27 @@ export default function HITLPage() {
         )}
       </div>
 
-      {/* Filter tabs */}
-      <Tabs
-        value={activeFilter}
-        onValueChange={handleFilterChange}
-      >
-        <TabsList>
-          {filterTabs.map((tab) => (
-            <TabsTrigger key={tab.value} value={tab.value}>
-              {tab.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      {/* Filter tabs + search */}
+      <div className="flex items-center gap-4">
+        <Tabs
+          value={activeFilter}
+          onValueChange={handleFilterChange}
+        >
+          <TabsList>
+            {filterTabs.map((tab) => (
+              <TabsTrigger key={tab.value} value={tab.value}>
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+        <Input
+          placeholder="Search by title..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="max-w-[220px]"
+        />
+      </div>
 
       {/* Loading state */}
       {isLoading && !data && (
