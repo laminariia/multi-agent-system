@@ -21,6 +21,9 @@ const typeConfig: Record<
   plan_review: { label: "Plan", variant: "plan" },
   alert: { label: "Alert", variant: "alert" },
   revision: { label: "Revision", variant: "revision" },
+  email_approval: { label: "Email", variant: "bid" },
+  final_review: { label: "Final", variant: "delivery" },
+  job_review: { label: "Job", variant: "review" },
 };
 
 const actionVariants: Record<string, "default" | "success" | "warning" | "destructive" | "outline"> = {
@@ -39,11 +42,13 @@ const actionVariants: Record<string, "default" | "success" | "warning" | "destru
 interface HITLCardProps {
   item: HITLItem;
   onResolve: (id: string, action: string) => Promise<void>;
+  userRole?: string;
 }
 
-export function HITLCard({ item, onResolve }: HITLCardProps) {
+export function HITLCard({ item, onResolve, userRole }: HITLCardProps) {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const config = typeConfig[item.type] ?? typeConfig.alert;
+  const canResolve = !userRole || userRole === "owner" || userRole === "co_owner";
 
   const handleAction = async (action: string) => {
     setLoadingAction(action);
@@ -112,44 +117,50 @@ export function HITLCard({ item, onResolve }: HITLCardProps) {
       </CardContent>
 
       <CardFooter className="gap-2 flex-wrap">
-        {item.available_actions.map((action) => (
-          <Button
-            key={action}
-            variant={actionVariants[action] ?? "outline"}
-            size="sm"
-            disabled={loadingAction !== null}
-            onClick={() => handleAction(action)}
-            className="text-xs capitalize"
-          >
-            {loadingAction === action ? (
-              <span className="flex items-center gap-1.5">
-                <svg
-                  className="h-3 w-3 animate-spin"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
-                </svg>
-                {action}
-              </span>
-            ) : (
-              action
-            )}
-          </Button>
-        ))}
+        {canResolve ? (
+          item.available_actions.map((action) => (
+            <Button
+              key={action}
+              variant={actionVariants[action] ?? "outline"}
+              size="sm"
+              disabled={loadingAction !== null}
+              onClick={() => handleAction(action)}
+              className="text-xs capitalize"
+            >
+              {loadingAction === action ? (
+                <span className="flex items-center gap-1.5">
+                  <svg
+                    className="h-3 w-3 animate-spin"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
+                  </svg>
+                  {action}
+                </span>
+              ) : (
+                action
+              )}
+            </Button>
+          ))
+        ) : (
+          <Badge variant="secondary" className="text-xs">
+            Awaiting owner approval
+          </Badge>
+        )}
       </CardFooter>
     </Card>
   );

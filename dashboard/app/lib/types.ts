@@ -33,7 +33,7 @@ export interface RegisterRequest {
 
 export interface HITLItem {
   id: string;
-  type: "bid_approval" | "code_review" | "delivery" | "revision" | "scope_creep" | "plan_review" | "alert";
+  type: "bid_approval" | "code_review" | "delivery" | "revision" | "scope_creep" | "plan_review" | "alert" | "email_approval" | "final_review" | "job_review";
   priority: "urgent" | "normal" | "low";
   title: string;
   description: string | null;
@@ -63,7 +63,7 @@ export interface HITLStats {
     expired: number;
   };
   avg_resolution_time_minutes: number;
-  by_type: Record<string, number>;
+  by_type: Record<string, { pending: number; resolved: number }>;
 }
 
 export interface AgentStatus {

@@ -207,11 +207,11 @@ export async function fetchHITLPending(params?: {
 export async function resolveHITL(
   id: string,
   action: string,
-  notes?: string
+  note?: string
 ): Promise<HITLResolveResponse> {
   return apiFetch<HITLResolveResponse>(`/hitl/${id}/resolve`, {
     method: "POST",
-    body: JSON.stringify({ action, notes }),
+    body: JSON.stringify({ action, note }),
   });
 }
 

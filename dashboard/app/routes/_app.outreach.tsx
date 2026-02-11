@@ -13,9 +13,11 @@ import { fetchHITLPending, resolveHITL } from "~/lib/api";
 import { toast } from "~/hooks/use-toast";
 import { relativeTime } from "~/lib/utils";
 import type { HITLItem } from "~/lib/types";
+import { useAuthStore } from "~/stores/auth-store";
 
 export default function OutreachPage() {
   const queryClient = useQueryClient();
+  const user = useAuthStore((s) => s.user);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["outreach-pending"],
@@ -124,6 +126,7 @@ export default function OutreachPage() {
               key={item.id}
               item={item}
               onResolve={handleResolve}
+              userRole={user?.role}
             />
           ))}
         </div>
@@ -135,11 +138,14 @@ export default function OutreachPage() {
 function OutreachCard({
   item,
   onResolve,
+  userRole,
 }: {
   item: HITLItem;
   onResolve: (id: string, action: string) => Promise<void>;
+  userRole?: string;
 }) {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
+  const canResolve = !userRole || userRole === "owner" || userRole === "co_owner";
 
   const handleAction = async (action: string) => {
     setLoadingAction(action);
@@ -198,50 +204,56 @@ function OutreachCard({
       </CardContent>
 
       <CardFooter className="gap-2 flex-wrap">
-        {item.available_actions.map((action) => (
-          <Button
-            key={action}
-            variant={
-              action === "approve"
-                ? "success"
-                : action === "reject"
-                ? "destructive"
-                : "outline"
-            }
-            size="sm"
-            disabled={loadingAction !== null}
-            onClick={() => handleAction(action)}
-            className="text-xs capitalize"
-          >
-            {loadingAction === action ? (
-              <span className="flex items-center gap-1.5">
-                <svg
-                  className="h-3 w-3 animate-spin"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
-                </svg>
-                {action}
-              </span>
-            ) : (
-              action
-            )}
-          </Button>
-        ))}
+        {canResolve ? (
+          item.available_actions.map((action) => (
+            <Button
+              key={action}
+              variant={
+                action === "approve"
+                  ? "success"
+                  : action === "reject"
+                  ? "destructive"
+                  : "outline"
+              }
+              size="sm"
+              disabled={loadingAction !== null}
+              onClick={() => handleAction(action)}
+              className="text-xs capitalize"
+            >
+              {loadingAction === action ? (
+                <span className="flex items-center gap-1.5">
+                  <svg
+                    className="h-3 w-3 animate-spin"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
+                  </svg>
+                  {action}
+                </span>
+              ) : (
+                action
+              )}
+            </Button>
+          ))
+        ) : (
+          <Badge variant="secondary" className="text-xs">
+            Awaiting owner approval
+          </Badge>
+        )}
       </CardFooter>
     </Card>
   );

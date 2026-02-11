@@ -6,6 +6,7 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { HITLCard } from "~/components/hitl-card";
 import { fetchHITLPending, resolveHITL, fetchHITLStats } from "~/lib/api";
 import { toast } from "~/hooks/use-toast";
+import { useAuthStore } from "~/stores/auth-store";
 
 const filterTabs = [
   { value: "all", label: "All" },
@@ -20,6 +21,7 @@ const filterTabs = [
 export default function HITLPage() {
   const queryClient = useQueryClient();
   const [activeFilter, setActiveFilter] = useState("all");
+  const user = useAuthStore((s) => s.user);
 
   const { data, isLoading, error } = useQuery({
     queryKey: [
@@ -172,6 +174,7 @@ export default function HITLPage() {
               key={item.id}
               item={item}
               onResolve={handleResolve}
+              userRole={user?.role}
             />
           ))}
         </div>
