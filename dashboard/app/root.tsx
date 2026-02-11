@@ -8,8 +8,9 @@ import {
   useLoaderData,
 } from "@remix-run/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Toaster } from "~/components/ui/toaster";
+import { useThemeStore } from "~/stores/theme-store";
 
 import "~/tailwind.css";
 
@@ -39,6 +40,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ThemeHydration() {
+  const theme = useThemeStore((s) => s.theme);
+
+  useEffect(() => {
+    document.documentElement.className = theme;
+  }, [theme]);
+
+  return null;
+}
+
 export default function App() {
   const data = useLoaderData<typeof loader>();
   const [queryClient] = useState(
@@ -61,6 +72,7 @@ export default function App() {
           __html: `window.ENV = ${JSON.stringify(data.ENV)}`,
         }}
       />
+      <ThemeHydration />
       <Outlet />
       <Toaster />
     </QueryClientProvider>

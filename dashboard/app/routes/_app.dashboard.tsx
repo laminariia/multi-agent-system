@@ -7,7 +7,7 @@ import { AgentCard } from "~/components/agent-card";
 import { PipelineFlow } from "~/components/pipeline-flow";
 import { ActivityFeed, type ActivityEvent } from "~/components/activity-feed";
 import { JobsByPlatformChart, HITLByTypeChart, AgentStatusChart, HITLTrendsChart } from "~/components/charts";
-import { fetchAgentStatus, fetchHITLStats, fetchJobs, fetchJobStats, fetchHITLTrends } from "~/lib/api";
+import { fetchAgentStatus, fetchHITLStats, fetchJobs, fetchJobStats, fetchHITLTrends, fetchPipelineBStats } from "~/lib/api";
 import { OrchStatusWidget } from "~/components/orch-status-widget";
 
 export default function DashboardPage() {
@@ -38,6 +38,12 @@ export default function DashboardPage() {
   const { data: hitlTrends } = useQuery({
     queryKey: ["hitl-trends"],
     queryFn: () => fetchHITLTrends(7),
+    refetchInterval: 120_000,
+  });
+
+  const { data: pipelineBStats } = useQuery({
+    queryKey: ["pipeline-b-stats"],
+    queryFn: fetchPipelineBStats,
     refetchInterval: 120_000,
   });
 
@@ -187,6 +193,37 @@ export default function DashboardPage() {
       {/* HITL Trends chart */}
       {hitlTrends && hitlTrends.trends.length > 0 && (
         <HITLTrendsChart data={[...hitlTrends.trends].reverse()} />
+      )}
+
+      {/* Pipeline B Summary */}
+      {pipelineBStats && pipelineBStats.total_leads > 0 && (
+        <Card className="border-border/50">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-medium">Pipeline B — Leads</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg border border-border/50 p-3">
+                <p className="text-xs text-muted-foreground">Total Leads</p>
+                <p className="text-2xl font-semibold">{pipelineBStats.total_leads}</p>
+              </div>
+              <div className="rounded-lg border border-border/50 p-3">
+                <p className="text-xs text-muted-foreground">Enriched</p>
+                <p className="text-2xl font-semibold">{pipelineBStats.by_status?.["enriched"] ?? 0}</p>
+              </div>
+              <div className="rounded-lg border border-border/50 p-3">
+                <p className="text-xs text-muted-foreground">Contacted</p>
+                <p className="text-2xl font-semibold">{pipelineBStats.by_status?.["contacted"] ?? 0}</p>
+              </div>
+              <div className="rounded-lg border border-border/50 p-3">
+                <p className="text-xs text-muted-foreground">Top Cities</p>
+                <p className="text-sm font-medium truncate">
+                  {pipelineBStats.top_cities?.slice(0, 3).map((c) => c.city).join(", ") || "—"}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Two-column layout: Agent Grid + Activity */}

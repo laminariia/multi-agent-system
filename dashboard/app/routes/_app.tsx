@@ -13,6 +13,7 @@ import {
 } from "~/components/ui/dropdown-menu";
 import { SidebarNav } from "~/components/sidebar-nav";
 import { useAuthStore } from "~/stores/auth-store";
+import { useThemeStore } from "~/stores/theme-store";
 import { fetchHITLPending, fetchUsers } from "~/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "~/hooks/use-toast";
@@ -29,6 +30,8 @@ export default function AppLayout() {
   const user = useAuthStore((s) => s.user);
   const accessToken = useAuthStore((s) => s.accessToken);
   const logout = useAuthStore((s) => s.logout);
+  const theme = useThemeStore((s) => s.theme);
+  const toggleTheme = useThemeStore((s) => s.toggleTheme);
 
   // Fetch pending count for sidebar badge
   const { data: hitlData } = useQuery({
@@ -103,6 +106,12 @@ export default function AppLayout() {
             queryClient.invalidateQueries({
               queryKey: ["agent-status"],
             });
+            if (msg.data?.action) {
+              toast({
+                title: `Agent ${msg.data.action}`,
+                description: `${msg.data.agent ?? "Unknown"} is now ${msg.data.status ?? msg.data.action}`,
+              });
+            }
           }
 
           if (msg.type === "project:update") {
@@ -111,6 +120,12 @@ export default function AppLayout() {
 
           if (msg.type === "orch:status") {
             queryClient.invalidateQueries({ queryKey: ["orch-status"] });
+            if (msg.data?.action) {
+              toast({
+                title: "Orchestrator",
+                description: `Runner ${msg.data.action}`,
+              });
+            }
           }
           if (msg.type === "orch:goal") {
             queryClient.invalidateQueries({ queryKey: ["orch-goals"] });
@@ -343,30 +358,57 @@ export default function AppLayout() {
             ))}
           </nav>
 
-          {/* Notification bell */}
-          {pendingCount > 0 && (
+          <div className="flex items-center gap-1">
+            {/* Theme toggle */}
             <button
-              onClick={() => navigate("/hitl")}
-              className="relative p-2 rounded-md hover:bg-accent transition-colors"
+              onClick={toggleTheme}
+              className="p-2 rounded-md hover:bg-accent transition-colors"
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             >
-              <svg
-                className="h-5 w-5 text-muted-foreground"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                <path d="M13.73 21a2 2 0 01-3.46 0" />
-              </svg>
-              <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-                {pendingCount}
-              </span>
+              {theme === "dark" ? (
+                <svg className="h-5 w-5 text-muted-foreground" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="5" />
+                  <line x1="12" y1="1" x2="12" y2="3" />
+                  <line x1="12" y1="21" x2="12" y2="23" />
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                  <line x1="1" y1="12" x2="3" y2="12" />
+                  <line x1="21" y1="12" x2="23" y2="12" />
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                </svg>
+              ) : (
+                <svg className="h-5 w-5 text-muted-foreground" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                </svg>
+              )}
             </button>
-          )}
+
+            {/* Notification bell */}
+            {pendingCount > 0 && (
+              <button
+                onClick={() => navigate("/hitl")}
+                className="relative p-2 rounded-md hover:bg-accent transition-colors"
+              >
+                <svg
+                  className="h-5 w-5 text-muted-foreground"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 01-3.46 0" />
+                </svg>
+                <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                  {pendingCount}
+                </span>
+              </button>
+            )}
+          </div>
         </header>
 
         {/* Page content */}
