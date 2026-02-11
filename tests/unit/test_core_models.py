@@ -565,9 +565,27 @@ class TestLanggraphCheckpointModel:
         col = LanggraphCheckpoint.__table__.columns["checkpoint_id"]
         assert col.primary_key is True
 
-    def test_has_checkpoint_column(self):
-        """LanggraphCheckpoint has checkpoint column (JSONB, not null)."""
-        assert "checkpoint" in LanggraphCheckpoint.__table__.columns
-        col = LanggraphCheckpoint.__table__.columns["checkpoint"]
+    def test_has_state_data_column(self):
+        """LanggraphCheckpoint has state_data column (JSONB, not null)."""
+        assert "state_data" in LanggraphCheckpoint.__table__.columns
+        col = LanggraphCheckpoint.__table__.columns["state_data"]
         assert isinstance(col.type, JSONB)
+        assert col.nullable is False
+
+    def test_has_parent_checkpoint_id_column(self):
+        """LanggraphCheckpoint has parent_checkpoint_id column."""
+        assert "parent_checkpoint_id" in LanggraphCheckpoint.__table__.columns
+
+    def test_has_current_agent_column(self):
+        """LanggraphCheckpoint has current_agent column."""
+        assert "current_agent" in LanggraphCheckpoint.__table__.columns
+
+    def test_has_status_column(self):
+        """LanggraphCheckpoint has status column."""
+        assert "status" in LanggraphCheckpoint.__table__.columns
+
+    def test_has_requires_hitl_column(self):
+        """LanggraphCheckpoint has requires_hitl boolean column."""
+        assert "requires_hitl" in LanggraphCheckpoint.__table__.columns
+        col = LanggraphCheckpoint.__table__.columns["requires_hitl"]
         assert col.nullable is False

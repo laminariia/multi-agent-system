@@ -34,6 +34,9 @@ from src.core.models import HITLQueue, User
 
 logger = structlog.get_logger(__name__)
 
+# Set to prevent GC of fire-and-forget resume tasks (asyncio.create_task pattern)
+_background_resume_tasks: set[Any] = set()
+
 # Maps HITL types to their expected downstream action after approval
 _NEXT_ACTION_MAP: dict[str, dict[str, str]] = {
     "bid_approval": {
@@ -284,6 +287,54 @@ class HITLController(Controller):
             )
         except Exception:
             logger.warning("hitl.bot_notify_failed", hitl_id=str(hitl_id), exc_info=True)
+
+        # Resume the paused pipeline if this HITL type has a graph to resume.
+        # Fire-and-forget: the pipeline runs asynchronously; the HTTP
+        # response returns immediately so the dashboard stays responsive.
+        _RESUMABLE_TYPES = {"bid_approval", "plan_review", "email_approval", "final_review"}
+        thread_id_from_payload = (item.payload or {}).get("thread_id")
+        if item.type in _RESUMABLE_TYPES and thread_id_from_payload and data.action != "later":
+            try:
+                import asyncio  # noqa: PLC0415
+
+                from src.core.graph import resume_from_hitl as _resume  # noqa: PLC0415
+
+                hitl_response = {
+                    "action": data.action,
+                    "note": data.note,
+                }
+                if data.edited_payload:
+                    hitl_response["edits"] = data.edited_payload
+                if item.type == "bid_approval":
+                    hitl_response["bid_ids"] = [
+                        (item.payload or {}).get("bid_id", "")
+                    ]
+
+                task = asyncio.create_task(
+                    _resume(
+                        thread_id_from_payload,
+                        hitl_response,
+                        hitl_type=item.type,
+                        valkey=valkey,
+                    ),
+                )
+                # Prevent GC of fire-and-forget task
+                _background_resume_tasks.add(task)
+                task.add_done_callback(_background_resume_tasks.discard)
+
+                logger.info(
+                    "hitl.resume_dispatched",
+                    hitl_id=str(hitl_id),
+                    thread_id=thread_id_from_payload,
+                    hitl_type=item.type,
+                    action=data.action,
+                )
+            except Exception:
+                logger.warning(
+                    "hitl.resume_dispatch_failed",
+                    hitl_id=str(hitl_id),
+                    exc_info=True,
+                )
 
         return HITLResolveResponseSchema(
             id=item.id,
