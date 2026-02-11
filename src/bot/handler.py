@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+
 import structlog
+from telegram import BotCommand
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler
 
 from src.bot.commands import (
@@ -80,4 +84,105 @@ def create_bot_application() -> Application:
     app.add_handler(CallbackQueryHandler(button_callback))
 
     logger.info("telegram_bot.created", handlers=17)
+
+    # -- Register bot menu commands (visible in Telegram UI) -------------------
+    async def _post_init(application: Application) -> None:
+        await application.bot.set_my_commands([
+            BotCommand("start", "Welcome + command list"),
+            BotCommand("status", "Agent health overview"),
+            BotCommand("pending", "Pending HITL items"),
+            BotCommand("stats", "Today's HITL statistics"),
+            BotCommand("orch", "Orchestrator control panel"),
+            BotCommand("run", "Start orchestrator session"),
+            BotCommand("stop", "Stop orchestrator"),
+            BotCommand("goals", "View goal queue"),
+            BotCommand("health", "System health check"),
+            BotCommand("milestones", "Project milestones"),
+            BotCommand("logs", "Recent session logs"),
+            BotCommand("scan", "Pipeline B geo scan"),
+            BotCommand("add_goal", "Add a new goal"),
+            BotCommand("approve", "Approve HITL item"),
+            BotCommand("skip", "Skip HITL item"),
+        ])
+        logger.info("telegram_bot.commands_registered")
+
+    app.post_init = _post_init
+
+    # -- Dashboard sync: subscribe to Valkey channels for notifications ------
+    async def _dashboard_sync_listener(application: Application) -> None:
+        """Background task: listen for dashboard events via Valkey pub/sub."""
+        from src.core.config import get_settings
+        from src.core.database import get_valkey
+
+        bot_settings = get_settings()
+        chat_id = bot_settings.TELEGRAM_CHAT_ID
+        if not chat_id:
+            logger.warning("telegram_bot.no_chat_id", msg="TELEGRAM_CHAT_ID not set, skipping dashboard sync")
+            return
+
+        valkey = get_valkey()
+        pubsub = valkey.pubsub()
+        await pubsub.subscribe("hitl:resolved:bot", "orch:event:bot")
+        logger.info("telegram_bot.dashboard_sync_started", channels=["hitl:resolved:bot", "orch:event:bot"])
+
+        try:
+            while True:
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                if message and message["type"] == "message":
+                    try:
+                        data = json.loads(message["data"])
+                        channel = message["channel"]
+                        if isinstance(channel, bytes):
+                            channel = channel.decode()
+
+                        if channel == "hitl:resolved:bot":
+                            text = (
+                                f"\U0001f4cb HITL resolved from dashboard\n\n"
+                                f"Type: {data.get('type', '?')}\n"
+                                f"Title: {data.get('title', '?')}\n"
+                                f"Action: {data.get('action', '?')}\n"
+                                f"Next: {data.get('next_action', '?')}\n"
+                                f"By: {data.get('resolved_by', '?')}"
+                            )
+                            await application.bot.send_message(chat_id=chat_id, text=text)
+
+                        elif channel == "orch:event:bot":
+                            event_type = data.get("event", "unknown")
+                            text = f"\U0001f916 Orchestrator event: {event_type}\n{data.get('message', '')}"
+                            await application.bot.send_message(chat_id=chat_id, text=text)
+
+                    except Exception:
+                        logger.warning("telegram_bot.sync_message_error", exc_info=True)
+
+                await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            logger.info("telegram_bot.dashboard_sync_stopped")
+        except Exception:
+            logger.error("telegram_bot.dashboard_sync_error", exc_info=True)
+        finally:
+            await pubsub.unsubscribe()
+            await pubsub.close()
+
+    async def _post_startup(application: Application) -> None:
+        """Start the dashboard sync listener as a background task."""
+        application.bot_data["_sync_task"] = asyncio.create_task(
+            _dashboard_sync_listener(application),
+            name="dashboard-sync",
+        )
+        logger.info("telegram_bot.sync_task_scheduled")
+
+    app.post_init = _post_init
+    app.post_shutdown = lambda app: (
+        app.bot_data.get("_sync_task") and app.bot_data["_sync_task"].cancel()
+    )
+
+    # Schedule sync listener after bot starts polling
+    original_post_init = _post_init
+
+    async def _combined_post_init(application: Application) -> None:
+        await original_post_init(application)
+        await _post_startup(application)
+
+    app.post_init = _combined_post_init
+
     return app

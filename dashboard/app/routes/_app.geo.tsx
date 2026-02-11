@@ -35,7 +35,7 @@ function statusBadgeVariant(
   }
 }
 
-export default function LeadsPage() {
+export default function GeoScoutPage() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("all");
   const [cityFilter, setCityFilter] = useState("");
@@ -43,7 +43,7 @@ export default function LeadsPage() {
   const [isScanning, setIsScanning] = useState(false);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["leads", statusFilter, cityFilter],
+    queryKey: ["geo-leads", statusFilter, cityFilter],
     queryFn: () =>
       fetchLeads({
         status: statusFilter === "all" ? undefined : statusFilter,
@@ -79,9 +79,8 @@ export default function LeadsPage() {
         variant: "success",
       });
       setScanCity("");
-      // Refresh leads and stats after a short delay
       setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["leads"] });
+        queryClient.invalidateQueries({ queryKey: ["geo-leads"] });
         queryClient.invalidateQueries({ queryKey: ["pipeline-b-stats"] });
       }, 3000);
     } catch (err) {
@@ -104,7 +103,7 @@ export default function LeadsPage() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Leads</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Geo Scout</h1>
           {total > 0 && (
             <p className="text-sm text-muted-foreground mt-1">
               {total} leads found
@@ -130,13 +129,13 @@ export default function LeadsPage() {
           <div className="flex items-end gap-3">
             <div className="flex-1 max-w-sm">
               <label
-                htmlFor="scan-city"
+                htmlFor="geo-scan-city"
                 className="text-sm font-medium text-foreground mb-1.5 block"
               >
                 Start a Geo Scan
               </label>
               <Input
-                id="scan-city"
+                id="geo-scan-city"
                 placeholder="Enter city name (e.g. Berlin)"
                 value={scanCity}
                 onChange={(e) => setScanCity(e.target.value)}
@@ -271,84 +270,53 @@ export default function LeadsPage() {
         </Card>
       )}
 
-      {/* Leads grid */}
+      {/* Results table */}
       {leads.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {leads.map((lead) => (
-            <LeadCard key={lead.id} lead={lead} />
-          ))}
-        </div>
+        <Card className="border-border/50">
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border/50">
+                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">Name</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">City</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">Category</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">Contact</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {leads.map((lead) => (
+                    <LeadRow key={lead.id} lead={lead} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
 }
 
-function LeadCard({ lead }: { lead: Lead }) {
+function LeadRow({ lead }: { lead: Lead }) {
   return (
-    <Card className="border-border/50 hover:border-primary/30 transition-colors animate-fade-in">
-      <CardContent className="pt-6">
-        <div className="flex items-start justify-between gap-2 mb-3">
-          <h3 className="text-sm font-semibold text-foreground leading-tight truncate">
-            {lead.name}
-          </h3>
-          <Badge variant={statusBadgeVariant(lead.status)}>
-            {lead.status}
-          </Badge>
+    <tr className="border-b border-border/30 hover:bg-accent/30 transition-colors">
+      <td className="py-2.5 px-4">
+        <span className="font-medium text-foreground">{lead.name}</span>
+      </td>
+      <td className="py-2.5 px-4 text-muted-foreground">{lead.city ?? "--"}</td>
+      <td className="py-2.5 px-4 text-muted-foreground">{lead.category ?? "--"}</td>
+      <td className="py-2.5 px-4">
+        <div className="text-xs text-muted-foreground space-y-0.5">
+          {lead.email && <p>{lead.email}</p>}
+          {lead.phone && <p>{lead.phone}</p>}
+          {!lead.email && !lead.phone && <p>--</p>}
         </div>
-
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-          {lead.city && (
-            <div>
-              <span className="text-muted-foreground">City: </span>
-              <span className="text-foreground/90">{lead.city}</span>
-            </div>
-          )}
-          {lead.category && (
-            <div>
-              <span className="text-muted-foreground">Category: </span>
-              <span className="text-foreground/90">{lead.category}</span>
-            </div>
-          )}
-          {lead.phone && (
-            <div>
-              <span className="text-muted-foreground">Phone: </span>
-              <span className="text-foreground/90">{lead.phone}</span>
-            </div>
-          )}
-          {lead.email && (
-            <div>
-              <span className="text-muted-foreground">Email: </span>
-              <span className="text-foreground/90">{lead.email}</span>
-            </div>
-          )}
-          {lead.address && (
-            <div className="col-span-2">
-              <span className="text-muted-foreground">Address: </span>
-              <span className="text-foreground/90">{lead.address}</span>
-            </div>
-          )}
-          {lead.enrichment_source && (
-            <div>
-              <span className="text-muted-foreground">Source: </span>
-              <span className="text-foreground/90">
-                {lead.enrichment_source}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {lead.discovered_at && (
-          <p className="text-xs text-muted-foreground/70 mt-3">
-            Discovered{" "}
-            {new Date(lead.discovered_at).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </p>
-        )}
-      </CardContent>
-    </Card>
+      </td>
+      <td className="py-2.5 px-4">
+        <Badge variant={statusBadgeVariant(lead.status)}>{lead.status}</Badge>
+      </td>
+    </tr>
   );
 }

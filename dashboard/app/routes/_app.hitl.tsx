@@ -31,13 +31,13 @@ export default function HITLPage() {
         type: activeFilter === "all" ? undefined : activeFilter,
         limit: 50,
       }),
-    refetchInterval: 15_000,
+    refetchInterval: 30_000,
   });
 
   const { data: stats } = useQuery({
     queryKey: ["hitl-stats"],
     queryFn: fetchHITLStats,
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
 
   const handleResolve = async (id: string, action: string) => {
@@ -121,7 +121,7 @@ export default function HITLPage() {
       </Tabs>
 
       {/* Loading state */}
-      {isLoading && (
+      {isLoading && !data && (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-[200px]" />

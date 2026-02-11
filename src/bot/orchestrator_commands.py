@@ -18,33 +18,28 @@ File paths follow the orchestrator layout:
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
-from datetime import datetime
-from pathlib import Path
-from typing import Any
 
 import structlog
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
+from src.orchestrator.parsers import (
+    ORCH_DIR,
+    PID_FILE,
+    RUNNER_SCRIPT,
+    add_goal_to_yaml,
+    get_runner_log_path,
+    is_runner_alive,
+    parse_goals_yaml,
+    parse_health_report,
+    parse_vision_md,
+    tail_file,
+)
+
 logger = structlog.get_logger(__name__)
-
-# ---------------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------------
-
-_ORCH_DIR = Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / ".claude" / "orchestrator"
-_LOG_DIR = Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / ".claude" / "logs"
-_SCRIPTS_DIR = Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / ".claude" / "scripts"
-
-GOALS_FILE = _ORCH_DIR / "goals.yaml"
-HEALTH_REPORT_FILE = _ORCH_DIR / "health-report.yaml"
-VISION_FILE = _ORCH_DIR / "vision.md"
-PID_FILE = _ORCH_DIR / "runner.pid"
-RUNNER_SCRIPT = _SCRIPTS_DIR / "orchestrator-runner.ps1"
 
 
 # ---------------------------------------------------------------------------
@@ -164,186 +159,14 @@ def _esc(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _is_runner_alive() -> tuple[bool, int | None]:
-    """Check if the orchestrator runner process is alive.
-
-    Returns (alive, pid).
-    """
-    if not PID_FILE.exists():
-        return False, None
-
-    try:
-        pid = int(PID_FILE.read_text().strip())
-    except (ValueError, OSError):
-        return False, None
-
-    # Check if process exists (Windows-compatible)
-    try:
-        import ctypes
-
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        SYNCHRONIZE = 0x00100000
-        handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
-        if handle:
-            kernel32.CloseHandle(handle)
-            return True, pid
-        return False, pid
-    except (AttributeError, OSError):
-        # Fallback: try os.kill with signal 0 (Unix)
-        try:
-            os.kill(pid, 0)
-            return True, pid
-        except (OSError, ProcessLookupError):
-            return False, pid
-
-
-def _parse_goals_yaml(path: Path | None = None) -> list[dict[str, Any]]:
-    """Parse goals.yaml into a list of goal dicts."""
-    fpath = path or GOALS_FILE
-    if not fpath.exists():
-        return []
-
-    content = fpath.read_text(encoding="utf-8")
-    goals: list[dict[str, Any]] = []
-    current: dict[str, Any] | None = None
-
-    for line in content.splitlines():
-        stripped = line.rstrip()
-
-        if re.match(r'^\s+-\s+id:\s+"?(.+?)"?\s*$', stripped):
-            if current is not None:
-                goals.append(current)
-            match = re.match(r'^\s+-\s+id:\s+"?(.+?)"?\s*$', stripped)
-            current = {"id": match.group(1) if match else "", "success_criteria": []}  # type: ignore[union-attr]
-
-        elif current is not None:
-            if m := re.match(r'^\s+title:\s+"(.+)"', stripped):
-                current["title"] = m.group(1)
-            elif m := re.match(r"^\s+priority:\s+(\w+)", stripped):
-                current["priority"] = m.group(1)
-            elif m := re.match(r"^\s+category:\s+(\w+)", stripped):
-                current["category"] = m.group(1)
-            elif m := re.match(r"^\s+status:\s+(\w+)", stripped):
-                current["status"] = m.group(1)
-            elif m := re.match(r'^\s+completed_at:\s+"?(.+?)"?\s*$', stripped):
-                current["completed_at"] = m.group(1)
-            elif m := re.match(r'^\s+result:\s+"(.+)"', stripped):
-                current["result"] = m.group(1)
-
-    if current is not None:
-        goals.append(current)
-
-    return goals
-
-
-def _parse_health_report(path: Path | None = None) -> dict[str, Any]:
-    """Parse health-report.yaml into a dict."""
-    fpath = path or HEALTH_REPORT_FILE
-    if not fpath.exists():
-        return {}
-
-    content = fpath.read_text(encoding="utf-8")
-    result: dict[str, Any] = {}
-    dimensions: dict[str, dict[str, str]] = {}
-    problems: list[dict[str, str]] = []
-    current_dim: str | None = None
-    section: str | None = None
-
-    for line in content.splitlines():
-        stripped = line.rstrip()
-
-        if stripped.startswith("#"):
-            continue
-
-        if m := re.match(r"^overall_grade:\s+(.+)", stripped):
-            result["overall_grade"] = m.group(1).strip()
-        elif m := re.match(r"^score:\s+(\d+)", stripped):
-            result["score"] = int(m.group(1))
-        elif stripped.startswith("dimensions:"):
-            section = "dimensions"
-        elif stripped.startswith("problems_detected:"):
-            section = "problems"
-            current_dim = None
-        elif stripped.startswith("problems_fixed_this_session:"):
-            section = "fixed"
-        elif stripped.startswith("improvement_areas:"):
-            section = "improvements"
-
-        elif section == "dimensions":
-            if m := re.match(r"^\s{2}(\w+):\s*$", stripped):
-                current_dim = m.group(1)
-                dimensions[current_dim] = {}
-            elif current_dim is not None:
-                if m := re.match(r'^\s+grade:\s+(.+)', stripped):
-                    dimensions[current_dim]["grade"] = m.group(1).strip()
-                elif m := re.match(r'^\s+notes:\s+"(.+)"', stripped):
-                    dimensions[current_dim]["notes"] = m.group(1)
-
-        elif section == "problems":
-            if m := re.match(r"^\s+-\s+severity:\s+(\w+)", stripped):
-                problems.append({"severity": m.group(1)})
-            elif problems and (m := re.match(r'^\s+description:\s+"(.+)"', stripped)):
-                problems[-1]["description"] = m.group(1)
-
-    result["dimensions"] = dimensions
-    result["problems"] = problems
-    return result
-
-
-def _parse_vision_md(path: Path | None = None) -> list[dict[str, Any]]:
-    """Parse vision.md phases and milestones."""
-    fpath = path or VISION_FILE
-    if not fpath.exists():
-        return []
-
-    content = fpath.read_text(encoding="utf-8")
-    phases: list[dict[str, Any]] = []
-    current_phase: dict[str, Any] | None = None
-
-    for line in content.splitlines():
-        # Phase headers: ## Phase N — Title
-        if m := re.match(
-            r"^##\s+(?:Current Phase:\s+)?Phase\s+(\d+)\s*[—–-]\s*(.+?)(?:\s*\(FUTURE\))?\s*$",
-            line,
-        ):
-            if current_phase is not None:
-                phases.append(current_phase)
-            current_phase = {
-                "number": int(m.group(1)),
-                "title": m.group(2).strip(),
-                "milestones": [],
-                "is_future": "FUTURE" in line,
-            }
-
-        # Milestones: - [x] or - [ ]
-        elif current_phase is not None and (
-            m := re.match(r"^-\s+\[([ xX])\]\s+(.+)$", line)
-        ):
-            done = m.group(1).lower() == "x"
-            current_phase["milestones"].append({"text": m.group(2).strip(), "done": done})
-
-    if current_phase is not None:
-        phases.append(current_phase)
-
-    return phases
-
-
-def _get_runner_log_path() -> Path | None:
-    """Find the most recent runner log file."""
-    if not _LOG_DIR.exists():
-        return None
-
-    logs = sorted(_LOG_DIR.glob("runner_*.log"), reverse=True)
-    return logs[0] if logs else None
-
-
-def _tail_file(path: Path, n: int = 10) -> list[str]:
-    """Read the last N lines of a file."""
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        return lines[-n:]
-    except OSError:
-        return []
+# Aliases for backward compatibility with local call sites.
+# The canonical implementations now live in ``src.orchestrator.parsers``.
+_is_runner_alive = is_runner_alive
+_parse_goals_yaml = parse_goals_yaml
+_parse_health_report = parse_health_report
+_parse_vision_md = parse_vision_md
+_get_runner_log_path = get_runner_log_path
+_tail_file = tail_file
 
 
 def _priority_emoji(priority: str) -> str:
@@ -730,7 +553,7 @@ async def orch_button_callback(
                         | subprocess.DETACHED_PROCESS
                     ),
                 )
-                _ORCH_DIR.mkdir(parents=True, exist_ok=True)
+                ORCH_DIR.mkdir(parents=True, exist_ok=True)
                 PID_FILE.write_text(str(proc.pid))
                 text = (
                     f"\U0001f680 Оркестратор запущен\n"
@@ -845,7 +668,7 @@ async def run_command(
                 subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
             ),
         )
-        _ORCH_DIR.mkdir(parents=True, exist_ok=True)
+        ORCH_DIR.mkdir(parents=True, exist_ok=True)
         PID_FILE.write_text(str(proc.pid))
 
         logger.info(
@@ -1042,37 +865,8 @@ async def add_goal_command(
 
     title = " ".join(args)
 
-    goals = _parse_goals_yaml()
-    max_num = 0
-    for g in goals:
-        if m := re.match(r"g_(\d+)", g.get("id", "")):
-            max_num = max(max_num, int(m.group(1)))
-    new_id = f"g_{max_num + 1:03d}"
-
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    yaml_block = f"""
-  - id: {new_id}
-    title: "{title}"
-    priority: medium
-    category: feature
-    parallelizable: true
-    team_size: 1
-    context: "Manually added via Telegram bot"
-    success_criteria:
-      - "Task completed successfully"
-    status: pending
-    depends_on: []
-    created: "{today}"
-"""
-
     try:
-        if not GOALS_FILE.exists():
-            GOALS_FILE.parent.mkdir(parents=True, exist_ok=True)
-            GOALS_FILE.write_text(f"goals:{yaml_block}", encoding="utf-8")
-        else:
-            with GOALS_FILE.open("a", encoding="utf-8") as f:
-                f.write(yaml_block)
+        new_id = add_goal_to_yaml(title)
 
         logger.info("orchestrator.goal_added", goal_id=new_id, title=title)
 

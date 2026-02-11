@@ -30,7 +30,7 @@ export default function AgentsPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["agent-status"],
     queryFn: fetchAgentStatus,
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
   });
 
   const health = data?.system_health
@@ -84,7 +84,7 @@ export default function AgentsPage() {
       )}
 
       {/* Loading */}
-      {isLoading && (
+      {isLoading && !data && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <Skeleton key={i} className="h-[160px]" />

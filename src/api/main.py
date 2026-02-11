@@ -36,6 +36,7 @@ from src.api.routes.health import health_check
 from src.api.routes.hitl import HITLController
 from src.api.routes.jobs import JobController
 from src.api.routes.metrics import MetricsController
+from src.api.routes.orchestrator import OrchestratorController
 from src.api.routes.pipeline_b import PipelineBController
 from src.api.routes.users import UserController
 from src.api.schemas import ErrorResponseSchema, ErrorSchema
@@ -45,6 +46,9 @@ from src.api.websocket import (
     CHANNEL_HITL_NEW,
     CHANNEL_HITL_RESOLVED,
     CHANNEL_NOTIFICATION,
+    CHANNEL_ORCH_GOAL,
+    CHANNEL_ORCH_LOG,
+    CHANNEL_ORCH_STATUS,
     CHANNEL_PROJECT_UPDATE,
     ws_handler,
 )
@@ -201,6 +205,9 @@ channels_plugin = ChannelsPlugin(
         CHANNEL_HITL_RESOLVED,
         CHANNEL_PROJECT_UPDATE,
         CHANNEL_NOTIFICATION,
+        CHANNEL_ORCH_STATUS,
+        CHANNEL_ORCH_GOAL,
+        CHANNEL_ORCH_LOG,
     ],
     arbitrary_channels_allowed=True,
 )
@@ -227,6 +234,7 @@ app = Litestar(
         AgentController,
         JobController,
         MetricsController,
+        OrchestratorController,
         PipelineBController,
         UserController,
         ws_handler,

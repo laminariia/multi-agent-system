@@ -338,7 +338,7 @@ class TestParseVisionMd:
 
 class TestIsRunnerAlive:
     def test_no_pid_file(self, tmp_path: Path) -> None:
-        with patch("src.bot.orchestrator_commands.PID_FILE", tmp_path / "runner.pid"):
+        with patch("src.orchestrator.parsers.PID_FILE", tmp_path / "runner.pid"):
             alive, pid = _is_runner_alive()
             assert alive is False
             assert pid is None
@@ -346,7 +346,7 @@ class TestIsRunnerAlive:
     def test_invalid_pid_file(self, tmp_path: Path) -> None:
         pid_file = tmp_path / "runner.pid"
         pid_file.write_text("not_a_number")
-        with patch("src.bot.orchestrator_commands.PID_FILE", pid_file):
+        with patch("src.orchestrator.parsers.PID_FILE", pid_file):
             alive, pid = _is_runner_alive()
             assert alive is False
             assert pid is None
@@ -398,7 +398,7 @@ class TestRunCommand:
             patch("src.bot.orchestrator_commands._is_runner_alive", return_value=(False, None)),
             patch("src.bot.orchestrator_commands.RUNNER_SCRIPT", script),
             patch("src.bot.orchestrator_commands.PID_FILE", pid_file),
-            patch("src.bot.orchestrator_commands._ORCH_DIR", orch_dir),
+            patch("src.bot.orchestrator_commands.ORCH_DIR", orch_dir),
             patch("src.bot.orchestrator_commands._parse_goals_yaml", return_value=[
                 {"status": "pending"}, {"status": "completed"},
             ]),
@@ -660,7 +660,7 @@ class TestAddGoalCommand:
         ctx = _make_context(["Fix", "login", "page", "CSS", "bug"])
 
         with (
-            patch("src.bot.orchestrator_commands.GOALS_FILE", goals_file),
+            patch("src.orchestrator.parsers.GOALS_FILE", goals_file),
             patch("src.bot.orchestrator_commands._parse_goals_yaml") as mock_parse,
         ):
             mock_parse.return_value = [
@@ -695,7 +695,7 @@ class TestAddGoalCommand:
         ctx = _make_context(["New", "goal"])
 
         with (
-            patch("src.bot.orchestrator_commands.GOALS_FILE", goals_file),
+            patch("src.orchestrator.parsers.GOALS_FILE", goals_file),
             patch("src.bot.orchestrator_commands._parse_goals_yaml", return_value=[]),
         ):
             await add_goal_command(update, ctx)

@@ -349,6 +349,7 @@ class TestResolve:
             data=data,
             request=mock_request,
             db_session=db_session,
+            valkey=AsyncMock(),
         )
 
         assert isinstance(result, HITLResolveResponseSchema)
@@ -385,6 +386,7 @@ class TestResolve:
             data=data,
             request=mock_request,
             db_session=db_session,
+            valkey=AsyncMock(),
         )
 
         assert result.resolution == "reject"
@@ -418,6 +420,7 @@ class TestResolve:
             data=data,
             request=mock_request,
             db_session=db_session,
+            valkey=AsyncMock(),
         )
 
         assert result.resolution == "edit"
@@ -448,6 +451,7 @@ class TestResolve:
             data=data,
             request=mock_request,
             db_session=db_session,
+            valkey=AsyncMock(),
         )
 
         assert result.resolution == "skip"
@@ -474,6 +478,7 @@ class TestResolve:
             data=data,
             request=mock_request,
             db_session=db_session,
+            valkey=AsyncMock(),
         )
 
         assert result.resolution == "later"
@@ -500,6 +505,7 @@ class TestResolve:
                 data=data,
                 request=mock_request,
                 db_session=db_session,
+                valkey=AsyncMock(),
             )
 
         assert f"HITL item {item_id} not found" in str(exc_info.value)
@@ -526,6 +532,7 @@ class TestResolve:
                 data=data,
                 request=mock_request,
                 db_session=db_session,
+                valkey=AsyncMock(),
             )
 
         assert "already been resolved" in str(exc_info.value)
@@ -555,6 +562,7 @@ class TestResolve:
                 data=data,
                 request=mock_request,
                 db_session=db_session,
+                valkey=AsyncMock(),
             )
 
         assert "expired" in str(exc_info.value)
@@ -587,6 +595,7 @@ class TestResolve:
                 data=data,
                 request=mock_request,
                 db_session=db_session,
+                valkey=AsyncMock(),
             )
 
         assert "not available" in str(exc_info.value)
@@ -616,6 +625,7 @@ class TestResolve:
             data=data,
             request=mock_request,
             db_session=db_session,
+            valkey=AsyncMock(),
         )
 
         after_resolve = datetime.now(UTC)
@@ -646,6 +656,7 @@ class TestResolve:
             data=data,
             request=mock_request,
             db_session=db_session,
+            valkey=AsyncMock(),
         )
 
         # Payload should remain unchanged
@@ -672,6 +683,7 @@ class TestResolve:
             data=data,
             request=mock_request,
             db_session=db_session,
+            valkey=AsyncMock(),
         )
 
         assert result.next_action == "code_accepted"
@@ -697,6 +709,7 @@ class TestResolve:
             data=data,
             request=mock_request,
             db_session=db_session,
+            valkey=AsyncMock(),
         )
 
         assert result.next_action == "delivery_rejected"

@@ -5,10 +5,12 @@ retrieving aggregate statistics.  Mounted at ``/api/v1/hitl``.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+import redis.asyncio as aioredis
 import structlog
 from litestar import Controller, Request, get, post
 from litestar.exceptions import NotFoundException
@@ -203,6 +205,7 @@ class HITLController(Controller):
         data: HITLResolveRequestSchema,
         request: Request[User, Token, Any],
         db_session: AsyncSession,
+        valkey: aioredis.Redis,
     ) -> HITLResolveResponseSchema:
         """Approve, reject, edit, skip, or defer a HITL item.
 
@@ -265,6 +268,22 @@ class HITLController(Controller):
             resolved_by=str(request.user.id),
             next_action=next_action,
         )
+
+        # Notify Telegram bot via Valkey pub/sub
+        try:
+            await valkey.publish(
+                "hitl:resolved:bot",
+                json.dumps({
+                    "hitl_id": str(hitl_id),
+                    "type": item.type,
+                    "title": item.title,
+                    "action": data.action,
+                    "next_action": next_action,
+                    "resolved_by": request.user.email,
+                }),
+            )
+        except Exception:
+            logger.warning("hitl.bot_notify_failed", hitl_id=str(hitl_id), exc_info=True)
 
         return HITLResolveResponseSchema(
             id=item.id,

@@ -21,7 +21,7 @@ export default function AgentDetailPage() {
   const { data: statusData } = useQuery({
     queryKey: ["agent-status"],
     queryFn: fetchAgentStatus,
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
   });
 
   const agent = statusData?.agents.find((a) => a.name === name);
@@ -34,7 +34,7 @@ export default function AgentDetailPage() {
         limit: 100,
       }),
     enabled: !!name,
-    refetchInterval: 15_000,
+    refetchInterval: 30_000,
   });
 
   const handleAction = async (action: "restart" | "pause" | "resume") => {

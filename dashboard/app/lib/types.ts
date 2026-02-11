@@ -163,3 +163,76 @@ export interface ScanResponse {
   city: string;
   message: string;
 }
+
+// --- Orchestrator ---
+
+export interface OrchestratorStatus {
+  alive: boolean;
+  pid: number | null;
+  uptime_seconds: number | null;
+  mode: string | null;
+  goals_pending: number;
+  goals_completed: number;
+  goals_failed: number;
+  health_grade: string | null;
+  health_score: number | null;
+}
+
+export interface Goal {
+  id: string;
+  title: string;
+  priority: string;
+  category: string;
+  status: string;
+  completed_at: string | null;
+  result: string | null;
+}
+
+export interface GoalListResponse {
+  goals: Goal[];
+  total: number;
+  pending: number;
+  completed: number;
+  failed: number;
+}
+
+export interface HealthDimension {
+  grade: string;
+  notes: string | null;
+}
+
+export interface HealthProblem {
+  severity: string;
+  description: string;
+}
+
+export interface HealthReport {
+  overall_grade: string;
+  score: number;
+  dimensions: Record<string, HealthDimension>;
+  problems: HealthProblem[];
+}
+
+export interface Phase {
+  number: number;
+  title: string;
+  is_future: boolean;
+  milestones: Milestone[];
+}
+
+export interface Milestone {
+  text: string;
+  done: boolean;
+}
+
+export interface LogLine {
+  line: string;
+  level: "INFO" | "WARN" | "ERROR" | string;
+  timestamp: string | null;
+}
+
+export interface LogResponse {
+  lines: LogLine[];
+  total: number;
+  log_file: string | null;
+}

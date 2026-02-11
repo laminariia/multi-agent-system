@@ -7,24 +7,25 @@ import { AgentCard } from "~/components/agent-card";
 import { PipelineFlow } from "~/components/pipeline-flow";
 import { ActivityFeed, type ActivityEvent } from "~/components/activity-feed";
 import { fetchAgentStatus, fetchHITLStats, fetchJobs } from "~/lib/api";
+import { OrchStatusWidget } from "~/components/orch-status-widget";
 
 export default function DashboardPage() {
   const { data: agentData, isLoading: agentsLoading } = useQuery({
     queryKey: ["agent-status"],
     queryFn: fetchAgentStatus,
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
   });
 
   const { data: hitlStats } = useQuery({
     queryKey: ["hitl-stats"],
     queryFn: fetchHITLStats,
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
 
   const { data: jobsData } = useQuery({
     queryKey: ["jobs", "active"],
     queryFn: () => fetchJobs({ limit: 50 }),
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
 
   const agents = agentData?.agents ?? [];
@@ -63,9 +64,10 @@ export default function DashboardPage() {
       <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
 
       {/* Metric cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {agentsLoading ? (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {agentsLoading && !agentData ? (
           <>
+            <Skeleton className="h-[120px]" />
             <Skeleton className="h-[120px]" />
             <Skeleton className="h-[120px]" />
             <Skeleton className="h-[120px]" />
@@ -111,6 +113,7 @@ export default function DashboardPage() {
               label="Resolved Today"
               value={hitlStats?.today?.resolved ?? 0}
             />
+            <OrchStatusWidget />
           </>
         )}
       </div>
@@ -121,7 +124,7 @@ export default function DashboardPage() {
           <CardTitle className="text-base font-medium">Pipeline Status</CardTitle>
         </CardHeader>
         <CardContent>
-          {agentsLoading ? (
+          {agentsLoading && !agentData ? (
             <Skeleton className="h-[80px]" />
           ) : (
             <PipelineFlow agents={agents} />
@@ -134,7 +137,7 @@ export default function DashboardPage() {
         {/* Agent Status Grid */}
         <div className="lg:col-span-2">
           <h2 className="text-base font-medium mb-4">Agent Status</h2>
-          {agentsLoading ? (
+          {agentsLoading && !agentData ? (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {Array.from({ length: 6 }).map((_, i) => (
                 <Skeleton key={i} className="h-[140px]" />

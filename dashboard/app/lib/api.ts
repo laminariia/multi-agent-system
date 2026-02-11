@@ -13,6 +13,11 @@ import type {
   LeadListResponse,
   PipelineBStats,
   ScanResponse,
+  OrchestratorStatus,
+  GoalListResponse,
+  HealthReport,
+  Phase,
+  LogResponse,
 } from "./types";
 
 declare global {
@@ -378,4 +383,59 @@ export async function startScan(city: string): Promise<ScanResponse> {
     method: "POST",
     body: JSON.stringify({ city }),
   });
+}
+
+// --- Orchestrator ---
+
+export async function fetchOrchestratorStatus(): Promise<OrchestratorStatus> {
+  return apiFetch<OrchestratorStatus>("/orchestrator/status");
+}
+
+export async function startOrchestrator(params?: {
+  total_hours?: number;
+  session_minutes?: number;
+}): Promise<{ status: string; pid: number; message: string }> {
+  return apiFetch("/orchestrator/start", {
+    method: "POST",
+    body: JSON.stringify(params ?? {}),
+  });
+}
+
+export async function stopOrchestrator(): Promise<{ status: string; message: string }> {
+  return apiFetch("/orchestrator/stop", { method: "POST" });
+}
+
+export async function fetchGoals(params?: {
+  status?: string;
+}): Promise<GoalListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.set("status", params.status);
+  const query = searchParams.toString();
+  return apiFetch<GoalListResponse>(`/orchestrator/goals${query ? `?${query}` : ""}`);
+}
+
+export async function addGoal(
+  title: string,
+  priority?: string,
+  category?: string
+): Promise<{ id: string; title: string; message: string }> {
+  return apiFetch("/orchestrator/goals", {
+    method: "POST",
+    body: JSON.stringify({ title, priority: priority ?? "medium", category: category ?? "feature" }),
+  });
+}
+
+export async function fetchHealth(): Promise<HealthReport> {
+  return apiFetch<HealthReport>("/orchestrator/health");
+}
+
+export async function fetchMilestones(): Promise<Phase[]> {
+  return apiFetch<Phase[]>("/orchestrator/milestones");
+}
+
+export async function fetchOrchestratorLogs(params?: { n?: number }): Promise<LogResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.n) searchParams.set("n", String(params.n));
+  const query = searchParams.toString();
+  return apiFetch<LogResponse>(`/orchestrator/logs${query ? `?${query}` : ""}`);
 }

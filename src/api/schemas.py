@@ -416,3 +416,145 @@ class TelegramLinkSchema(_BaseSchema):
         max_length=6,
         description="6-character link code obtained from the Telegram bot via /start",
     )
+
+
+# =============================================================================
+# Orchestrator schemas
+# =============================================================================
+
+
+class OrchestratorStatusSchema(_BaseSchema):
+    """Current state of the autonomous orchestrator runner."""
+
+    alive: bool = Field(..., description="Whether the runner process is alive")
+    pid: int | None = Field(default=None, description="Runner process ID")
+    uptime_seconds: int | None = Field(default=None, description="Runner uptime in seconds")
+    mode: str | None = Field(default=None, examples=["self-direct"])
+    goals_pending: int = Field(default=0, ge=0)
+    goals_completed: int = Field(default=0, ge=0)
+    goals_failed: int = Field(default=0, ge=0)
+    health_grade: str | None = Field(default=None, examples=["A"])
+    health_score: int | None = Field(default=None, examples=[93])
+
+
+class OrchestratorStartRequestSchema(_BaseSchema):
+    """Parameters for starting the orchestrator runner."""
+
+    total_hours: int = Field(default=12, ge=1, le=168, description="Total runtime in hours")
+    session_minutes: int = Field(default=60, ge=10, le=480, description="Max minutes per session")
+
+
+class OrchestratorStartResponseSchema(_BaseSchema):
+    """Response after starting the runner."""
+
+    status: str = Field(default="started", examples=["started"])
+    pid: int = Field(..., description="New runner PID")
+    message: str = Field(..., examples=["Orchestrator started in self-direct mode"])
+
+
+class OrchestratorStopResponseSchema(_BaseSchema):
+    """Response after stopping the runner."""
+
+    status: str = Field(default="stopped", examples=["stopped"])
+    message: str = Field(..., examples=["Orchestrator stopped"])
+
+
+class GoalSchema(_BaseSchema):
+    """A single orchestrator goal from goals.yaml."""
+
+    id: str = Field(..., examples=["g_001"])
+    title: str = Field(..., examples=["Fix login page CSS bug"])
+    priority: str = Field(default="medium", examples=["high"])
+    category: str = Field(default="feature", examples=["bugfix"])
+    status: str = Field(default="pending", examples=["pending"])
+    completed_at: str | None = Field(default=None)
+    result: str | None = Field(default=None)
+
+
+class GoalListResponseSchema(_BaseSchema):
+    """List of orchestrator goals with summary counts."""
+
+    goals: list[GoalSchema]
+    total: int = Field(default=0, ge=0)
+    pending: int = Field(default=0, ge=0)
+    completed: int = Field(default=0, ge=0)
+    failed: int = Field(default=0, ge=0)
+
+
+class GoalAddRequestSchema(_BaseSchema):
+    """Request body for adding a new goal."""
+
+    title: str = Field(..., min_length=3, max_length=500, examples=["Fix login page CSS bug"])
+    priority: str = Field(
+        default="medium",
+        pattern=r"^(critical|high|medium|low)$",
+        description="Goal priority",
+    )
+    category: str = Field(
+        default="feature",
+        pattern=r"^(feature|bugfix|docs|testing|infra|refactor)$",
+        description="Goal category",
+    )
+
+
+class GoalAddResponseSchema(_BaseSchema):
+    """Response after adding a new goal."""
+
+    id: str = Field(..., examples=["g_005"])
+    title: str = Field(..., examples=["Fix login page CSS bug"])
+    message: str = Field(default="Goal added successfully")
+
+
+class HealthDimensionSchema(_BaseSchema):
+    """A single health dimension."""
+
+    grade: str = Field(..., examples=["A+"])
+    notes: str | None = Field(default=None)
+
+
+class HealthProblemSchema(_BaseSchema):
+    """A detected health problem."""
+
+    severity: str = Field(..., examples=["medium"])
+    description: str = Field(default="", examples=["Missing integration tests"])
+
+
+class HealthReportSchema(_BaseSchema):
+    """Full health report with dimensions and problems."""
+
+    overall_grade: str = Field(..., examples=["A"])
+    score: int = Field(..., ge=0, le=100, examples=[93])
+    dimensions: dict[str, HealthDimensionSchema] = Field(default_factory=dict)
+    problems: list[HealthProblemSchema] = Field(default_factory=list)
+
+
+class MilestoneSchema(_BaseSchema):
+    """A single milestone within a phase."""
+
+    text: str = Field(..., examples=["Implement Scout Agent"])
+    done: bool = Field(default=False)
+
+
+class PhaseSchema(_BaseSchema):
+    """A project phase from vision.md."""
+
+    number: int = Field(..., examples=[1])
+    title: str = Field(..., examples=["Foundation"])
+    is_future: bool = Field(default=False)
+    milestones: list[MilestoneSchema] = Field(default_factory=list)
+
+
+class LogLineSchema(_BaseSchema):
+    """A single runner log line."""
+
+    line: str = Field(...)
+    level: str = Field(default="INFO", examples=["INFO"])
+    timestamp: str | None = Field(default=None)
+
+
+class LogResponseSchema(_BaseSchema):
+    """Runner log tail response."""
+
+    lines: list[LogLineSchema] = Field(default_factory=list)
+    total: int = Field(default=0, ge=0)
+    log_file: str | None = Field(default=None)

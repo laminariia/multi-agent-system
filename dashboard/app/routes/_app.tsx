@@ -109,6 +109,17 @@ export default function AppLayout() {
             queryClient.invalidateQueries({ queryKey: ["jobs"] });
           }
 
+          if (msg.type === "orch:status") {
+            queryClient.invalidateQueries({ queryKey: ["orch-status"] });
+          }
+          if (msg.type === "orch:goal") {
+            queryClient.invalidateQueries({ queryKey: ["orch-goals"] });
+            queryClient.invalidateQueries({ queryKey: ["orch-status"] });
+          }
+          if (msg.type === "orch:log") {
+            queryClient.invalidateQueries({ queryKey: ["orch-logs"] });
+          }
+
           if (msg.type === "notification") {
             toast({
               title: msg.data?.title ?? "Notification",

@@ -44,7 +44,7 @@ class TestChannelConstants:
         assert CHANNEL_PROJECT_UPDATE not in _DEFAULT_CHANNELS
 
     def test_default_channels_count(self) -> None:
-        assert len(_DEFAULT_CHANNELS) == 5
+        assert len(_DEFAULT_CHANNELS) == 8
 
 
 # ---------------------------------------------------------------------------

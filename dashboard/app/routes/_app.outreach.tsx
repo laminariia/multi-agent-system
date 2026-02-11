@@ -24,7 +24,7 @@ export default function OutreachPage() {
         type: "email_approval",
         limit: 50,
       }),
-    refetchInterval: 15_000,
+    refetchInterval: 30_000,
   });
 
   const handleResolve = async (id: string, action: string) => {
@@ -72,7 +72,7 @@ export default function OutreachPage() {
       </div>
 
       {/* Loading state */}
-      {isLoading && (
+      {isLoading && !data && (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-[240px]" />

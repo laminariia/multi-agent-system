@@ -46,9 +46,9 @@ export default function App() {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 30_000,
+            staleTime: 60_000,
             retry: 1,
-            refetchOnWindowFocus: true,
+            refetchOnWindowFocus: false,
           },
         },
       })
