@@ -255,6 +255,30 @@ class HITLStatsSchema(_BaseSchema):
     by_type: dict[str, HITLTypeStatsSchema] = Field(default_factory=dict)
 
 
+class HITLTrendDaySchema(_BaseSchema):
+    """Single day in the HITL trends response."""
+
+    date: str = Field(..., examples=["2026-02-12"], description="Date in YYYY-MM-DD format")
+    created: int = Field(default=0, ge=0, description="Items created on this day")
+    resolved: int = Field(default=0, ge=0, description="Items resolved on this day")
+
+
+class HITLTrendTotalsSchema(_BaseSchema):
+    """Totals across the entire trends window."""
+
+    created: int = Field(default=0, ge=0)
+    resolved: int = Field(default=0, ge=0)
+    pending: int = Field(default=0, ge=0, description="Created minus resolved")
+
+
+class HITLTrendsResponseSchema(_BaseSchema):
+    """HITL resolution trends over a configurable window."""
+
+    days: int = Field(..., ge=1, description="Number of days in the window")
+    trends: list[HITLTrendDaySchema] = Field(default_factory=list)
+    totals: HITLTrendTotalsSchema
+
+
 # =============================================================================
 # Agent schemas
 # =============================================================================

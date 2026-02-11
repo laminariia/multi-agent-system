@@ -11,9 +11,11 @@ import type {
   JobStats,
   UserListResponse,
   User,
+  LeadDetail,
   LeadListResponse,
   PipelineBStats,
   ScanResponse,
+  HITLTrends,
   OrchestratorStatus,
   GoalListResponse,
   HealthReport,
@@ -222,6 +224,10 @@ export async function fetchHITLStats(): Promise<HITLStats> {
   return apiFetch<HITLStats>("/hitl/stats");
 }
 
+export async function fetchHITLTrends(days: number = 7): Promise<HITLTrends> {
+  return apiFetch<HITLTrends>(`/hitl/trends?days=${days}`);
+}
+
 // --- Agents ---
 
 export async function fetchAgentStatus(): Promise<AgentStatusList> {
@@ -368,12 +374,14 @@ export async function transferOwnership(userId: string): Promise<{ message: stri
 export async function fetchLeads(params?: {
   city?: string;
   status?: string;
+  search?: string;
   limit?: number;
   offset?: number;
 }): Promise<LeadListResponse> {
   const searchParams = new URLSearchParams();
   if (params?.city) searchParams.set("city", params.city);
   if (params?.status) searchParams.set("status", params.status);
+  if (params?.search) searchParams.set("search", params.search);
   if (params?.limit) searchParams.set("limit", String(params.limit));
   if (params?.offset) searchParams.set("offset", String(params.offset));
 
@@ -381,6 +389,10 @@ export async function fetchLeads(params?: {
   return apiFetch<LeadListResponse>(
     `/pipeline-b/leads${query ? `?${query}` : ""}`
   );
+}
+
+export async function fetchLead(id: string): Promise<LeadDetail> {
+  return apiFetch<LeadDetail>(`/pipeline-b/leads/${id}`);
 }
 
 export async function fetchPipelineBStats(): Promise<PipelineBStats> {

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "@remix-run/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -39,6 +40,7 @@ function statusBadgeVariant(
 }
 
 export default function LeadsPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("all");
   const [cityFilter, setCityFilter] = useState("");
@@ -282,7 +284,7 @@ export default function LeadsPage() {
       {leads.length > 0 && (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {leads.map((lead) => (
-            <LeadCard key={lead.id} lead={lead} />
+            <LeadCard key={lead.id} lead={lead} onClick={() => navigate(`/leads/${lead.id}`)} />
           ))}
         </div>
       )}
@@ -297,9 +299,9 @@ export default function LeadsPage() {
   );
 }
 
-function LeadCard({ lead }: { lead: Lead }) {
+function LeadCard({ lead, onClick }: { lead: Lead; onClick?: () => void }) {
   return (
-    <Card className="border-border/50 hover:border-primary/30 transition-colors animate-fade-in">
+    <Card className="border-border/50 hover:border-primary/30 transition-colors animate-fade-in cursor-pointer" onClick={onClick}>
       <CardContent className="pt-6">
         <div className="flex items-start justify-between gap-2 mb-3">
           <h3 className="text-sm font-semibold text-foreground leading-tight truncate">

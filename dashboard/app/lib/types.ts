@@ -66,6 +66,12 @@ export interface HITLStats {
   by_type: Record<string, { pending: number; resolved: number }>;
 }
 
+export interface HITLTrends {
+  days: number;
+  trends: { date: string; created: number; resolved: number }[];
+  totals: { created: number; resolved: number; pending: number };
+}
+
 export interface AgentStatus {
   name: string;
   display_name: string | null;
@@ -150,6 +156,18 @@ export interface Lead {
   status: string;
   enrichment_source: string | null;
   discovered_at: string | null;
+}
+
+export interface LeadDetail extends Lead {
+  country: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  h3_index: string | null;
+  website: string | null;
+  social_links: Record<string, string> | null;
+  enrichment_cost: number | null;
+  enrichment_data: Record<string, any> | null;
+  osm_id: string | null;
 }
 
 export interface LeadListResponse {

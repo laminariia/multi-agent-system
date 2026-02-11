@@ -6,8 +6,8 @@ import { MetricCard } from "~/components/metric-card";
 import { AgentCard } from "~/components/agent-card";
 import { PipelineFlow } from "~/components/pipeline-flow";
 import { ActivityFeed, type ActivityEvent } from "~/components/activity-feed";
-import { JobsByPlatformChart, HITLByTypeChart, AgentStatusChart } from "~/components/charts";
-import { fetchAgentStatus, fetchHITLStats, fetchJobs, fetchJobStats } from "~/lib/api";
+import { JobsByPlatformChart, HITLByTypeChart, AgentStatusChart, HITLTrendsChart } from "~/components/charts";
+import { fetchAgentStatus, fetchHITLStats, fetchJobs, fetchJobStats, fetchHITLTrends } from "~/lib/api";
 import { OrchStatusWidget } from "~/components/orch-status-widget";
 
 export default function DashboardPage() {
@@ -33,6 +33,12 @@ export default function DashboardPage() {
     queryKey: ["job-stats"],
     queryFn: fetchJobStats,
     refetchInterval: 60_000,
+  });
+
+  const { data: hitlTrends } = useQuery({
+    queryKey: ["hitl-trends"],
+    queryFn: () => fetchHITLTrends(7),
+    refetchInterval: 120_000,
   });
 
   const agents = agentData?.agents ?? [];
@@ -176,6 +182,11 @@ export default function DashboardPage() {
           <HITLByTypeChart data={hitlByType} />
           <AgentStatusChart data={agentStatusDist} />
         </div>
+      )}
+
+      {/* HITL Trends chart */}
+      {hitlTrends && hitlTrends.trends.length > 0 && (
+        <HITLTrendsChart data={[...hitlTrends.trends].reverse()} />
       )}
 
       {/* Two-column layout: Agent Grid + Activity */}

@@ -201,3 +201,46 @@ export function JobsOverTimeChart({ data }: { data: JobsOverTimeData[] }) {
     </Card>
   );
 }
+
+// --- HITL Trends area chart ---
+
+interface HITLTrendData {
+  date: string;
+  created: number;
+  resolved: number;
+}
+
+export function HITLTrendsChart({ data }: { data: HITLTrendData[] }) {
+  if (!data.length) return null;
+
+  return (
+    <Card className="border-border/50">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium">HITL Trends (7 days)</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="h-[200px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={(v: string) => {
+                  const d = new Date(v + "T00:00:00");
+                  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                }}
+              />
+              <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip {...tooltipStyle} />
+              <Area type="monotone" dataKey="created" stroke="hsl(38, 92%, 50%)" fill="hsl(38, 92%, 50%)" fillOpacity={0.15} strokeWidth={2} name="Created" />
+              <Area type="monotone" dataKey="resolved" stroke="hsl(160, 84%, 39%)" fill="hsl(160, 84%, 39%)" fillOpacity={0.15} strokeWidth={2} name="Resolved" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

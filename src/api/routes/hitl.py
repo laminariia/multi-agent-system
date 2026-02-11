@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import redis.asyncio as aioredis
@@ -16,7 +16,7 @@ from litestar import Controller, Request, get, post
 from litestar.exceptions import NotFoundException
 from litestar.params import Parameter
 from litestar.security.jwt import Token
-from sqlalchemy import case, extract, func, select
+from sqlalchemy import Date, case, cast, extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.guards import require_role
@@ -27,6 +27,9 @@ from src.api.schemas import (
     HITLResolveResponseSchema,
     HITLStatsSchema,
     HITLTodayStatsSchema,
+    HITLTrendDaySchema,
+    HITLTrendsResponseSchema,
+    HITLTrendTotalsSchema,
     HITLTypeStatsSchema,
 )
 from src.core.exceptions import MASException
@@ -427,4 +430,75 @@ class HITLController(Controller):
             ),
             avg_resolution_time_minutes=avg_resolution_minutes,
             by_type=by_type,
+        )
+
+    # -----------------------------------------------------------------
+    # GET /api/v1/hitl/trends
+    # -----------------------------------------------------------------
+
+    @get(
+        "/trends",
+        summary="HITL resolution trends",
+        description="Daily created/resolved counts over the last N days.",
+    )
+    async def trends(
+        self,
+        db_session: AsyncSession,
+        days: int = Parameter(default=7, ge=1, le=90, description="Number of days to look back"),
+    ) -> HITLTrendsResponseSchema:
+        """Return per-day created and resolved counts for the last *days* days."""
+        now = datetime.now(UTC)
+        window_start = (now - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # -- Created per day ---------------------------------------------------
+        created_stmt = (
+            select(
+                cast(HITLQueue.created_at, Date).label("day"),
+                func.count().label("cnt"),
+            )
+            .where(HITLQueue.created_at >= window_start)
+            .group_by(cast(HITLQueue.created_at, Date))
+        )
+        created_rows = (await db_session.execute(created_stmt)).all()
+        created_map: dict[str, int] = {
+            str(row[0]): row[1] for row in created_rows
+        }
+
+        # -- Resolved per day (by resolved_at) ---------------------------------
+        resolved_stmt = (
+            select(
+                cast(HITLQueue.resolved_at, Date).label("day"),
+                func.count().label("cnt"),
+            )
+            .where(HITLQueue.resolved_at >= window_start)
+            .where(HITLQueue.resolved_at.is_not(None))
+            .group_by(cast(HITLQueue.resolved_at, Date))
+        )
+        resolved_rows = (await db_session.execute(resolved_stmt)).all()
+        resolved_map: dict[str, int] = {
+            str(row[0]): row[1] for row in resolved_rows
+        }
+
+        # -- Build day-by-day list (most recent first) -------------------------
+        trend_days: list[HITLTrendDaySchema] = []
+        total_created = 0
+        total_resolved = 0
+
+        for offset in range(days):
+            day = (now - timedelta(days=offset)).date()
+            day_str = str(day)
+            c = created_map.get(day_str, 0)
+            r = resolved_map.get(day_str, 0)
+            total_created += c
+            total_resolved += r
+            trend_days.append(HITLTrendDaySchema(date=day_str, created=c, resolved=r))
+
+        return HITLTrendsResponseSchema(
+            days=days,
+            trends=trend_days,
+            totals=HITLTrendTotalsSchema(
+                created=total_created,
+                resolved=total_resolved,
+                pending=max(total_created - total_resolved, 0),
+            ),
         )

@@ -145,7 +145,7 @@ class _FakeSession:
             for status in ("pending", "completed", "failed"):
                 if f"'{status}'" in compiled_str:
                     return status
-        except Exception:
+        except Exception:  # noqa: S110
             pass
         return None
 

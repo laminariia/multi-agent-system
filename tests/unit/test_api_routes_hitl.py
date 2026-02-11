@@ -24,6 +24,9 @@ from src.api.schemas import (
     HITLResolveResponseSchema,
     HITLStatsSchema,
     HITLTodayStatsSchema,
+    HITLTrendDaySchema,
+    HITLTrendsResponseSchema,
+    HITLTrendTotalsSchema,
     HITLTypeStatsSchema,
 )
 from src.core.exceptions import MASException
@@ -1260,3 +1263,183 @@ class TestResolveResumePipeline:
         # Should still succeed despite resume failure
         assert result.status == "resolved"
         assert result.resolution == "approve"
+
+
+# ---------------------------------------------------------------------------
+# Tests for the trends endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestTrends:
+    """Tests for the trends route handler."""
+
+    @pytest.mark.asyncio
+    async def test_trends_default_7_days(self) -> None:
+        """Should return 7-day trend data with created/resolved counts per day."""
+        db_session = _create_mock_db_session()
+
+        now = datetime.now(UTC)
+        today_str = str(now.date())
+        yesterday_str = str((now - timedelta(days=1)).date())
+
+        # Mock created_rows: 2 items today, 1 yesterday
+        created_result = MagicMock()
+        created_result.all.return_value = [
+            (today_str, 3),
+            (yesterday_str, 1),
+        ]
+
+        # Mock resolved_rows: 1 resolved today
+        resolved_result = MagicMock()
+        resolved_result.all.return_value = [
+            (today_str, 2),
+        ]
+
+        db_session.execute.side_effect = [created_result, resolved_result]
+
+        result = await HITLController.trends.fn(
+            self=None,
+            db_session=db_session,
+            days=7,
+        )
+
+        assert isinstance(result, HITLTrendsResponseSchema)
+        assert result.days == 7
+        assert len(result.trends) == 7
+
+        # Check that the response contains the correct daily data
+        # Trends are ordered most recent first (offset=0 is today)
+        trend_map = {t.date: t for t in result.trends}
+        assert trend_map[today_str].created == 3
+        assert trend_map[today_str].resolved == 2
+        assert trend_map[yesterday_str].created == 1
+        assert trend_map[yesterday_str].resolved == 0
+
+        # Totals
+        assert isinstance(result.totals, HITLTrendTotalsSchema)
+        assert result.totals.created == 4  # 3 + 1
+        assert result.totals.resolved == 2
+
+    @pytest.mark.asyncio
+    async def test_trends_custom_days(self) -> None:
+        """Should respect custom days parameter and return the right window size."""
+        db_session = _create_mock_db_session()
+
+        # Empty results for both queries
+        created_result = MagicMock()
+        created_result.all.return_value = []
+
+        resolved_result = MagicMock()
+        resolved_result.all.return_value = []
+
+        db_session.execute.side_effect = [created_result, resolved_result]
+
+        result = await HITLController.trends.fn(
+            self=None,
+            db_session=db_session,
+            days=3,
+        )
+
+        assert result.days == 3
+        assert len(result.trends) == 3
+
+        # All days should have zero counts
+        for trend_day in result.trends:
+            assert isinstance(trend_day, HITLTrendDaySchema)
+            assert trend_day.created == 0
+            assert trend_day.resolved == 0
+
+    @pytest.mark.asyncio
+    async def test_trends_empty_data(self) -> None:
+        """Should return zeros when no HITL items exist in the window."""
+        db_session = _create_mock_db_session()
+
+        created_result = MagicMock()
+        created_result.all.return_value = []
+
+        resolved_result = MagicMock()
+        resolved_result.all.return_value = []
+
+        db_session.execute.side_effect = [created_result, resolved_result]
+
+        result = await HITLController.trends.fn(
+            self=None,
+            db_session=db_session,
+            days=7,
+        )
+
+        assert result.totals.created == 0
+        assert result.totals.resolved == 0
+        assert result.totals.pending == 0
+        assert len(result.trends) == 7
+
+        # Every day should be zero
+        for day_entry in result.trends:
+            assert day_entry.created == 0
+            assert day_entry.resolved == 0
+
+    @pytest.mark.asyncio
+    async def test_trends_totals_calculation(self) -> None:
+        """Should calculate totals.pending as max(created - resolved, 0)."""
+        db_session = _create_mock_db_session()
+
+        now = datetime.now(UTC)
+        today_str = str(now.date())
+        yesterday_str = str((now - timedelta(days=1)).date())
+
+        # 10 created total (6 today, 4 yesterday)
+        created_result = MagicMock()
+        created_result.all.return_value = [
+            (today_str, 6),
+            (yesterday_str, 4),
+        ]
+
+        # 3 resolved total (all today)
+        resolved_result = MagicMock()
+        resolved_result.all.return_value = [
+            (today_str, 3),
+        ]
+
+        db_session.execute.side_effect = [created_result, resolved_result]
+
+        result = await HITLController.trends.fn(
+            self=None,
+            db_session=db_session,
+            days=7,
+        )
+
+        assert result.totals.created == 10
+        assert result.totals.resolved == 3
+        assert result.totals.pending == 7  # max(10 - 3, 0)
+
+    @pytest.mark.asyncio
+    async def test_trends_pending_does_not_go_negative(self) -> None:
+        """Should clamp totals.pending to 0 when resolved exceeds created."""
+        db_session = _create_mock_db_session()
+
+        now = datetime.now(UTC)
+        today_str = str(now.date())
+
+        # 2 created today
+        created_result = MagicMock()
+        created_result.all.return_value = [
+            (today_str, 2),
+        ]
+
+        # 5 resolved today (resolved includes items from before the window)
+        resolved_result = MagicMock()
+        resolved_result.all.return_value = [
+            (today_str, 5),
+        ]
+
+        db_session.execute.side_effect = [created_result, resolved_result]
+
+        result = await HITLController.trends.fn(
+            self=None,
+            db_session=db_session,
+            days=7,
+        )
+
+        assert result.totals.created == 2
+        assert result.totals.resolved == 5
+        assert result.totals.pending == 0  # max(2 - 5, 0) = 0, not -3

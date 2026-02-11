@@ -67,16 +67,19 @@ class PipelineBController(Controller):
         db_session: AsyncSession,
         city: str | None = None,
         status: str | None = None,
+        search: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> dict[str, Any]:
-        """List discovered leads, optionally filtered by city and status."""
+        """List discovered leads, optionally filtered by city, status, and name search."""
         query = select(Lead)
 
         if city:
             query = query.where(Lead.city == city)
         if status:
             query = query.where(Lead.status == status)
+        if search:
+            query = query.where(Lead.name.ilike(f"%{search}%"))
 
         query = query.order_by(Lead.discovered_at.desc()).limit(limit).offset(offset)
 
@@ -89,6 +92,8 @@ class PipelineBController(Controller):
             count_query = count_query.where(Lead.city == city)
         if status:
             count_query = count_query.where(Lead.status == status)
+        if search:
+            count_query = count_query.where(Lead.name.ilike(f"%{search}%"))
         total = (await db_session.execute(count_query)).scalar() or 0
 
         return {
@@ -110,6 +115,50 @@ class PipelineBController(Controller):
                 }
                 for lead in leads
             ],
+        }
+
+    @get("/leads/{lead_id:str}")
+    async def get_lead(
+        self,
+        db_session: AsyncSession,
+        lead_id: str,
+    ) -> dict[str, Any]:
+        """Get detailed information about a single lead by UUID."""
+        try:
+            lead_uuid = uuid.UUID(lead_id)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=404, detail="Lead not found") from exc
+
+        result = await db_session.execute(select(Lead).where(Lead.id == lead_uuid))
+        lead = result.scalar_one_or_none()
+
+        if lead is None:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        return {
+            "id": str(lead.id),
+            "name": lead.name,
+            "category": lead.category,
+            "city": lead.city,
+            "country": lead.country,
+            "address": lead.address,
+            "latitude": float(lead.latitude) if lead.latitude is not None else None,
+            "longitude": float(lead.longitude) if lead.longitude is not None else None,
+            "h3_index": lead.h3_index,
+            "phone": lead.phone,
+            "email": lead.email,
+            "website": lead.website,
+            "social_links": lead.social_links,
+            "enrichment_source": lead.enrichment_source,
+            "enrichment_cost": (
+                float(lead.enrichment_cost) if lead.enrichment_cost is not None else None
+            ),
+            "enrichment_data": lead.enrichment_data,
+            "status": lead.status,
+            "osm_id": lead.osm_id,
+            "discovered_at": (
+                lead.discovered_at.isoformat() if lead.discovered_at else None
+            ),
         }
 
     @get("/stats")
