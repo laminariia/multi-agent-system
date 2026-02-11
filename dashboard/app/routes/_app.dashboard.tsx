@@ -6,6 +6,7 @@ import { MetricCard } from "~/components/metric-card";
 import { AgentCard } from "~/components/agent-card";
 import { PipelineFlow } from "~/components/pipeline-flow";
 import { ActivityFeed, type ActivityEvent } from "~/components/activity-feed";
+import { JobsByPlatformChart, HITLByTypeChart, AgentStatusChart } from "~/components/charts";
 import { fetchAgentStatus, fetchHITLStats, fetchJobs } from "~/lib/api";
 import { OrchStatusWidget } from "~/components/orch-status-widget";
 
@@ -32,6 +33,38 @@ export default function DashboardPage() {
   const workingAgents = agents.filter((a) => a.status === "working" || a.status === "idle").length;
   const activeJobs = jobsData?.jobs?.filter((j) => j.status === "in_progress" || j.status === "qualified" || j.status === "bid_sent").length ?? 0;
   const pendingHitl = hitlStats?.today?.pending ?? 0;
+
+  // Chart data: jobs by platform
+  const jobsByPlatform = useMemo(() => {
+    const jobs = jobsData?.jobs ?? [];
+    const counts: Record<string, number> = {};
+    jobs.forEach((j) => {
+      counts[j.platform] = (counts[j.platform] ?? 0) + 1;
+    });
+    return Object.entries(counts).map(([platform, count]) => ({
+      platform: platform.replace("_", "."),
+      count,
+    }));
+  }, [jobsData]);
+
+  // Chart data: HITL by type
+  const hitlByType = useMemo(() => {
+    if (!hitlStats?.by_type) return [];
+    return Object.entries(hitlStats.by_type).map(([type, data]) => ({
+      type: type.replace("_", " "),
+      pending: data.pending,
+      resolved: data.resolved,
+    }));
+  }, [hitlStats]);
+
+  // Chart data: agent status distribution
+  const agentStatusDist = useMemo(() => {
+    const counts: Record<string, number> = {};
+    agents.forEach((a) => {
+      counts[a.status] = (counts[a.status] ?? 0) + 1;
+    });
+    return Object.entries(counts).map(([status, count]) => ({ status, count }));
+  }, [agents]);
 
   // Mock activity feed from agent data
   const recentActivity: ActivityEvent[] = useMemo(() => {
@@ -131,6 +164,15 @@ export default function DashboardPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Charts row */}
+      {(jobsByPlatform.length > 0 || hitlByType.length > 0 || agentStatusDist.length > 0) && (
+        <div className="grid gap-4 md:grid-cols-3">
+          <JobsByPlatformChart data={jobsByPlatform} />
+          <HITLByTypeChart data={hitlByType} />
+          <AgentStatusChart data={agentStatusDist} />
+        </div>
+      )}
 
       {/* Two-column layout: Agent Grid + Activity */}
       <div className="grid gap-6 lg:grid-cols-3">

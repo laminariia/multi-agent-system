@@ -4,9 +4,12 @@ import { Badge } from "~/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Skeleton } from "~/components/ui/skeleton";
 import { HITLCard } from "~/components/hitl-card";
+import { Pagination } from "~/components/pagination";
 import { fetchHITLPending, resolveHITL, fetchHITLStats } from "~/lib/api";
 import { toast } from "~/hooks/use-toast";
 import { useAuthStore } from "~/stores/auth-store";
+
+const PAGE_SIZE = 24;
 
 const filterTabs = [
   { value: "all", label: "All" },
@@ -21,17 +24,22 @@ const filterTabs = [
 export default function HITLPage() {
   const queryClient = useQueryClient();
   const [activeFilter, setActiveFilter] = useState("all");
+  const [page, setPage] = useState(0);
   const user = useAuthStore((s) => s.user);
+
+  const handleFilterChange = (v: string) => { setActiveFilter(v); setPage(0); };
 
   const { data, isLoading, error } = useQuery({
     queryKey: [
       "hitl-pending",
       activeFilter === "all" ? undefined : activeFilter,
+      page,
     ],
     queryFn: () =>
       fetchHITLPending({
         type: activeFilter === "all" ? undefined : activeFilter,
-        limit: 50,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
       }),
     refetchInterval: 30_000,
   });
@@ -111,7 +119,7 @@ export default function HITLPage() {
       {/* Filter tabs */}
       <Tabs
         value={activeFilter}
-        onValueChange={setActiveFilter}
+        onValueChange={handleFilterChange}
       >
         <TabsList>
           {filterTabs.map((tab) => (
@@ -179,6 +187,13 @@ export default function HITLPage() {
           ))}
         </div>
       )}
+      {/* Pagination */}
+      <Pagination
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={total}
+        onPageChange={setPage}
+      />
     </div>
   );
 }

@@ -212,6 +212,25 @@ export default function JobDetailPage() {
         </CardContent>
       </Card>
 
+      {/* Client info */}
+      {job.client_info && Object.keys(job.client_info).length > 0 && (
+        <Card className="border-border/50">
+          <CardHeader>
+            <CardTitle className="text-base">Client Info</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              {Object.entries(job.client_info).map(([key, value]) => (
+                <div key={key}>
+                  <p className="text-muted-foreground capitalize">{key.replace(/_/g, " ")}</p>
+                  <p className="font-medium">{String(value)}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Bids */}
       {job.bids.length > 0 && (
         <Card className="border-border/50">
@@ -223,23 +242,108 @@ export default function JobDetailPage() {
               {job.bids.map((bid) => (
                 <div
                   key={bid.id}
-                  className="flex items-center justify-between rounded-md border border-border/50 p-3"
+                  className="rounded-md border border-border/50 p-4 space-y-2"
                 >
-                  <div>
-                    <p className="text-sm font-medium">${bid.bid_amount}</p>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <p className="text-sm font-semibold">${bid.bid_amount}</p>
+                      <Badge
+                        variant={
+                          bid.status === "approved" ? "success" :
+                          bid.status === "rejected" ? "destructive" :
+                          bid.status === "submitted" ? "default" :
+                          "outline"
+                        }
+                        className="capitalize text-xs"
+                      >
+                        {bid.status}
+                      </Badge>
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       {relativeTime(bid.created_at)}
                     </p>
                   </div>
-                  <Badge variant="outline" className="capitalize text-xs">
-                    {bid.status}
-                  </Badge>
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
       )}
+
+      {/* Timeline */}
+      <Card className="border-border/50">
+        <CardHeader>
+          <CardTitle className="text-base">Timeline</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <TimelineEntry
+              label="Discovered"
+              time={job.discovered_at}
+              icon={
+                <div className="h-2.5 w-2.5 rounded-full bg-blue-500" />
+              }
+            />
+            {job.bids.length > 0 && (
+              <TimelineEntry
+                label={`Bid submitted ($${job.bids[0].bid_amount})`}
+                time={job.bids[0].created_at}
+                icon={
+                  <div className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+                }
+              />
+            )}
+            {job.status === "in_progress" && (
+              <TimelineEntry
+                label="Work in progress"
+                icon={
+                  <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                }
+              />
+            )}
+            {job.status === "completed" && (
+              <TimelineEntry
+                label="Completed"
+                icon={
+                  <div className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                }
+              />
+            )}
+            {job.status === "disqualified" && (
+              <TimelineEntry
+                label={`Disqualified: ${job.disqualify_reason ?? ""}`}
+                icon={
+                  <div className="h-2.5 w-2.5 rounded-full bg-rose-500" />
+                }
+              />
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function TimelineEntry({
+  label,
+  time,
+  icon,
+}: {
+  label: string;
+  time?: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="mt-1.5 flex-shrink-0">{icon}</div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-foreground">{label}</p>
+        {time && (
+          <p className="text-xs text-muted-foreground">
+            {new Date(time).toLocaleString()}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

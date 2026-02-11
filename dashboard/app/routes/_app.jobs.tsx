@@ -5,7 +5,10 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { JobCard } from "~/components/job-card";
+import { Pagination } from "~/components/pagination";
 import { fetchJobs } from "~/lib/api";
+
+const PAGE_SIZE = 24;
 
 const statusFilters = [
   { value: "all", label: "All" },
@@ -28,14 +31,20 @@ const platformOptions = [
 export default function JobsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [platformFilter, setPlatformFilter] = useState("all");
+  const [page, setPage] = useState(0);
+
+  // Reset page on filter change
+  const handleStatusChange = (v: string) => { setStatusFilter(v); setPage(0); };
+  const handlePlatformChange = (v: string) => { setPlatformFilter(v); setPage(0); };
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["jobs", statusFilter, platformFilter],
+    queryKey: ["jobs", statusFilter, platformFilter, page],
     queryFn: () =>
       fetchJobs({
         status: statusFilter === "all" ? undefined : statusFilter,
         platform: platformFilter === "all" ? undefined : platformFilter,
-        limit: 50,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
       }),
     refetchInterval: 30_000,
   });
@@ -56,7 +65,7 @@ export default function JobsPage() {
           )}
         </div>
 
-        <Select value={platformFilter} onValueChange={setPlatformFilter}>
+        <Select value={platformFilter} onValueChange={handlePlatformChange}>
           <SelectTrigger className="w-[160px]">
             <SelectValue />
           </SelectTrigger>
@@ -71,7 +80,7 @@ export default function JobsPage() {
       </div>
 
       {/* Status filter tabs */}
-      <Tabs value={statusFilter} onValueChange={setStatusFilter}>
+      <Tabs value={statusFilter} onValueChange={handleStatusChange}>
         <TabsList>
           {statusFilters.map((tab) => (
             <TabsTrigger key={tab.value} value={tab.value}>
@@ -132,6 +141,14 @@ export default function JobsPage() {
           ))}
         </div>
       )}
+
+      {/* Pagination */}
+      <Pagination
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={total}
+        onPageChange={setPage}
+      />
     </div>
   );
 }

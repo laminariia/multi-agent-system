@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useParams, Link } from "@remix-run/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import { Separator } from "~/components/ui/separator";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { StatusBadge } from "~/components/status-badge";
@@ -131,6 +132,60 @@ export default function AgentDetailPage() {
         </div>
       ) : (
         <Skeleton className="h-[100px]" />
+      )}
+
+      {/* Metrics cards */}
+      {agent && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card className="border-border/50">
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Status</p>
+              <div className="mt-1">
+                <StatusBadge status={agent.status} />
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-border/50">
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Restarts</p>
+              <p className="text-2xl font-bold mt-1">{agent.restart_count}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-border/50">
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Last Heartbeat</p>
+              <p className="text-sm font-medium mt-1">
+                {agent.last_heartbeat ? relativeTime(agent.last_heartbeat) : "Never"}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="border-border/50">
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Log Entries</p>
+              <p className="text-2xl font-bold mt-1">{logsData?.total ?? 0}</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Current task */}
+      {agent?.current_task && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground mb-1">Current Task</p>
+            <p className="text-sm font-medium">{agent.current_task}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Error message */}
+      {agent?.error_message && (
+        <Card className="border-destructive/30 bg-destructive/5">
+          <CardContent className="p-4">
+            <p className="text-xs text-destructive mb-1">Last Error</p>
+            <p className="text-sm">{agent.error_message}</p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Logs */}
