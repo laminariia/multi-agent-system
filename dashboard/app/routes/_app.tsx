@@ -188,7 +188,12 @@ export default function AppLayout() {
   const pathSegments = location.pathname
     .split("/")
     .filter(Boolean)
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1));
+    .map((s) =>
+      s
+        .split("-")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ")
+    );
 
   const pendingCount = hitlData?.total ?? 0;
   const urgentCount = hitlData?.pending_urgent ?? 0;

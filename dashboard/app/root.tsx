@@ -1,11 +1,14 @@
 import { json } from "@remix-run/node";
 import {
+  Link,
   Links,
   Meta,
   Outlet,
   Scripts,
   ScrollRestoration,
   useLoaderData,
+  useRouteError,
+  isRouteErrorResponse,
 } from "@remix-run/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -48,6 +51,35 @@ function ThemeHydration() {
   }, [theme]);
 
   return null;
+}
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const isResponse = isRouteErrorResponse(error);
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <div className="text-center space-y-4">
+        <p className="text-7xl font-bold text-muted-foreground/30">
+          {isResponse ? error.status : "Error"}
+        </p>
+        <h1 className="text-2xl font-semibold text-foreground">
+          {isResponse ? error.statusText : "Something went wrong"}
+        </h1>
+        <p className="text-muted-foreground text-sm max-w-sm mx-auto">
+          {isResponse
+            ? "The page you are looking for does not exist or has been moved."
+            : "An unexpected error occurred. Please try again."}
+        </p>
+        <Link
+          to="/dashboard"
+          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          Back to Dashboard
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {

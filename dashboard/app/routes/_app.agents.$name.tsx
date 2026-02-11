@@ -130,6 +130,20 @@ export default function AgentDetailPage() {
             )}
           </div>
         </div>
+      ) : statusData ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="rounded-full bg-muted p-4 mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </div>
+          <p className="text-foreground text-lg font-medium">Agent not found</p>
+          <p className="text-muted-foreground text-sm mt-1">
+            No agent named &ldquo;{name}&rdquo; is registered
+          </p>
+        </div>
       ) : (
         <Skeleton className="h-[100px]" />
       )}
