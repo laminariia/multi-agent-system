@@ -6,9 +6,12 @@ import { Card, CardContent } from "~/components/ui/card";
 import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import { Pagination } from "~/components/pagination";
 import { fetchLeads, fetchPipelineBStats, startScan } from "~/lib/api";
 import { toast } from "~/hooks/use-toast";
 import type { Lead } from "~/lib/types";
+
+const PAGE_SIZE = 30;
 
 const statusFilters = [
   { value: "all", label: "All" },
@@ -41,14 +44,18 @@ export default function GeoScoutPage() {
   const [cityFilter, setCityFilter] = useState("");
   const [scanCity, setScanCity] = useState("");
   const [isScanning, setIsScanning] = useState(false);
+  const [page, setPage] = useState(0);
+
+  const handleStatusChange = (v: string) => { setStatusFilter(v); setPage(0); };
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["geo-leads", statusFilter, cityFilter],
+    queryKey: ["geo-leads", statusFilter, cityFilter, page],
     queryFn: () =>
       fetchLeads({
         status: statusFilter === "all" ? undefined : statusFilter,
         city: cityFilter || undefined,
-        limit: 50,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
       }),
     refetchInterval: 30_000,
   });
@@ -208,7 +215,7 @@ export default function GeoScoutPage() {
 
       {/* Filters */}
       <div className="flex items-center gap-4">
-        <Tabs value={statusFilter} onValueChange={setStatusFilter}>
+        <Tabs value={statusFilter} onValueChange={handleStatusChange}>
           <TabsList>
             {statusFilters.map((tab) => (
               <TabsTrigger key={tab.value} value={tab.value}>
@@ -295,6 +302,13 @@ export default function GeoScoutPage() {
           </CardContent>
         </Card>
       )}
+      {/* Pagination */}
+      <Pagination
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={total}
+        onPageChange={setPage}
+      />
     </div>
   );
 }

@@ -9,22 +9,27 @@ import {
   CardHeader,
 } from "~/components/ui/card";
 import { Skeleton } from "~/components/ui/skeleton";
+import { Pagination } from "~/components/pagination";
 import { fetchHITLPending, resolveHITL } from "~/lib/api";
 import { toast } from "~/hooks/use-toast";
 import { relativeTime } from "~/lib/utils";
 import type { HITLItem } from "~/lib/types";
 import { useAuthStore } from "~/stores/auth-store";
 
+const PAGE_SIZE = 24;
+
 export default function OutreachPage() {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const [page, setPage] = useState(0);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["outreach-pending"],
+    queryKey: ["outreach-pending", page],
     queryFn: () =>
       fetchHITLPending({
         type: "email_approval",
-        limit: 50,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
       }),
     refetchInterval: 30_000,
   });
@@ -131,6 +136,14 @@ export default function OutreachPage() {
           ))}
         </div>
       )}
+
+      {/* Pagination */}
+      <Pagination
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={total}
+        onPageChange={setPage}
+      />
     </div>
   );
 }
