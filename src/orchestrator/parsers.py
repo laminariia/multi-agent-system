@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +25,6 @@ ORCH_DIR = _HOME / ".claude" / "orchestrator"
 LOG_DIR = _HOME / ".claude" / "logs"
 SCRIPTS_DIR = _HOME / ".claude" / "scripts"
 
-GOALS_FILE = ORCH_DIR / "goals.yaml"
 HEALTH_REPORT_FILE = ORCH_DIR / "health-report.yaml"
 VISION_FILE = ORCH_DIR / "vision.md"
 PID_FILE = ORCH_DIR / "runner.pid"
@@ -110,45 +108,6 @@ def get_runner_log_path(date: str | None = None) -> Path | None:
 # ---------------------------------------------------------------------------
 # YAML / Markdown parsers
 # ---------------------------------------------------------------------------
-
-
-def parse_goals_yaml(path: Path | None = None) -> list[dict[str, Any]]:
-    """Parse ``goals.yaml`` into a list of goal dicts."""
-    fpath = path or GOALS_FILE
-    if not fpath.exists():
-        return []
-
-    content = fpath.read_text(encoding="utf-8")
-    goals: list[dict[str, Any]] = []
-    current: dict[str, Any] | None = None
-
-    for line in content.splitlines():
-        stripped = line.rstrip()
-
-        if re.match(r'^\s+-\s+id:\s+"?(.+?)"?\s*$', stripped):
-            if current is not None:
-                goals.append(current)
-            match = re.match(r'^\s+-\s+id:\s+"?(.+?)"?\s*$', stripped)
-            current = {"id": match.group(1) if match else "", "success_criteria": []}  # type: ignore[union-attr]
-
-        elif current is not None:
-            if m := re.match(r'^\s+title:\s+"(.+)"', stripped):
-                current["title"] = m.group(1)
-            elif m := re.match(r"^\s+priority:\s+(\w+)", stripped):
-                current["priority"] = m.group(1)
-            elif m := re.match(r"^\s+category:\s+(\w+)", stripped):
-                current["category"] = m.group(1)
-            elif m := re.match(r"^\s+status:\s+(\w+)", stripped):
-                current["status"] = m.group(1)
-            elif m := re.match(r'^\s+completed_at:\s+"?(.+?)"?\s*$', stripped):
-                current["completed_at"] = m.group(1)
-            elif m := re.match(r'^\s+result:\s+"(.+)"', stripped):
-                current["result"] = m.group(1)
-
-    if current is not None:
-        goals.append(current)
-
-    return goals
 
 
 def parse_health_report(path: Path | None = None) -> dict[str, Any]:
@@ -243,41 +202,3 @@ def parse_vision_md(path: Path | None = None) -> list[dict[str, Any]]:
     return phases
 
 
-def add_goal_to_yaml(
-    title: str,
-    priority: str = "medium",
-    category: str = "feature",
-) -> str:
-    """Append a new goal to ``goals.yaml`` and return its ID."""
-    goals = parse_goals_yaml()
-    max_num = 0
-    for g in goals:
-        if m := re.match(r"g_(\d+)", g.get("id", "")):
-            max_num = max(max_num, int(m.group(1)))
-    new_id = f"g_{max_num + 1:03d}"
-
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    yaml_block = f"""
-  - id: {new_id}
-    title: "{title}"
-    priority: {priority}
-    category: {category}
-    parallelizable: true
-    team_size: 1
-    context: "Added via API"
-    success_criteria:
-      - "Task completed successfully"
-    status: pending
-    depends_on: []
-    created: "{today}"
-"""
-
-    if not GOALS_FILE.exists():
-        GOALS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        GOALS_FILE.write_text(f"goals:{yaml_block}", encoding="utf-8")
-    else:
-        with GOALS_FILE.open("a", encoding="utf-8") as f:
-            f.write(yaml_block)
-
-    return new_id

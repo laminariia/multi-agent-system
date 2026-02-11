@@ -1,12 +1,14 @@
 """Unit tests for the orchestrator API routes and service layer.
 
-Tests cover all 8 endpoints of ``OrchestratorController`` plus the
-``OrchestratorService`` business logic, with file-system and subprocess
-operations mocked out.
+Tests cover all endpoints of ``OrchestratorController`` plus the
+``OrchestratorService`` business logic.  Goal-related methods use an
+async mock session (goals now live in PostgreSQL).  File-based operations
+(health, milestones, logs, runner state) are still mocked at the parser level.
 """
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -24,29 +26,6 @@ PARSERS = "src.api.services.orchestrator"
 @pytest.fixture()
 def svc() -> OrchestratorService:
     return OrchestratorService()
-
-
-@pytest.fixture()
-def sample_goals() -> list[dict]:
-    return [
-        {
-            "id": "g_001", "title": "Fix login bug", "priority": "high",
-            "category": "bugfix", "status": "completed",
-            "completed_at": "2026-02-01", "result": "Fixed",
-        },
-        {
-            "id": "g_002", "title": "Add dark mode", "priority": "medium",
-            "category": "feature", "status": "pending",
-        },
-        {
-            "id": "g_003", "title": "Write tests", "priority": "low",
-            "category": "testing", "status": "failed",
-        },
-        {
-            "id": "g_004", "title": "Refactor DB", "priority": "medium",
-            "category": "refactor", "status": "pending",
-        },
-    ]
 
 
 @pytest.fixture()
@@ -87,6 +66,124 @@ def sample_phases() -> list[dict]:
     ]
 
 
+# ---------------------------------------------------------------------------
+# Async DB mock helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_goal(
+    goal_id: str = "g_001",
+    title: str = "Test goal",
+    priority: str = "medium",
+    category: str = "feature",
+    status: str = "pending",
+    result: str | None = None,
+    completed_at=None,
+    created_at=None,
+) -> MagicMock:
+    """Create a mock OrchestratorGoal ORM instance."""
+    g = MagicMock()
+    g.id = uuid.uuid4()
+    g.goal_id = goal_id
+    g.title = title
+    g.priority = priority
+    g.category = category
+    g.status = status
+    g.result = result
+    g.completed_at = completed_at
+    g.created_at = created_at
+    return g
+
+
+class _FakeScalars:
+    """Mock for result.scalars().all()."""
+
+    def __init__(self, items: list) -> None:
+        self._items = items
+
+    def all(self) -> list:
+        return self._items
+
+
+class _FakeResult:
+    """Mock for session.execute() return value."""
+
+    def __init__(self, value=None, items: list | None = None) -> None:
+        self._value = value
+        self._items = items or []
+
+    def scalar_one(self):
+        return self._value
+
+    def scalar_one_or_none(self):
+        return self._value
+
+    def scalars(self) -> _FakeScalars:
+        return _FakeScalars(self._items)
+
+
+class _FakeSession:
+    """Lightweight async-compatible session mock.
+
+    Routes mock results by inspecting the compiled statement's bound
+    parameters and the query structure (COUNT, MAX, WHERE, SELECT).
+    """
+
+    def __init__(self, goals: list | None = None) -> None:
+        self._goals = goals or []
+        self._added: list = []
+        self._deleted: list = []
+
+    def _extract_status_param(self, stmt) -> str | None:
+        """Extract the status literal from a WHERE clause."""
+        try:
+            compiled = stmt.compile(compile_kwargs={"literal_binds": True})
+            compiled_str = str(compiled)
+            for status in ("pending", "completed", "failed"):
+                if f"'{status}'" in compiled_str:
+                    return status
+        except Exception:
+            pass
+        return None
+
+    async def execute(self, stmt):
+        """Route mock results based on the SQL query structure."""
+        stmt_str = str(stmt).lower()
+
+        # COUNT queries for status counts
+        if "count" in stmt_str:
+            status = self._extract_status_param(stmt)
+            if status:
+                return _FakeResult(value=len([g for g in self._goals if g.status == status]))
+            return _FakeResult(value=0)
+
+        # MAX query for goal_id generation
+        if "max" in stmt_str:
+            if self._goals:
+                max_id = max(g.goal_id for g in self._goals)
+                return _FakeResult(value=max_id)
+            return _FakeResult(value=None)
+
+        # SELECT with WHERE (for delete / single lookup)
+        if "where" in stmt_str and "orchestrator_goals" in stmt_str:
+            # Return first goal or None
+            if self._goals:
+                return _FakeResult(value=self._goals[0], items=[self._goals[0]])
+            return _FakeResult(value=None)
+
+        # General SELECT (list_goals)
+        return _FakeResult(items=self._goals)
+
+    def add(self, obj):
+        self._added.append(obj)
+
+    async def delete(self, obj):
+        self._deleted.append(obj)
+
+    async def flush(self):
+        pass
+
+
 # ===========================================================================
 # get_status
 # ===========================================================================
@@ -95,30 +192,39 @@ def sample_phases() -> list[dict]:
 class TestGetStatus:
     """Tests for OrchestratorService.get_status()."""
 
-    def test_status_runner_dead(self, svc: OrchestratorService) -> None:
+    @pytest.mark.anyio()
+    async def test_status_runner_dead(self, svc: OrchestratorService) -> None:
+        session = _FakeSession()
         with patch(f"{PARSERS}.is_runner_alive", return_value=(False, None)), \
-             patch(f"{PARSERS}.parse_goals_yaml", return_value=[]), \
              patch(f"{PARSERS}.parse_health_report", return_value={}):
-            result = svc.get_status()
+            result = await svc.get_status(session)
 
         assert result["alive"] is False
         assert result["pid"] is None
         assert result["uptime_seconds"] is None
         assert result["goals_pending"] == 0
 
-    def test_status_runner_alive(self, svc: OrchestratorService, sample_goals: list) -> None:
+    @pytest.mark.anyio()
+    async def test_status_runner_alive(self, svc: OrchestratorService) -> None:
+        goals = [
+            _make_goal("g_001", status="pending"),
+            _make_goal("g_002", status="completed"),
+            _make_goal("g_003", status="failed"),
+            _make_goal("g_004", status="pending"),
+        ]
+        session = _FakeSession(goals)
+
         mock_path = MagicMock(spec=Path)
         mock_stat = MagicMock()
         mock_stat.st_mtime = 1000.0
 
         with patch(f"{PARSERS}.is_runner_alive", return_value=(True, 1234)), \
-             patch(f"{PARSERS}.parse_goals_yaml", return_value=sample_goals), \
              patch(f"{PARSERS}.parse_health_report", return_value={"overall_grade": "A", "score": 93}), \
              patch(f"{PARSERS}.get_runner_log_path", return_value=mock_path), \
              patch(f"{PARSERS}.tail_file", return_value=["[2026-02-11] Mode: self-direct"]), \
              patch(f"{PARSERS}.PID_FILE") as mock_pid:
             mock_pid.stat.return_value = mock_stat
-            result = svc.get_status()
+            result = await svc.get_status(session)
 
         assert result["alive"] is True
         assert result["pid"] == 1234
@@ -129,12 +235,13 @@ class TestGetStatus:
         assert result["health_grade"] == "A"
         assert result["health_score"] == 93
 
-    def test_status_no_log_path(self, svc: OrchestratorService) -> None:
+    @pytest.mark.anyio()
+    async def test_status_no_log_path(self, svc: OrchestratorService) -> None:
+        session = _FakeSession()
         with patch(f"{PARSERS}.is_runner_alive", return_value=(True, 5678)), \
-             patch(f"{PARSERS}.parse_goals_yaml", return_value=[]), \
              patch(f"{PARSERS}.parse_health_report", return_value={}), \
              patch(f"{PARSERS}.get_runner_log_path", return_value=None):
-            result = svc.get_status()
+            result = await svc.get_status(session)
 
         assert result["alive"] is True
         assert result["mode"] is None
@@ -220,73 +327,111 @@ class TestStopRunner:
 
 
 # ===========================================================================
-# list_goals
+# list_goals (async DB)
 # ===========================================================================
 
 
 class TestListGoals:
     """Tests for OrchestratorService.list_goals()."""
 
-    def test_all_goals(self, svc: OrchestratorService, sample_goals: list) -> None:
-        with patch(f"{PARSERS}.parse_goals_yaml", return_value=sample_goals):
-            result = svc.list_goals()
+    @pytest.mark.anyio()
+    async def test_all_goals(self, svc: OrchestratorService) -> None:
+        goals = [
+            _make_goal("g_001", status="completed"),
+            _make_goal("g_002", status="pending"),
+            _make_goal("g_003", status="failed"),
+            _make_goal("g_004", status="pending"),
+        ]
+        session = _FakeSession(goals)
+        result = await svc.list_goals(session)
 
         assert result["total"] == 4
         assert result["pending"] == 2
         assert result["completed"] == 1
         assert result["failed"] == 1
 
-    def test_filter_by_pending(self, svc: OrchestratorService, sample_goals: list) -> None:
-        with patch(f"{PARSERS}.parse_goals_yaml", return_value=sample_goals):
-            result = svc.list_goals(status_filter="pending")
-
-        assert result["total"] == 2
-        assert all(g["status"] == "pending" for g in result["goals"])
-
-    def test_filter_by_completed(self, svc: OrchestratorService, sample_goals: list) -> None:
-        with patch(f"{PARSERS}.parse_goals_yaml", return_value=sample_goals):
-            result = svc.list_goals(status_filter="completed")
-
-        assert result["total"] == 1
-
-    def test_filter_no_match(self, svc: OrchestratorService) -> None:
-        goals = [{"id": "g_001", "status": "pending"}]
-        with patch(f"{PARSERS}.parse_goals_yaml", return_value=goals):
-            result = svc.list_goals(status_filter="completed")
-
-        assert result["total"] == 0
-        assert result["goals"] == []
-
-    def test_empty_goals(self, svc: OrchestratorService) -> None:
-        with patch(f"{PARSERS}.parse_goals_yaml", return_value=[]):
-            result = svc.list_goals()
+    @pytest.mark.anyio()
+    async def test_empty_goals(self, svc: OrchestratorService) -> None:
+        session = _FakeSession([])
+        result = await svc.list_goals(session)
 
         assert result["total"] == 0
         assert result["pending"] == 0
 
+    @pytest.mark.anyio()
+    async def test_goal_dict_fields(self, svc: OrchestratorService) -> None:
+        goals = [_make_goal("g_001", title="Test", priority="high", category="bugfix", status="pending")]
+        session = _FakeSession(goals)
+        result = await svc.list_goals(session)
+
+        g = result["goals"][0]
+        assert g["id"] == "g_001"
+        assert g["title"] == "Test"
+        assert g["priority"] == "high"
+        assert g["category"] == "bugfix"
+        assert g["status"] == "pending"
+
 
 # ===========================================================================
-# add_goal
+# add_goal (async DB)
 # ===========================================================================
 
 
 class TestAddGoal:
     """Tests for OrchestratorService.add_goal()."""
 
-    def test_add_default_priority(self, svc: OrchestratorService) -> None:
-        with patch(f"{PARSERS}.add_goal_to_yaml", return_value="g_005"):
-            result = svc.add_goal(title="New feature")
+    @pytest.mark.anyio()
+    async def test_add_first_goal(self, svc: OrchestratorService) -> None:
+        session = _FakeSession([])
+        result = await svc.add_goal(session, title="New feature")
 
-        assert result["id"] == "g_005"
+        assert result["id"] == "g_001"
         assert result["title"] == "New feature"
         assert result["message"] == "Goal added successfully"
+        assert len(session._added) == 1
 
-    def test_add_with_priority_and_category(self, svc: OrchestratorService) -> None:
-        with patch(f"{PARSERS}.add_goal_to_yaml", return_value="g_010") as mock_add:
-            result = svc.add_goal(title="Fix bug", priority="critical", category="bugfix")
+    @pytest.mark.anyio()
+    async def test_add_auto_increments(self, svc: OrchestratorService) -> None:
+        existing = [_make_goal("g_004")]
+        session = _FakeSession(existing)
+        result = await svc.add_goal(session, title="Next goal")
 
-        mock_add.assert_called_once_with("Fix bug", priority="critical", category="bugfix")
-        assert result["id"] == "g_010"
+        assert result["id"] == "g_005"
+
+    @pytest.mark.anyio()
+    async def test_add_with_priority_and_category(self, svc: OrchestratorService) -> None:
+        session = _FakeSession([])
+        result = await svc.add_goal(session, title="Fix bug", priority="critical", category="bugfix")
+
+        assert result["id"] == "g_001"
+        added = session._added[0]
+        assert added.priority == "critical"
+        assert added.category == "bugfix"
+
+
+# ===========================================================================
+# delete_goal (async DB)
+# ===========================================================================
+
+
+class TestDeleteGoal:
+    """Tests for OrchestratorService.delete_goal()."""
+
+    @pytest.mark.anyio()
+    async def test_delete_existing(self, svc: OrchestratorService) -> None:
+        goal = _make_goal("g_003")
+        session = _FakeSession([goal])
+        result = await svc.delete_goal(session, "g_003")
+
+        assert result["goal_id"] == "g_003"
+        assert result["message"] == "Goal deleted successfully"
+        assert len(session._deleted) == 1
+
+    @pytest.mark.anyio()
+    async def test_delete_not_found(self, svc: OrchestratorService) -> None:
+        session = _FakeSession([])
+        with pytest.raises(KeyError, match="Goal not found"):
+            await svc.delete_goal(session, "g_999")
 
 
 # ===========================================================================
@@ -431,18 +576,22 @@ class TestGetLogs:
 class TestSchemaConstruction:
     """Verify that Pydantic schemas accept the dicts returned by the service layer."""
 
-    def test_status_schema_from_service(self, svc: OrchestratorService) -> None:
+    @pytest.mark.anyio()
+    async def test_status_schema_from_service(self, svc: OrchestratorService) -> None:
         from src.api.schemas import OrchestratorStatusSchema
 
+        goals = [
+            _make_goal("g_001", status="pending"),
+            _make_goal("g_002", status="completed"),
+        ]
+        session = _FakeSession(goals)
+
         with patch(f"{PARSERS}.is_runner_alive", return_value=(True, 100)), \
-             patch(f"{PARSERS}.parse_goals_yaml", return_value=[
-                 {"status": "pending"}, {"status": "completed"},
-             ]), \
              patch(f"{PARSERS}.parse_health_report", return_value={
                  "overall_grade": "A", "score": 93,
              }), \
              patch(f"{PARSERS}.get_runner_log_path", return_value=None):
-            data = svc.get_status()
+            data = await svc.get_status(session)
 
         schema = OrchestratorStatusSchema(**data)
         assert schema.alive is True
@@ -451,11 +600,16 @@ class TestSchemaConstruction:
         assert schema.goals_completed == 1
         assert schema.health_grade == "A"
 
-    def test_goal_list_schema_from_service(self, svc: OrchestratorService, sample_goals: list) -> None:
+    @pytest.mark.anyio()
+    async def test_goal_list_schema_from_service(self, svc: OrchestratorService) -> None:
         from src.api.schemas import GoalListResponseSchema, GoalSchema
 
-        with patch(f"{PARSERS}.parse_goals_yaml", return_value=sample_goals):
-            data = svc.list_goals()
+        goals = [
+            _make_goal("g_001", title="Fix login bug", priority="high", category="bugfix", status="completed"),
+            _make_goal("g_002", title="Add dark mode", priority="medium", category="feature", status="pending"),
+        ]
+        session = _FakeSession(goals)
+        data = await svc.list_goals(session)
 
         schema = GoalListResponseSchema(
             goals=[GoalSchema(**g) for g in data["goals"]],
@@ -464,9 +618,9 @@ class TestSchemaConstruction:
             completed=data["completed"],
             failed=data["failed"],
         )
-        assert schema.total == 4
-        assert schema.pending == 2
-        assert len(schema.goals) == 4
+        assert schema.total == 2
+        assert schema.pending == 1
+        assert len(schema.goals) == 2
 
     def test_health_schema_from_service(self, svc: OrchestratorService, sample_health: dict) -> None:
         from src.api.schemas import HealthDimensionSchema, HealthProblemSchema, HealthReportSchema
@@ -557,3 +711,15 @@ class TestSchemaConstruction:
 
         schema = OrchestratorStopResponseSchema(**data)
         assert schema.status == "stopped"
+
+    @pytest.mark.anyio()
+    async def test_delete_response_schema(self, svc: OrchestratorService) -> None:
+        from src.api.schemas import GoalDeleteResponseSchema
+
+        goal = _make_goal("g_005")
+        session = _FakeSession([goal])
+        data = await svc.delete_goal(session, "g_005")
+
+        schema = GoalDeleteResponseSchema(**data)
+        assert schema.goal_id == "g_005"
+        assert schema.message == "Goal deleted successfully"

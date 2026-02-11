@@ -7,13 +7,8 @@ autonomous orchestrator runner from Telegram:
 All command responses include inline keyboard buttons for quick navigation.
 Callback data format: ``orch:<action>`` or ``orch:<action>:<arg>``.
 
-File paths follow the orchestrator layout:
-    - goals.yaml:       ~/.claude/orchestrator/goals.yaml
-    - health-report:    ~/.claude/orchestrator/health-report.yaml
-    - vision.md:        ~/.claude/orchestrator/vision.md
-    - runner PID:       ~/.claude/orchestrator/runner.pid
-    - runner logs:      ~/.claude/logs/runner_YYYY-MM-DD.log
-    - runner script:    ~/.claude/scripts/orchestrator-runner.ps1
+Goals are stored in PostgreSQL (shared with the Railway dashboard).
+Health, vision and logs remain file-based.
 """
 
 from __future__ import annotations
@@ -22,18 +17,19 @@ import re
 import subprocess
 
 import structlog
+from sqlalchemy import func, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
+from src.core.database import get_db_session
+from src.core.models import OrchestratorGoal
 from src.orchestrator.parsers import (
     ORCH_DIR,
     PID_FILE,
     RUNNER_SCRIPT,
-    add_goal_to_yaml,
     get_runner_log_path,
     is_runner_alive,
-    parse_goals_yaml,
     parse_health_report,
     parse_vision_md,
     tail_file,
@@ -162,7 +158,6 @@ def _esc(text: str) -> str:
 # Aliases for backward compatibility with local call sites.
 # The canonical implementations now live in ``src.orchestrator.parsers``.
 _is_runner_alive = is_runner_alive
-_parse_goals_yaml = parse_goals_yaml
 _parse_health_report = parse_health_report
 _parse_vision_md = parse_vision_md
 _get_runner_log_path = get_runner_log_path
@@ -189,18 +184,78 @@ def _format_runner_log_line(line: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# DB helpers for goals
+# ---------------------------------------------------------------------------
+
+
+async def _get_goal_counts() -> tuple[int, int, int]:
+    """Return (pending, completed, failed) counts from DB."""
+    async with get_db_session() as session:
+        pending = (await session.execute(
+            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "pending"),
+        )).scalar_one()
+        completed = (await session.execute(
+            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "completed"),
+        )).scalar_one()
+        failed = (await session.execute(
+            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "failed"),
+        )).scalar_one()
+    return pending, completed, failed
+
+
+async def _get_all_goals() -> list[dict]:
+    """Return all goals from DB as list of dicts."""
+    async with get_db_session() as session:
+        result = await session.execute(
+            select(OrchestratorGoal).order_by(OrchestratorGoal.created_at),
+        )
+        return [
+            {
+                "id": g.goal_id,
+                "title": g.title,
+                "priority": g.priority,
+                "category": g.category,
+                "status": g.status,
+                "result": g.result,
+                "completed_at": g.completed_at.isoformat() if g.completed_at else None,
+            }
+            for g in result.scalars().all()
+        ]
+
+
+async def _add_goal_to_db(title: str, priority: str = "medium", category: str = "feature") -> str:
+    """Insert a new goal into the database. Returns the new goal_id."""
+    async with get_db_session() as session:
+        max_result = await session.execute(select(func.max(OrchestratorGoal.goal_id)))
+        max_id = max_result.scalar_one_or_none()
+        if max_id and (m := re.match(r"g_(\d+)", max_id)):
+            next_num = int(m.group(1)) + 1
+        else:
+            next_num = 1
+        new_id = f"g_{next_num:03d}"
+
+        goal = OrchestratorGoal(
+            goal_id=new_id,
+            title=title,
+            priority=priority,
+            category=category,
+            context="Added via Telegram",
+            success_criteria=["Task completed successfully"],
+        )
+        session.add(goal)
+    return new_id
+
+
+# ---------------------------------------------------------------------------
 # Text builders (shared by commands and callbacks)
 # ---------------------------------------------------------------------------
 
 
-def _build_orch_text() -> tuple[str, InlineKeyboardMarkup]:
+async def _build_orch_text() -> tuple[str, InlineKeyboardMarkup]:
     """Build the /orch status text and appropriate keyboard."""
     alive, pid = _is_runner_alive()
 
-    goals = _parse_goals_yaml()
-    pending = sum(1 for g in goals if g.get("status") == "pending")
-    completed = sum(1 for g in goals if g.get("status") == "completed")
-    failed = sum(1 for g in goals if g.get("status") == "failed")
+    pending, completed, failed = await _get_goal_counts()
 
     health = _parse_health_report()
     grade = health.get("overall_grade", "?")
@@ -259,12 +314,12 @@ def _build_orch_text() -> tuple[str, InlineKeyboardMarkup]:
     return text, keyboard
 
 
-def _build_goals_text(filter_status: str | None = None) -> str:
+async def _build_goals_text(filter_status: str | None = None) -> str:
     """Build the /goals text."""
-    goals = _parse_goals_yaml()
+    goals = await _get_all_goals()
 
     if not goals:
-        return "Файл goals.yaml не найден или пуст."
+        return "Нет целей в базе данных."
 
     pending = [g for g in goals if g.get("status") == "pending"]
     done = [g for g in goals if g.get("status") in ("completed", "skipped")]
@@ -466,7 +521,7 @@ async def orch_button_callback(
     arg = parts[2] if len(parts) > 2 else None
 
     if action == "status":
-        text, keyboard = _build_orch_text()
+        text, keyboard = await _build_orch_text()
         await query.edit_message_text(
             text=text,
             parse_mode=ParseMode.HTML,
@@ -474,7 +529,7 @@ async def orch_button_callback(
         )
 
     elif action == "goals":
-        text = _build_goals_text(filter_status=arg)
+        text = await _build_goals_text(filter_status=arg)
         await query.edit_message_text(
             text=text,
             parse_mode=ParseMode.HTML,
@@ -518,7 +573,7 @@ async def orch_button_callback(
         )
 
     elif action == "run":
-        # Quick-run with defaults (12h, 60min)
+        # Quick-run with defaults
         alive, _ = _is_runner_alive()
         if alive:
             text = "\U0001f7e2 Оркестратор уже запущен."
@@ -532,10 +587,7 @@ async def orch_button_callback(
                 reply_markup=_kb_back_to_status(),
             )
         else:
-            goals = _parse_goals_yaml()
-            pending_count = sum(
-                1 for g in goals if g.get("status") == "pending"
-            )
+            pending, _, _ = await _get_goal_counts()
             cmd = [
                 "powershell",
                 "-NoProfile",
@@ -559,7 +611,7 @@ async def orch_button_callback(
                     f"\U0001f680 Оркестратор запущен\n"
                     f"\u23f1 Режим: self-direct (12ч, 60мин/сессия)\n"
                     f"\U0001f916 Модель: opus\n"
-                    f"\U0001f4ca Pending: {pending_count} целей"
+                    f"\U0001f4ca Pending: {pending} целей"
                 )
                 await query.edit_message_text(
                     text=text, reply_markup=_kb_after_run()
@@ -588,13 +640,10 @@ async def orch_button_callback(
             except (subprocess.SubprocessError, OSError):
                 pass
             PID_FILE.unlink(missing_ok=True)
-            goals = _parse_goals_yaml()
-            remaining = sum(
-                1 for g in goals if g.get("status") == "pending"
-            )
+            pending, _, _ = await _get_goal_counts()
             text = (
                 f"\U0001f6d1 Оркестратор остановлен\n"
-                f"\U0001f4ca Remaining: {remaining} целей"
+                f"\U0001f4ca Remaining: {pending} целей"
             )
             await query.edit_message_text(
                 text=text, reply_markup=_kb_after_stop()
@@ -631,8 +680,7 @@ async def run_command(
         )
         return
 
-    goals = _parse_goals_yaml()
-    pending_count = sum(1 for g in goals if g.get("status") == "pending")
+    pending, _, _ = await _get_goal_counts()
 
     cmd = [
         "powershell",
@@ -660,7 +708,7 @@ async def run_command(
             f"\U0001f680 Оркестратор запущен\n"
             f"\u23f1 Режим: self-direct (agent-driven sessions)\n"
             f"\U0001f916 Модель: opus\n"
-            f"\U0001f4ca Pending: {pending_count} целей",
+            f"\U0001f4ca Pending: {pending} целей",
             reply_markup=_kb_after_run(),
         )
     except OSError as exc:
@@ -713,14 +761,13 @@ async def stop_command(
             if m := re.search(r"Session (\d+)", line):
                 session_count = max(session_count, int(m.group(1)))
 
-    goals = _parse_goals_yaml()
-    remaining = sum(1 for g in goals if g.get("status") == "pending")
+    pending, _, _ = await _get_goal_counts()
 
     logger.info("orchestrator.stopped", pid=pid)
     await update.effective_message.reply_text(  # type: ignore[union-attr]
         f"\U0001f6d1 Оркестратор остановлен\n"
         f"\u2705 Сессий выполнено: {session_count}\n"
-        f"\U0001f4ca Remaining: {remaining} целей",
+        f"\U0001f4ca Remaining: {pending} целей",
         reply_markup=_kb_after_stop(),
     )
 
@@ -734,7 +781,7 @@ async def orch_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Show orchestrator runner status with navigation buttons."""
-    text, keyboard = _build_orch_text()
+    text, keyboard = await _build_orch_text()
     await update.effective_message.reply_text(  # type: ignore[union-attr]
         text, parse_mode=ParseMode.HTML, reply_markup=keyboard
     )
@@ -748,10 +795,10 @@ async def orch_command(
 async def goals_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Show goals from goals.yaml, grouped by status."""
+    """Show goals from the database, grouped by status."""
     args = context.args or []
     filter_status = args[0].lower() if args else None
-    text = _build_goals_text(filter_status=filter_status)
+    text = await _build_goals_text(filter_status=filter_status)
     await update.effective_message.reply_text(  # type: ignore[union-attr]
         text, parse_mode=ParseMode.HTML, reply_markup=_kb_goals_nav()
     )
@@ -831,7 +878,7 @@ async def logs_command(
 async def add_goal_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Append a new goal to goals.yaml."""
+    """Append a new goal to the database."""
     args = context.args or []
     if not args:
         await update.effective_message.reply_text(  # type: ignore[union-attr]
@@ -843,7 +890,7 @@ async def add_goal_command(
     title = " ".join(args)
 
     try:
-        new_id = add_goal_to_yaml(title)
+        new_id = await _add_goal_to_db(title)
 
         logger.info("orchestrator.goal_added", goal_id=new_id, title=title)
 
@@ -854,7 +901,7 @@ async def add_goal_command(
             parse_mode=ParseMode.HTML,
             reply_markup=_kb_goals_nav(),
         )
-    except OSError as exc:
+    except Exception as exc:
         await update.effective_message.reply_text(  # type: ignore[union-attr]
             f"\u274c Ошибка записи: {_esc(str(exc))}",
             parse_mode=ParseMode.HTML,

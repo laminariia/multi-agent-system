@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
-import { fetchGoals, addGoal } from "~/lib/api";
+import { fetchGoals, addGoal, deleteGoal } from "~/lib/api";
 import { toast } from "~/hooks/use-toast";
 import type { Goal } from "~/lib/types";
 import { cn } from "~/lib/utils";
@@ -77,6 +77,22 @@ export function GoalList() {
     onError: (err) => {
       toast({
         title: "Failed to add goal",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (goalId: string) => deleteGoal(goalId),
+    onSuccess: (res) => {
+      toast({ title: "Goal deleted", description: res.message });
+      queryClient.invalidateQueries({ queryKey: ["orch-goals"] });
+      queryClient.invalidateQueries({ queryKey: ["orch-status"] });
+    },
+    onError: (err) => {
+      toast({
+        title: "Failed to delete goal",
         description: err instanceof Error ? err.message : "Unknown error",
         variant: "destructive",
       });
@@ -202,7 +218,12 @@ export function GoalList() {
         {goals.length > 0 && (
           <div className="space-y-1.5">
             {goals.map((goal) => (
-              <GoalRow key={goal.id} goal={goal} />
+              <GoalRow
+                key={goal.id}
+                goal={goal}
+                onDelete={(id) => deleteMutation.mutate(id)}
+                isDeleting={deleteMutation.isPending}
+              />
             ))}
           </div>
         )}
@@ -211,9 +232,17 @@ export function GoalList() {
   );
 }
 
-function GoalRow({ goal }: { goal: Goal }) {
+function GoalRow({
+  goal,
+  onDelete,
+  isDeleting,
+}: {
+  goal: Goal;
+  onDelete: (id: string) => void;
+  isDeleting: boolean;
+}) {
   return (
-    <div className="flex items-center gap-3 rounded-md px-3 py-2.5 hover:bg-accent/30 transition-colors border border-border/30">
+    <div className="flex items-center gap-3 rounded-md px-3 py-2.5 hover:bg-accent/30 transition-colors border border-border/30 group">
       <span
         className={cn(
           "h-2 w-2 rounded-full shrink-0",
@@ -244,6 +273,26 @@ function GoalRow({ goal }: { goal: Goal }) {
         <Badge variant="outline" className="text-[10px] h-5 px-1.5">
           {goal.category}
         </Badge>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+          disabled={isDeleting}
+          onClick={() => onDelete(goal.id)}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-3.5 w-3.5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+          </svg>
+        </Button>
       </div>
     </div>
   );

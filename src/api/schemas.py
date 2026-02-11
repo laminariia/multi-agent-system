@@ -461,7 +461,7 @@ class OrchestratorStopResponseSchema(_BaseSchema):
 
 
 class GoalSchema(_BaseSchema):
-    """A single orchestrator goal from goals.yaml."""
+    """A single orchestrator goal."""
 
     id: str = Field(..., examples=["g_001"])
     title: str = Field(..., examples=["Fix login page CSS bug"])
@@ -470,6 +470,7 @@ class GoalSchema(_BaseSchema):
     status: str = Field(default="pending", examples=["pending"])
     completed_at: str | None = Field(default=None)
     result: str | None = Field(default=None)
+    created_at: str | None = Field(default=None)
 
 
 class GoalListResponseSchema(_BaseSchema):
@@ -504,6 +505,13 @@ class GoalAddResponseSchema(_BaseSchema):
     id: str = Field(..., examples=["g_005"])
     title: str = Field(..., examples=["Fix login page CSS bug"])
     message: str = Field(default="Goal added successfully")
+
+
+class GoalDeleteResponseSchema(_BaseSchema):
+    """Response after deleting a goal."""
+
+    goal_id: str = Field(..., examples=["g_005"])
+    message: str = Field(default="Goal deleted successfully")
 
 
 class HealthDimensionSchema(_BaseSchema):

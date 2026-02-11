@@ -421,6 +421,14 @@ export async function addGoal(
   });
 }
 
+export async function deleteGoal(
+  goalId: string
+): Promise<{ goal_id: string; message: string }> {
+  return apiFetch(`/orchestrator/goals/${goalId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function fetchHealth(): Promise<HealthReport> {
   return apiFetch<HealthReport>("/orchestrator/health");
 }

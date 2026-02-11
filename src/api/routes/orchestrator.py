@@ -9,13 +9,16 @@ from __future__ import annotations
 from typing import Any
 
 import structlog
-from litestar import Controller, Request, get, post
+from litestar import Controller, Request, delete, get, post
+from litestar.exceptions import ClientException, NotFoundException
 from litestar.security.jwt import Token
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.guards import require_role
 from src.api.schemas import (
     GoalAddRequestSchema,
     GoalAddResponseSchema,
+    GoalDeleteResponseSchema,
     GoalListResponseSchema,
     GoalSchema,
     HealthDimensionSchema,
@@ -51,9 +54,9 @@ class OrchestratorController(Controller):
         "/status",
         summary="Orchestrator runner status",
     )
-    async def status(self) -> OrchestratorStatusSchema:
+    async def status(self, db_session: AsyncSession) -> OrchestratorStatusSchema:
         """Return whether the runner is alive, with goal and health summaries."""
-        data = _svc.get_status()
+        data = await _svc.get_status(db_session)
         return OrchestratorStatusSchema(**data)
 
     # ------------------------------------------------------------------
@@ -73,8 +76,6 @@ class OrchestratorController(Controller):
         try:
             result = _svc.start_runner()
         except (RuntimeError, FileNotFoundError) as exc:
-            from litestar.exceptions import ClientException
-
             raise ClientException(detail=str(exc), status_code=409) from exc
 
         logger.info("orchestrator.api.started", user=str(request.user.id))
@@ -97,8 +98,6 @@ class OrchestratorController(Controller):
         try:
             result = _svc.stop_runner()
         except RuntimeError as exc:
-            from litestar.exceptions import ClientException
-
             raise ClientException(detail=str(exc), status_code=409) from exc
 
         logger.info("orchestrator.api.stopped", user=str(request.user.id))
@@ -114,10 +113,11 @@ class OrchestratorController(Controller):
     )
     async def list_goals(
         self,
+        db_session: AsyncSession,
         status: str | None = None,
     ) -> GoalListResponseSchema:
-        """Return goals from ``goals.yaml``, optionally filtered by status."""
-        data = _svc.list_goals(status_filter=status)
+        """Return goals from the database, optionally filtered by status."""
+        data = await _svc.list_goals(db_session, status_filter=status)
         return GoalListResponseSchema(
             goals=[GoalSchema(**g) for g in data["goals"]],
             total=data["total"],
@@ -138,16 +138,42 @@ class OrchestratorController(Controller):
     async def add_goal(
         self,
         data: GoalAddRequestSchema,
+        db_session: AsyncSession,
         request: Request[User, Token, Any],
     ) -> GoalAddResponseSchema:
-        """Append a new goal to ``goals.yaml``."""
-        result = _svc.add_goal(
+        """Create a new goal in the database."""
+        result = await _svc.add_goal(
+            db_session,
             title=data.title,
             priority=data.priority,
             category=data.category,
         )
         logger.info("orchestrator.api.goal_added", user=str(request.user.id))
         return GoalAddResponseSchema(**result)
+
+    # ------------------------------------------------------------------
+    # DELETE /api/v1/orchestrator/goals/{goal_id}
+    # ------------------------------------------------------------------
+
+    @delete(
+        "/goals/{goal_id:str}",
+        summary="Delete a goal",
+        guards=[require_role("owner", "co_owner")],
+    )
+    async def delete_goal(
+        self,
+        goal_id: str,
+        db_session: AsyncSession,
+        request: Request[User, Token, Any],
+    ) -> GoalDeleteResponseSchema:
+        """Delete a goal by its human-readable ID (e.g. g_001)."""
+        try:
+            result = await _svc.delete_goal(db_session, goal_id)
+        except KeyError as exc:
+            raise NotFoundException(detail=str(exc)) from exc
+
+        logger.info("orchestrator.api.goal_deleted", user=str(request.user.id), goal_id=goal_id)
+        return GoalDeleteResponseSchema(**result)
 
     # ------------------------------------------------------------------
     # GET /api/v1/orchestrator/health

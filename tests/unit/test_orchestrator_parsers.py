@@ -11,47 +11,16 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from src.orchestrator.parsers import (
-    add_goal_to_yaml,
     get_runner_log_path,
     is_runner_alive,
-    parse_goals_yaml,
     parse_health_report,
     parse_vision_md,
     tail_file,
 )
 
 # ---------------------------------------------------------------------------
-# Sample data (same structure as test_bot_orchestrator.py)
+# Sample data
 # ---------------------------------------------------------------------------
-
-SAMPLE_GOALS_YAML = textwrap.dedent("""\
-    goals:
-      - id: g_001
-        title: "First goal"
-        priority: high
-        category: testing
-        status: completed
-        completed_at: "2026-02-09T03:53"
-        result: "All tests green"
-
-      - id: g_002
-        title: "Second goal"
-        priority: medium
-        category: feature
-        status: pending
-
-      - id: g_003
-        title: "Third goal"
-        priority: critical
-        category: bugfix
-        status: failed
-
-      - id: g_004
-        title: "Fourth goal"
-        priority: low
-        category: docs
-        status: pending
-""")
 
 SAMPLE_HEALTH_YAML = textwrap.dedent("""\
     # Health Report
@@ -122,54 +91,6 @@ SAMPLE_VISION_MD = textwrap.dedent("""\
     - [ ] Pipeline B operational
     - [ ] Email warm-up complete
 """)
-
-
-# ---------------------------------------------------------------------------
-# TestParseGoalsYaml
-# ---------------------------------------------------------------------------
-
-
-class TestParseGoalsYaml:
-    def test_parse_valid_goals(self, tmp_path: Path) -> None:
-        f = tmp_path / "goals.yaml"
-        f.write_text(SAMPLE_GOALS_YAML, encoding="utf-8")
-        goals = parse_goals_yaml(f)
-        assert len(goals) == 4
-        assert goals[0]["id"] == "g_001"
-        assert goals[1]["id"] == "g_002"
-        assert goals[2]["id"] == "g_003"
-        assert goals[3]["id"] == "g_004"
-
-    def test_parse_empty_file(self, tmp_path: Path) -> None:
-        f = tmp_path / "goals.yaml"
-        f.write_text("", encoding="utf-8")
-        result = parse_goals_yaml(f)
-        assert result == []
-
-    def test_parse_missing_file(self, tmp_path: Path) -> None:
-        result = parse_goals_yaml(tmp_path / "nonexistent.yaml")
-        assert result == []
-
-    def test_parse_goals_status_fields(self, tmp_path: Path) -> None:
-        f = tmp_path / "goals.yaml"
-        f.write_text(SAMPLE_GOALS_YAML, encoding="utf-8")
-        goals = parse_goals_yaml(f)
-        first = goals[0]
-        assert first["status"] == "completed"
-        assert first["completed_at"] == "2026-02-09T03:53"
-        assert first["result"] == "All tests green"
-
-    def test_parse_goals_partial_fields(self, tmp_path: Path) -> None:
-        """Goals with missing optional fields (completed_at, result) still parse."""
-        f = tmp_path / "goals.yaml"
-        f.write_text(SAMPLE_GOALS_YAML, encoding="utf-8")
-        goals = parse_goals_yaml(f)
-        second = goals[1]  # g_002 has no completed_at / result
-        assert second["id"] == "g_002"
-        assert second["title"] == "Second goal"
-        assert second["status"] == "pending"
-        assert "completed_at" not in second
-        assert "result" not in second
 
 
 # ---------------------------------------------------------------------------
@@ -324,43 +245,6 @@ class TestTailFile:
     def test_tail_file_missing(self, tmp_path: Path) -> None:
         result = tail_file(tmp_path / "nope.log")
         assert result == []
-
-
-# ---------------------------------------------------------------------------
-# TestAddGoalToYaml
-# ---------------------------------------------------------------------------
-
-
-class TestAddGoalToYaml:
-    def test_add_goal_existing_file(self, tmp_path: Path) -> None:
-        goals_file = tmp_path / "goals.yaml"
-        goals_file.write_text(SAMPLE_GOALS_YAML, encoding="utf-8")
-        with patch("src.orchestrator.parsers.GOALS_FILE", goals_file):
-            new_id = add_goal_to_yaml("New test goal")
-        assert new_id == "g_005"
-        content = goals_file.read_text(encoding="utf-8")
-        assert "g_005" in content
-        assert "New test goal" in content
-
-    def test_add_goal_creates_file(self, tmp_path: Path) -> None:
-        goals_file = tmp_path / "sub" / "goals.yaml"
-        with patch("src.orchestrator.parsers.GOALS_FILE", goals_file):
-            new_id = add_goal_to_yaml("First goal ever")
-        assert new_id == "g_001"
-        assert goals_file.exists()
-        content = goals_file.read_text(encoding="utf-8")
-        assert "g_001" in content
-        assert "First goal ever" in content
-
-    def test_add_goal_custom_priority(self, tmp_path: Path) -> None:
-        goals_file = tmp_path / "goals.yaml"
-        goals_file.write_text(SAMPLE_GOALS_YAML, encoding="utf-8")
-        with patch("src.orchestrator.parsers.GOALS_FILE", goals_file):
-            new_id = add_goal_to_yaml("Critical bug", priority="critical", category="bugfix")
-        assert new_id == "g_005"
-        content = goals_file.read_text(encoding="utf-8")
-        assert "priority: critical" in content
-        assert "category: bugfix" in content
 
 
 # ---------------------------------------------------------------------------

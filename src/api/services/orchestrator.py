@@ -1,8 +1,7 @@
 """Service layer for orchestrator operations.
 
-Bridges the REST API controllers with the shared orchestrator parsers.
-All heavy lifting (file parsing, process management) is delegated to
-``src.orchestrator.parsers``.
+Bridges the REST API controllers with the database for goals and the
+shared orchestrator parsers for file-based state (health, vision, logs).
 """
 
 from __future__ import annotations
@@ -12,21 +11,36 @@ import subprocess
 from datetime import datetime
 
 import structlog
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.models import OrchestratorGoal
 from src.orchestrator.parsers import (
     ORCH_DIR,
     PID_FILE,
     RUNNER_SCRIPT,
-    add_goal_to_yaml,
     get_runner_log_path,
     is_runner_alive,
-    parse_goals_yaml,
     parse_health_report,
     parse_vision_md,
     tail_file,
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _goal_to_dict(goal: OrchestratorGoal) -> dict:
+    """Convert an OrchestratorGoal ORM instance to a plain dict."""
+    return {
+        "id": goal.goal_id,
+        "title": goal.title,
+        "priority": goal.priority,
+        "category": goal.category,
+        "status": goal.status,
+        "result": goal.result,
+        "completed_at": goal.completed_at.isoformat() if goal.completed_at else None,
+        "created_at": goal.created_at.isoformat() if goal.created_at else None,
+    }
 
 
 class OrchestratorService:
@@ -37,14 +51,20 @@ class OrchestratorService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def get_status() -> dict:
+    async def get_status(session: AsyncSession) -> dict:
         """Return runner status with goal and health summaries."""
         alive, pid = is_runner_alive()
 
-        goals = parse_goals_yaml()
-        pending = sum(1 for g in goals if g.get("status") == "pending")
-        completed = sum(1 for g in goals if g.get("status") == "completed")
-        failed = sum(1 for g in goals if g.get("status") == "failed")
+        # Goal counts from DB
+        pending = (await session.execute(
+            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "pending"),
+        )).scalar_one()
+        completed = (await session.execute(
+            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "completed"),
+        )).scalar_one()
+        failed = (await session.execute(
+            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "failed"),
+        )).scalar_one()
 
         health = parse_health_report()
         grade = health.get("overall_grade")
@@ -60,7 +80,6 @@ class OrchestratorService:
                     if "Mode:" in line:
                         if m := re.search(r"Mode:\s*(\S+)", line):
                             mode = m.group(1)
-                # Estimate uptime from PID file mtime
                 try:
                     mtime = PID_FILE.stat().st_mtime
                     uptime_seconds = int(datetime.now().timestamp() - mtime)
@@ -160,21 +179,28 @@ class OrchestratorService:
         }
 
     # ------------------------------------------------------------------
-    # Goals
+    # Goals (async DB)
     # ------------------------------------------------------------------
 
     @staticmethod
-    def list_goals(status_filter: str | None = None) -> dict:
+    async def list_goals(session: AsyncSession, status_filter: str | None = None) -> dict:
         """Return goals with optional status filter."""
-        goals = parse_goals_yaml()
-
+        stmt = select(OrchestratorGoal).order_by(OrchestratorGoal.created_at)
         if status_filter:
-            goals = [g for g in goals if g.get("status") == status_filter]
+            stmt = stmt.where(OrchestratorGoal.status == status_filter)
+        result = await session.execute(stmt)
+        goals = [_goal_to_dict(g) for g in result.scalars().all()]
 
-        all_goals = parse_goals_yaml()
-        pending = sum(1 for g in all_goals if g.get("status") == "pending")
-        completed = sum(1 for g in all_goals if g.get("status") == "completed")
-        failed = sum(1 for g in all_goals if g.get("status") == "failed")
+        # Counts always reflect all goals
+        pending = (await session.execute(
+            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "pending"),
+        )).scalar_one()
+        completed = (await session.execute(
+            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "completed"),
+        )).scalar_one()
+        failed = (await session.execute(
+            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "failed"),
+        )).scalar_one()
 
         return {
             "goals": goals,
@@ -185,14 +211,63 @@ class OrchestratorService:
         }
 
     @staticmethod
-    def add_goal(title: str, priority: str = "medium", category: str = "feature") -> dict:
-        """Add a new goal and return its ID."""
-        new_id = add_goal_to_yaml(title, priority=priority, category=category)
+    async def add_goal(
+        session: AsyncSession,
+        title: str,
+        priority: str = "medium",
+        category: str = "feature",
+    ) -> dict:
+        """Add a new goal to the database and return its ID."""
+        # Determine next goal_id
+        max_num_result = await session.execute(
+            select(func.max(OrchestratorGoal.goal_id)),
+        )
+        max_id = max_num_result.scalar_one_or_none()
+        if max_id and (m := re.match(r"g_(\d+)", max_id)):
+            next_num = int(m.group(1)) + 1
+        else:
+            next_num = 1
+        new_id = f"g_{next_num:03d}"
+
+        goal = OrchestratorGoal(
+            goal_id=new_id,
+            title=title,
+            priority=priority,
+            category=category,
+            context="Added via API",
+            success_criteria=["Task completed successfully"],
+        )
+        session.add(goal)
+        await session.flush()
+
         logger.info("orchestrator.goal_added", goal_id=new_id, title=title)
         return {
             "id": new_id,
             "title": title,
             "message": "Goal added successfully",
+        }
+
+    @staticmethod
+    async def delete_goal(session: AsyncSession, goal_id: str) -> dict:
+        """Delete a goal by its human-readable goal_id.
+
+        Raises:
+            KeyError: If the goal_id does not exist.
+        """
+        result = await session.execute(
+            select(OrchestratorGoal).where(OrchestratorGoal.goal_id == goal_id),
+        )
+        goal = result.scalar_one_or_none()
+        if goal is None:
+            raise KeyError(f"Goal not found: {goal_id}")
+
+        await session.delete(goal)
+        await session.flush()
+
+        logger.info("orchestrator.goal_deleted", goal_id=goal_id)
+        return {
+            "goal_id": goal_id,
+            "message": "Goal deleted successfully",
         }
 
     # ------------------------------------------------------------------

@@ -2,7 +2,10 @@
 
 Tests the 8 new commands in ``src.bot.orchestrator_commands`` and
 the notification formatter in ``src.bot.orchestrator_notify``.
-All tests use mocks — no real filesystem, process, or Telegram API calls.
+All tests use mocks — no real filesystem, process, database, or Telegram API calls.
+
+Goals are now fetched from PostgreSQL via ``_get_goal_counts()`` and
+``_get_all_goals()`` helper functions (mocked in tests).
 """
 
 from __future__ import annotations
@@ -17,7 +20,6 @@ from src.bot.orchestrator_commands import (
     _esc,
     _format_runner_log_line,
     _is_runner_alive,
-    _parse_goals_yaml,
     _parse_health_report,
     _parse_vision_md,
     _priority_emoji,
@@ -42,33 +44,7 @@ from src.bot.orchestrator_notify import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
-SAMPLE_GOALS_YAML = textwrap.dedent("""\
-    goals:
-      - id: g_001
-        title: "First goal"
-        priority: high
-        category: testing
-        status: completed
-        completed_at: "2026-02-09T03:53"
-
-      - id: g_002
-        title: "Second goal"
-        priority: medium
-        category: feature
-        status: pending
-
-      - id: g_003
-        title: "Third goal"
-        priority: critical
-        category: bugfix
-        status: failed
-
-      - id: g_004
-        title: "Fourth goal"
-        priority: low
-        category: docs
-        status: pending
-""")
+BOT_MOD = "src.bot.orchestrator_commands"
 
 SAMPLE_HEALTH_YAML = textwrap.dedent("""\
     # Health Report
@@ -149,6 +125,19 @@ SAMPLE_RUNNER_LOG = textwrap.dedent("""\
     [2026-02-09 06:37:12] [INFO] Self-Directed complete (1 sessions, 1h)
     [2026-02-09 06:37:12] [INFO] Runner finished
 """)
+
+
+# Sample goal dicts (as returned by _get_all_goals)
+SAMPLE_GOALS = [
+    {"id": "g_001", "title": "First goal", "priority": "high", "category": "testing",
+     "status": "completed", "result": None, "completed_at": "2026-02-09T03:53"},
+    {"id": "g_002", "title": "Second goal", "priority": "medium", "category": "feature",
+     "status": "pending", "result": None, "completed_at": None},
+    {"id": "g_003", "title": "Third goal", "priority": "critical", "category": "bugfix",
+     "status": "failed", "result": None, "completed_at": None},
+    {"id": "g_004", "title": "Fourth goal", "priority": "low", "category": "docs",
+     "status": "pending", "result": None, "completed_at": None},
+]
 
 
 def _make_update() -> MagicMock:
@@ -232,43 +221,8 @@ class TestTailFile:
 
 
 # ---------------------------------------------------------------------------
-# Test YAML/MD parsers
+# Test YAML/MD parsers (still file-based, unchanged)
 # ---------------------------------------------------------------------------
-
-
-class TestParseGoalsYaml:
-    def test_parse_goals(self, tmp_path: Path) -> None:
-        f = tmp_path / "goals.yaml"
-        f.write_text(SAMPLE_GOALS_YAML)
-        goals = _parse_goals_yaml(f)
-        assert len(goals) == 4
-
-    def test_goal_fields(self, tmp_path: Path) -> None:
-        f = tmp_path / "goals.yaml"
-        f.write_text(SAMPLE_GOALS_YAML)
-        goals = _parse_goals_yaml(f)
-        first = goals[0]
-        assert first["id"] == "g_001"
-        assert first["title"] == "First goal"
-        assert first["priority"] == "high"
-        assert first["status"] == "completed"
-
-    def test_pending_count(self, tmp_path: Path) -> None:
-        f = tmp_path / "goals.yaml"
-        f.write_text(SAMPLE_GOALS_YAML)
-        goals = _parse_goals_yaml(f)
-        pending = [g for g in goals if g.get("status") == "pending"]
-        assert len(pending) == 2
-
-    def test_missing_file(self, tmp_path: Path) -> None:
-        result = _parse_goals_yaml(tmp_path / "nonexistent.yaml")
-        assert result == []
-
-    def test_empty_file(self, tmp_path: Path) -> None:
-        f = tmp_path / "goals.yaml"
-        f.write_text("")
-        result = _parse_goals_yaml(f)
-        assert result == []
 
 
 class TestParseHealthReport:
@@ -353,7 +307,7 @@ class TestIsRunnerAlive:
 
 
 # ---------------------------------------------------------------------------
-# Test commands (async)
+# Test commands (async) — now mock DB helpers
 # ---------------------------------------------------------------------------
 
 
@@ -362,7 +316,7 @@ class TestRunCommand:
     async def test_already_running(self) -> None:
         update = _make_update()
         ctx = _make_context()
-        with patch("src.bot.orchestrator_commands._is_runner_alive", return_value=(True, 1234)):
+        with patch(f"{BOT_MOD}._is_runner_alive", return_value=(True, 1234)):
             await run_command(update, ctx)
         reply = update.effective_message.reply_text
         reply.assert_awaited_once()
@@ -373,8 +327,8 @@ class TestRunCommand:
         update = _make_update()
         ctx = _make_context()
         with (
-            patch("src.bot.orchestrator_commands._is_runner_alive", return_value=(False, None)),
-            patch("src.bot.orchestrator_commands.RUNNER_SCRIPT", tmp_path / "nonexistent.ps1"),
+            patch(f"{BOT_MOD}._is_runner_alive", return_value=(False, None)),
+            patch(f"{BOT_MOD}.RUNNER_SCRIPT", tmp_path / "nonexistent.ps1"),
         ):
             await run_command(update, ctx)
         reply = update.effective_message.reply_text
@@ -395,13 +349,11 @@ class TestRunCommand:
         mock_proc.pid = 9999
 
         with (
-            patch("src.bot.orchestrator_commands._is_runner_alive", return_value=(False, None)),
-            patch("src.bot.orchestrator_commands.RUNNER_SCRIPT", script),
-            patch("src.bot.orchestrator_commands.PID_FILE", pid_file),
-            patch("src.bot.orchestrator_commands.ORCH_DIR", orch_dir),
-            patch("src.bot.orchestrator_commands._parse_goals_yaml", return_value=[
-                {"status": "pending"}, {"status": "completed"},
-            ]),
+            patch(f"{BOT_MOD}._is_runner_alive", return_value=(False, None)),
+            patch(f"{BOT_MOD}.RUNNER_SCRIPT", script),
+            patch(f"{BOT_MOD}.PID_FILE", pid_file),
+            patch(f"{BOT_MOD}.ORCH_DIR", orch_dir),
+            patch(f"{BOT_MOD}._get_goal_counts", new_callable=AsyncMock, return_value=(1, 1, 0)),
             patch("subprocess.Popen", return_value=mock_proc),
         ):
             await run_command(update, ctx)
@@ -420,8 +372,8 @@ class TestStopCommand:
         update = _make_update()
         ctx = _make_context()
         with (
-            patch("src.bot.orchestrator_commands._is_runner_alive", return_value=(False, None)),
-            patch("src.bot.orchestrator_commands.PID_FILE", MagicMock(exists=MagicMock(return_value=False))),
+            patch(f"{BOT_MOD}._is_runner_alive", return_value=(False, None)),
+            patch(f"{BOT_MOD}.PID_FILE", MagicMock(exists=MagicMock(return_value=False))),
         ):
             await stop_command(update, ctx)
         text = update.effective_message.reply_text.call_args[0][0]
@@ -435,13 +387,11 @@ class TestStopCommand:
         pid_file.write_text("1234")
 
         with (
-            patch("src.bot.orchestrator_commands._is_runner_alive", return_value=(True, 1234)),
-            patch("src.bot.orchestrator_commands.PID_FILE", pid_file),
+            patch(f"{BOT_MOD}._is_runner_alive", return_value=(True, 1234)),
+            patch(f"{BOT_MOD}.PID_FILE", pid_file),
             patch("subprocess.run"),
-            patch("src.bot.orchestrator_commands._get_runner_log_path", return_value=None),
-            patch("src.bot.orchestrator_commands._parse_goals_yaml", return_value=[
-                {"status": "pending"}, {"status": "pending"}, {"status": "completed"},
-            ]),
+            patch(f"{BOT_MOD}._get_runner_log_path", return_value=None),
+            patch(f"{BOT_MOD}._get_goal_counts", new_callable=AsyncMock, return_value=(2, 1, 0)),
         ):
             await stop_command(update, ctx)
 
@@ -456,16 +406,12 @@ class TestOrchCommand:
         update = _make_update()
         ctx = _make_context()
         with (
-            patch("src.bot.orchestrator_commands._is_runner_alive", return_value=(True, 5678)),
-            patch("src.bot.orchestrator_commands._parse_goals_yaml", return_value=[
-                {"status": "pending"},
-                {"status": "completed"},
-                {"status": "completed"},
-            ]),
-            patch("src.bot.orchestrator_commands._parse_health_report", return_value={
+            patch(f"{BOT_MOD}._is_runner_alive", return_value=(True, 5678)),
+            patch(f"{BOT_MOD}._get_goal_counts", new_callable=AsyncMock, return_value=(1, 2, 0)),
+            patch(f"{BOT_MOD}._parse_health_report", return_value={
                 "overall_grade": "A", "score": 95,
             }),
-            patch("src.bot.orchestrator_commands._get_runner_log_path", return_value=None),
+            patch(f"{BOT_MOD}._get_runner_log_path", return_value=None),
         ):
             await orch_command(update, ctx)
 
@@ -478,12 +424,12 @@ class TestOrchCommand:
         update = _make_update()
         ctx = _make_context()
         with (
-            patch("src.bot.orchestrator_commands._is_runner_alive", return_value=(False, None)),
-            patch("src.bot.orchestrator_commands._parse_goals_yaml", return_value=[{"status": "pending"}]),
-            patch("src.bot.orchestrator_commands._parse_health_report", return_value={
+            patch(f"{BOT_MOD}._is_runner_alive", return_value=(False, None)),
+            patch(f"{BOT_MOD}._get_goal_counts", new_callable=AsyncMock, return_value=(1, 0, 0)),
+            patch(f"{BOT_MOD}._parse_health_report", return_value={
                 "overall_grade": "B+", "score": 85,
             }),
-            patch("src.bot.orchestrator_commands._get_runner_log_path", return_value=None),
+            patch(f"{BOT_MOD}._get_runner_log_path", return_value=None),
         ):
             await orch_command(update, ctx)
 
@@ -497,10 +443,12 @@ class TestGoalsCommand:
     async def test_all_goals(self) -> None:
         update = _make_update()
         ctx = _make_context()
-        done = {"id": "g_001", "title": "Done goal", "status": "completed",
-                "priority": "high", "completed_at": "2026-02-09"}
-        open_g = {"id": "g_002", "title": "Open goal", "status": "pending", "priority": "medium"}
-        with patch("src.bot.orchestrator_commands._parse_goals_yaml", return_value=[done, open_g]):
+        goals = [
+            {"id": "g_001", "title": "Done goal", "status": "completed",
+             "priority": "high", "completed_at": "2026-02-09"},
+            {"id": "g_002", "title": "Open goal", "status": "pending", "priority": "medium"},
+        ]
+        with patch(f"{BOT_MOD}._get_all_goals", new_callable=AsyncMock, return_value=goals):
             await goals_command(update, ctx)
 
         text = update.effective_message.reply_text.call_args[0][0]
@@ -511,40 +459,42 @@ class TestGoalsCommand:
     async def test_filter_pending(self) -> None:
         update = _make_update()
         ctx = _make_context(["pending"])
-        with patch("src.bot.orchestrator_commands._parse_goals_yaml", return_value=[
-            {"id": "g_001", "title": "Done", "status": "completed", "priority": "high"},
+        goals = [
+            {"id": "g_001", "title": "Done", "status": "completed", "priority": "high",
+             "completed_at": "2026-02-09"},
             {"id": "g_002", "title": "Open", "status": "pending", "priority": "medium"},
-        ]):
+        ]
+        with patch(f"{BOT_MOD}._get_all_goals", new_callable=AsyncMock, return_value=goals):
             await goals_command(update, ctx)
 
         text = update.effective_message.reply_text.call_args[0][0]
         assert "PENDING" in text
-        # Should NOT show completed section
         assert "COMPLETED" not in text
 
     @pytest.mark.anyio()
     async def test_filter_done(self) -> None:
         update = _make_update()
         ctx = _make_context(["done"])
-        with patch("src.bot.orchestrator_commands._parse_goals_yaml", return_value=[
-            {"id": "g_001", "title": "Done", "status": "completed", "priority": "high", "completed_at": "2026-02-09"},
+        goals = [
+            {"id": "g_001", "title": "Done", "status": "completed", "priority": "high",
+             "completed_at": "2026-02-09"},
             {"id": "g_002", "title": "Open", "status": "pending", "priority": "medium"},
-        ]):
+        ]
+        with patch(f"{BOT_MOD}._get_all_goals", new_callable=AsyncMock, return_value=goals):
             await goals_command(update, ctx)
 
         text = update.effective_message.reply_text.call_args[0][0]
-        # Should show completed but not pending section
         assert "PENDING" not in text
 
     @pytest.mark.anyio()
     async def test_empty_goals(self) -> None:
         update = _make_update()
         ctx = _make_context()
-        with patch("src.bot.orchestrator_commands._parse_goals_yaml", return_value=[]):
+        with patch(f"{BOT_MOD}._get_all_goals", new_callable=AsyncMock, return_value=[]):
             await goals_command(update, ctx)
 
         text = update.effective_message.reply_text.call_args[0][0]
-        assert "не найден" in text or "пуст" in text
+        assert "Нет целей" in text
 
 
 class TestHealthCommand:
@@ -552,7 +502,7 @@ class TestHealthCommand:
     async def test_shows_report(self) -> None:
         update = _make_update()
         ctx = _make_context()
-        with patch("src.bot.orchestrator_commands._parse_health_report", return_value={
+        with patch(f"{BOT_MOD}._parse_health_report", return_value={
             "overall_grade": "A+",
             "score": 99,
             "dimensions": {
@@ -572,7 +522,7 @@ class TestHealthCommand:
     async def test_missing_report(self) -> None:
         update = _make_update()
         ctx = _make_context()
-        with patch("src.bot.orchestrator_commands._parse_health_report", return_value={}):
+        with patch(f"{BOT_MOD}._parse_health_report", return_value={}):
             await health_command(update, ctx)
 
         text = update.effective_message.reply_text.call_args[0][0]
@@ -584,7 +534,7 @@ class TestMilestonesCommand:
     async def test_shows_milestones(self) -> None:
         update = _make_update()
         ctx = _make_context()
-        with patch("src.bot.orchestrator_commands._parse_vision_md", return_value=[
+        with patch(f"{BOT_MOD}._parse_vision_md", return_value=[
             {
                 "number": 1,
                 "title": "Scout",
@@ -605,7 +555,7 @@ class TestMilestonesCommand:
     async def test_empty_vision(self) -> None:
         update = _make_update()
         ctx = _make_context()
-        with patch("src.bot.orchestrator_commands._parse_vision_md", return_value=[]):
+        with patch(f"{BOT_MOD}._parse_vision_md", return_value=[]):
             await milestones_command(update, ctx)
 
         text = update.effective_message.reply_text.call_args[0][0]
@@ -619,7 +569,7 @@ class TestLogsCommand:
         log.write_text(SAMPLE_RUNNER_LOG)
         update = _make_update()
         ctx = _make_context(["5"])
-        with patch("src.bot.orchestrator_commands._get_runner_log_path", return_value=log):
+        with patch(f"{BOT_MOD}._get_runner_log_path", return_value=log):
             await logs_command(update, ctx)
 
         text = update.effective_message.reply_text.call_args[0][0]
@@ -630,7 +580,7 @@ class TestLogsCommand:
     async def test_no_log_file(self) -> None:
         update = _make_update()
         ctx = _make_context()
-        with patch("src.bot.orchestrator_commands._get_runner_log_path", return_value=None):
+        with patch(f"{BOT_MOD}._get_runner_log_path", return_value=None):
             await logs_command(update, ctx)
 
         text = update.effective_message.reply_text.call_args[0][0]
@@ -639,31 +589,17 @@ class TestLogsCommand:
 
 class TestAddGoalCommand:
     @pytest.mark.anyio()
-    async def test_add_goal(self, tmp_path: Path) -> None:
-        goals_file = tmp_path / "goals.yaml"
-        goals_file.write_text(SAMPLE_GOALS_YAML)
-
+    async def test_add_goal(self) -> None:
         update = _make_update()
         ctx = _make_context(["Fix", "login", "page", "CSS", "bug"])
 
-        with (
-            patch("src.orchestrator.parsers.GOALS_FILE", goals_file),
-            patch("src.bot.orchestrator_commands._parse_goals_yaml") as mock_parse,
-        ):
-            mock_parse.return_value = [
-                {"id": "g_001"}, {"id": "g_002"}, {"id": "g_003"}, {"id": "g_004"},
-            ]
+        with patch(f"{BOT_MOD}._add_goal_to_db", new_callable=AsyncMock, return_value="g_005"):
             await add_goal_command(update, ctx)
 
         text = update.effective_message.reply_text.call_args[0][0]
         assert "добавлена" in text
         assert "g_005" in text
         assert "Fix login page CSS bug" in text
-
-        # Verify it was appended to file
-        content = goals_file.read_text()
-        assert "g_005" in content
-        assert "Fix login page CSS bug" in content
 
     @pytest.mark.anyio()
     async def test_add_goal_no_args(self) -> None:
@@ -675,22 +611,16 @@ class TestAddGoalCommand:
         assert "Usage" in text
 
     @pytest.mark.anyio()
-    async def test_add_goal_creates_file(self, tmp_path: Path) -> None:
-        goals_file = tmp_path / "sub" / "goals.yaml"
-
+    async def test_add_goal_db_error(self) -> None:
         update = _make_update()
-        ctx = _make_context(["New", "goal"])
+        ctx = _make_context(["Some", "goal"])
 
-        with (
-            patch("src.orchestrator.parsers.GOALS_FILE", goals_file),
-            patch("src.bot.orchestrator_commands._parse_goals_yaml", return_value=[]),
-        ):
+        with patch(f"{BOT_MOD}._add_goal_to_db", new_callable=AsyncMock,
+                    side_effect=RuntimeError("connection refused")):
             await add_goal_command(update, ctx)
 
-        assert goals_file.exists()
         text = update.effective_message.reply_text.call_args[0][0]
-        assert "добавлена" in text
-        assert "g_001" in text
+        assert "Ошибка" in text
 
 
 # ---------------------------------------------------------------------------

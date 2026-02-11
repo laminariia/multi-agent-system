@@ -1,6 +1,6 @@
 """SQLAlchemy 2.0 ORM models for the Multi-Agent Service.
 
-All 17 tables from ``docs/database_schema.md`` are defined here using the
+All 18 tables from ``docs/database_schema.md`` are defined here using the
 modern ``Mapped`` / ``mapped_column`` annotation style.
 
 Key conventions:
@@ -740,4 +740,34 @@ class ABTestResult(Base):
 
     __table_args__ = (
         Index("idx_ab_test", "test_name", "variant_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 18. orchestrator_goals
+# ---------------------------------------------------------------------------
+
+class OrchestratorGoal(Base):
+    """Orchestrator goal, shared between dashboard (Railway) and bot (local)."""
+
+    __tablename__ = "orchestrator_goals"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, server_default=text("gen_random_uuid()"),
+    )
+    goal_id: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    priority: Mapped[str] = mapped_column(String(20), default="medium", server_default="medium")
+    category: Mapped[str] = mapped_column(String(30), default="feature", server_default="feature")
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    result: Mapped[str | None] = mapped_column(Text)
+    context: Mapped[str | None] = mapped_column(Text)
+    success_criteria: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    depends_on: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("idx_orch_goals_status", "status"),
+        Index("idx_orch_goals_goal_id", "goal_id"),
     )
