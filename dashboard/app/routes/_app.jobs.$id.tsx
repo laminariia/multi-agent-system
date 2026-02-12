@@ -10,6 +10,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { fetchJob, disqualifyJob, runPipeline } from "~/lib/api";
 import { relativeTime } from "~/lib/utils";
 import { toast } from "~/hooks/use-toast";
+import { useWsSubscription } from "~/hooks/use-ws-subscription";
 
 const PIPELINE_ELIGIBLE_STATUSES = new Set(["qualified", "bid_sent", "won"]);
 
@@ -20,6 +21,9 @@ export default function JobDetailPage() {
   const [disqualifyReason, setDisqualifyReason] = useState("");
   const [disqualifying, setDisqualifying] = useState(false);
   const [runningPipeline, setRunningPipeline] = useState(false);
+
+  // Subscribe to project-specific WebSocket channel for real-time updates
+  useWsSubscription("subscribe:project", id);
 
   const { data: job, isLoading, error } = useQuery({
     queryKey: ["job", id],

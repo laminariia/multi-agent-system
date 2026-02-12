@@ -12,8 +12,10 @@ import {
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
 import { SidebarNav } from "~/components/sidebar-nav";
+import { NotificationCenter } from "~/components/notification-center";
 import { useAuthStore } from "~/stores/auth-store";
 import { useThemeStore } from "~/stores/theme-store";
+import { useNotificationStore } from "~/stores/notification-store";
 import { fetchHITLPending, fetchUsers } from "~/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "~/hooks/use-toast";
@@ -59,6 +61,8 @@ export default function AppLayout() {
     }
   }, [isAuthenticated, navigate]);
 
+  const addNotification = useNotificationStore((s) => s.addNotification);
+
   // WebSocket connection with infinite retry and status tracking
   const connectWs = useCallback(() => {
     if (!accessToken) return;
@@ -79,6 +83,8 @@ export default function AppLayout() {
       ws.onopen = () => {
         reconnectAttemptsRef.current = 0;
         setWsStatus("connected");
+        // Expose for per-page subscriptions via useWsSubscription hook
+        (window as unknown as Record<string, unknown>).__masWs = ws;
         ws.send(
           JSON.stringify({
             type: "auth",
@@ -96,46 +102,86 @@ export default function AppLayout() {
             return;
           }
 
-          if (
-            msg.type === "hitl:new" ||
-            msg.type === "hitl:resolved"
-          ) {
+          // --- HITL events ---
+          if (msg.type === "hitl:new" || msg.type === "hitl:resolved") {
             queryClient.invalidateQueries({ queryKey: ["hitl-pending"] });
-            queryClient.invalidateQueries({
-              queryKey: ["hitl-pending-count"],
-            });
+            queryClient.invalidateQueries({ queryKey: ["hitl-pending-count"] });
             queryClient.invalidateQueries({ queryKey: ["hitl-stats"] });
+            queryClient.invalidateQueries({ queryKey: ["hitl-trends"] });
 
             if (msg.type === "hitl:new") {
-              toast({
+              const title = msg.data?.title ?? "Requires your attention";
+              toast({ title: "New HITL item", description: title });
+              addNotification({
+                type: "hitl",
                 title: "New HITL item",
-                description: msg.data?.title ?? "Requires your attention",
+                description: title,
+                link: "/hitl",
+              });
+            }
+            if (msg.type === "hitl:resolved") {
+              const desc = msg.data?.title
+                ? `"${msg.data.title}" resolved`
+                : "Item resolved";
+              addNotification({
+                type: "hitl",
+                title: "HITL resolved",
+                description: desc,
+                link: "/hitl",
               });
             }
           }
 
+          // --- Agent events ---
           if (msg.type === "agent:heartbeat") {
-            queryClient.invalidateQueries({
-              queryKey: ["agent-status"],
-            });
+            queryClient.invalidateQueries({ queryKey: ["agent-status"] });
+            queryClient.invalidateQueries({ queryKey: ["agent-logs"] });
             if (msg.data?.action) {
+              const agentName = msg.data.agent ?? "Unknown";
+              const desc = `${agentName} is now ${msg.data.status ?? msg.data.action}`;
+              const isError = msg.data.status === "error" || msg.data.status === "dead";
               toast({
                 title: `Agent ${msg.data.action}`,
-                description: `${msg.data.agent ?? "Unknown"} is now ${msg.data.status ?? msg.data.action}`,
+                description: desc,
+                variant: isError ? "destructive" : "default",
+              });
+              addNotification({
+                type: "agent",
+                title: `Agent ${msg.data.action}`,
+                description: desc,
+                link: `/agents/${agentName}`,
               });
             }
           }
 
+          // --- Project events ---
           if (msg.type === "project:update") {
             queryClient.invalidateQueries({ queryKey: ["jobs"] });
+            queryClient.invalidateQueries({ queryKey: ["job"] });
+            queryClient.invalidateQueries({ queryKey: ["job-stats"] });
+            if (msg.data?.status) {
+              const jobTitle = msg.data.title ?? "Job";
+              const desc = `${jobTitle} — ${msg.data.status}`;
+              toast({ title: "Job updated", description: desc });
+              addNotification({
+                type: "project",
+                title: "Job updated",
+                description: desc,
+                link: msg.data.job_id ? `/jobs/${msg.data.job_id}` : "/jobs",
+              });
+            }
           }
 
+          // --- Orchestrator events ---
           if (msg.type === "orch:status") {
             queryClient.invalidateQueries({ queryKey: ["orch-status"] });
             if (msg.data?.action) {
-              toast({
+              toast({ title: "Orchestrator", description: `Runner ${msg.data.action}` });
+              addNotification({
+                type: "orch",
                 title: "Orchestrator",
                 description: `Runner ${msg.data.action}`,
+                link: "/orchestrator",
               });
             }
           }
@@ -147,10 +193,15 @@ export default function AppLayout() {
             queryClient.invalidateQueries({ queryKey: ["orch-logs"] });
           }
 
+          // --- Generic notification ---
           if (msg.type === "notification") {
-            toast({
-              title: msg.data?.title ?? "Notification",
-              description: msg.data?.message ?? "",
+            const title = msg.data?.title ?? "Notification";
+            const desc = msg.data?.message ?? "";
+            toast({ title, description: desc });
+            addNotification({
+              type: "system",
+              title,
+              description: desc,
             });
           }
         } catch {
@@ -160,6 +211,7 @@ export default function AppLayout() {
 
       ws.onclose = () => {
         wsRef.current = null;
+        (window as unknown as Record<string, unknown>).__masWs = null;
         setWsStatus("disconnected");
         // Infinite retry with exponential backoff (max 30s)
         const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
@@ -176,7 +228,7 @@ export default function AppLayout() {
       reconnectAttemptsRef.current += 1;
       reconnectTimeoutRef.current = setTimeout(connectWs, delay);
     }
-  }, [accessToken, queryClient]);
+  }, [accessToken, queryClient, addNotification]);
 
   // Reconnect on tab focus
   useEffect(() => {
@@ -456,31 +508,8 @@ export default function AppLayout() {
               )}
             </button>
 
-            {/* Notification bell */}
-            {pendingCount > 0 && (
-              <button
-                onClick={() => navigate("/hitl")}
-                className="relative p-2 rounded-md hover:bg-accent transition-colors"
-                aria-label={`${pendingCount} pending notifications`}
-              >
-                <svg
-                  className="h-5 w-5 text-muted-foreground"
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                  <path d="M13.73 21a2 2 0 01-3.46 0" />
-                </svg>
-                <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-                  {pendingCount}
-                </span>
-              </button>
-            )}
+            {/* Notification center */}
+            <NotificationCenter pendingHITLCount={pendingCount} />
           </div>
         </header>
 

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useParams, Link } from "@remix-run/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
@@ -12,12 +12,16 @@ import { LogViewer } from "~/components/log-viewer";
 import { fetchAgentStatus, fetchAgentLogs, restartAgent, pauseAgent, resumeAgent } from "~/lib/api";
 import { relativeTime } from "~/lib/utils";
 import { toast } from "~/hooks/use-toast";
+import { useWsSubscription } from "~/hooks/use-ws-subscription";
 
 export default function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
   const queryClient = useQueryClient();
   const [logLevel, setLogLevel] = useState("all");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // Subscribe to agent-specific WebSocket channel for real-time log updates
+  useWsSubscription("subscribe:agent", name);
 
   const { data: statusData } = useQuery({
     queryKey: ["agent-status"],

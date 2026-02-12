@@ -26,6 +26,7 @@ from litestar.config.cors import CORSConfig
 from litestar.exceptions import HTTPException
 from litestar.middleware.rate_limit import RateLimitConfig
 from litestar.openapi import OpenAPIConfig
+from litestar.openapi.plugins import RedocRenderPlugin, SwaggerRenderPlugin
 from sqlalchemy import text as sa_text
 
 from src.api.dependencies import provide_db_session, provide_settings, provide_valkey
@@ -190,7 +191,7 @@ cors_config = CORSConfig(
 # internal address — IP-based limiting effectively caps ALL users together.
 rate_limit_config = RateLimitConfig(
     rate_limit=("minute", 300),
-    exclude=["/health", "/schema", "/metrics"],
+    exclude=["/health", "/schema", "/swagger", "/redoc", "/metrics"],
 )
 
 # ChannelsPlugin for WebSocket real-time events
@@ -213,12 +214,16 @@ channels_plugin = ChannelsPlugin(
     arbitrary_channels_allowed=True,
 )
 
-# OpenAPI
+# OpenAPI with Swagger UI and Redoc
 openapi_config = OpenAPIConfig(
     title="MAS API",
     version="1.0",
     description="Multi-Agent Service REST API for freelance automation and cold outreach.",
     path="/schema",
+    render_plugins=[
+        SwaggerRenderPlugin(),
+        RedocRenderPlugin(),
+    ],
 )
 
 
