@@ -242,7 +242,10 @@ async def geo_scout_node(state: dict[str, Any]) -> dict[str, Any]:
 
     agent = GeoScoutAgent(
         llm_client=LLMClient(),
-        heartbeat=HeartbeatMonitor(),
+        heartbeat=HeartbeatMonitor(
+            valkey=_get_valkey_client(),
+            db_pool=None,
+        ),
         loop_detector=LoopDetector(),
     )
 
@@ -252,3 +255,9 @@ async def geo_scout_node(state: dict[str, Any]) -> dict[str, Any]:
     await agent._overpass.close()  # noqa: SLF001
 
     return result
+
+
+def _get_valkey_client() -> Any:
+    """Return the shared Valkey (redis-py) async client."""
+    from src.core.database import get_valkey  # noqa: PLC0415
+    return get_valkey()
