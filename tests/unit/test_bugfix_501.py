@@ -347,6 +347,42 @@ async def test_email_sending_node_handles_send_exception():
     assert result["artifacts"]["email_send_result"]["sent"] == 0
 
 
+@pytest.mark.asyncio
+async def test_email_sending_node_marks_pending_leads_as_approved():
+    """email_sending_node should update CampaignLead status from pending to approved before sending."""
+    from src.core.graph import email_sending_node
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "artifacts": {"emails_approved": True, "campaign_id": "camp-456"},
+        "current_agent": "hitl_email",
+        "next_agent": None,
+        "errors": [],
+        "requires_hitl": False,
+        "hitl_request_id": None,
+    }
+
+    mock_send = AsyncMock(return_value={"sent": 3, "failed": 0, "rate_limited": 0})
+    mock_session = AsyncMock()
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with (
+        patch("src.enrichment.email_sender.send_approved_emails", mock_send),
+        patch("src.core.database.get_db_session", return_value=mock_ctx),
+    ):
+        result = await email_sending_node(state)
+
+    # Verify the session had execute called at least twice:
+    # once for updating CampaignLead status and once inside send_approved_emails
+    assert mock_session.execute.call_count >= 1, "Should call execute to update CampaignLead status"
+    assert mock_session.commit.call_count >= 1, "Should commit after marking leads as approved"
+    assert result["status"] == "completed"
+    assert result["artifacts"]["email_send_result"]["sent"] == 3
+
+
 # ---------------------------------------------------------------------------
 # Bug 2: _route_after_hitl_email routing
 # ---------------------------------------------------------------------------

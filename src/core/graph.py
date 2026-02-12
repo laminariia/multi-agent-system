@@ -271,10 +271,25 @@ async def email_sending_node(state: dict[str, Any]) -> dict[str, Any]:
         )
 
     try:
+        from sqlalchemy import update as sa_update  # noqa: PLC0415
+
         from src.core.database import get_db_session  # noqa: PLC0415
+        from src.core.models import CampaignLead  # noqa: PLC0415
         from src.enrichment.email_sender import send_approved_emails  # noqa: PLC0415
 
         async with get_db_session() as session:
+            # Mark all pending campaign leads as "approved" so
+            # send_approved_emails() can pick them up for delivery.
+            await session.execute(
+                sa_update(CampaignLead)
+                .where(
+                    CampaignLead.campaign_id == campaign_id,
+                    CampaignLead.status == "pending",
+                )
+                .values(status="approved")
+            )
+            await session.commit()
+
             result = await send_approved_emails(campaign_id, session)
 
         artifacts["email_send_result"] = result
