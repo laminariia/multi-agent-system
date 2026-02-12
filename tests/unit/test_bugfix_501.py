@@ -167,7 +167,7 @@ async def test_bid_submission_node_non_freelancer_platform():
     state = {
         "thread_id": "t1",
         "status": "active",
-        "project": {"platform": "upwork", "job_id": "789"},
+        "project": {"platform": "upwork", "job_id": "789", "title": "Test Job"},
         "artifacts": {"bid": {"proposal": "Test", "amount": 200}},
         "current_agent": "bid",
         "next_agent": None,
@@ -176,11 +176,21 @@ async def test_bid_submission_node_non_freelancer_platform():
         "hitl_request_id": None,
     }
 
-    result = await bid_submission_node(state)
+    mock_session = AsyncMock()
+    mock_session.add = MagicMock()  # add() is sync in SQLAlchemy
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("src.core.database.get_db_session", return_value=mock_ctx):
+        result = await bid_submission_node(state)
 
     assert result["artifacts"]["bid_submitted"] is False
     assert result["artifacts"]["manual_submit_required"] is True
     assert result["next_agent"] == "planner"
+    # Verify a HITL entry was created for manual submission
+    mock_session.add.assert_called_once()
+    mock_session.commit.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -381,6 +391,40 @@ async def test_email_sending_node_marks_pending_leads_as_approved():
     assert mock_session.commit.call_count >= 1, "Should commit after marking leads as approved"
     assert result["status"] == "completed"
     assert result["artifacts"]["email_send_result"]["sent"] == 3
+
+
+@pytest.mark.asyncio
+async def test_email_sending_node_warns_when_no_emails_sent():
+    """email_sending_node adds warning to artifacts when sent=0 and failed=0 (SMTP not configured)."""
+    from src.core.graph import email_sending_node
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "artifacts": {"emails_approved": True, "campaign_id": "camp-789"},
+        "current_agent": "hitl_email",
+        "next_agent": None,
+        "errors": [],
+        "requires_hitl": False,
+        "hitl_request_id": None,
+    }
+
+    # Simulate SMTP not configured — returns all zeros
+    mock_send = AsyncMock(return_value={"sent": 0, "failed": 0, "rate_limited": 0})
+    mock_session = AsyncMock()
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with (
+        patch("src.enrichment.email_sender.send_approved_emails", mock_send),
+        patch("src.core.database.get_db_session", return_value=mock_ctx),
+    ):
+        result = await email_sending_node(state)
+
+    assert result["status"] == "completed"
+    assert "email_send_warning" in result["artifacts"]
+    assert "SMTP" in result["artifacts"]["email_send_warning"]
 
 
 # ---------------------------------------------------------------------------

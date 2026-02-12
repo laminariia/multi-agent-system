@@ -113,7 +113,7 @@ async def ws_handler(socket: WebSocket, channels: ChannelsPlugin) -> None:
                     # Subscribe to default channels
                     for ch in _DEFAULT_CHANNELS:
                         if ch not in subscribed_channels:
-                            channels.subscribe(socket, [ch])
+                            await channels.subscribe(socket, [ch])
                             subscribed_channels.add(ch)
 
                     await socket.send_json({
@@ -143,7 +143,7 @@ async def ws_handler(socket: WebSocket, channels: ChannelsPlugin) -> None:
                 if project_id:
                     channel_name = f"project:{project_id}"
                     if channel_name not in subscribed_channels:
-                        channels.subscribe(socket, [channel_name])
+                        await channels.subscribe(socket, [channel_name])
                         subscribed_channels.add(channel_name)
                     await socket.send_json({
                         "type": "subscribed",
@@ -158,7 +158,7 @@ async def ws_handler(socket: WebSocket, channels: ChannelsPlugin) -> None:
                 if agent_name:
                     channel_name = f"agent:{agent_name}"
                     if channel_name not in subscribed_channels:
-                        channels.subscribe(socket, [channel_name])
+                        await channels.subscribe(socket, [channel_name])
                         subscribed_channels.add(channel_name)
                     await socket.send_json({
                         "type": "subscribed",
@@ -186,7 +186,7 @@ async def ws_handler(socket: WebSocket, channels: ChannelsPlugin) -> None:
         # socket disconnects, but we explicitly unsubscribe for clarity.
         for ch in subscribed_channels:
             try:
-                channels.unsubscribe(socket, [ch])
+                await channels.unsubscribe(socket, [ch])
             except Exception:
                 logger.debug("ws_unsubscribe_cleanup_failed", channel=ch)
 

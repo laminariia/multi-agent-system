@@ -141,6 +141,46 @@ async def bid_submission_node(state: dict[str, Any]) -> dict[str, Any]:
             platform=platform,
         )
 
+        # Create a HITL entry so the user sees a dashboard notification
+        # to manually submit the bid on the non-API platform.
+        try:
+            import uuid as _uuid  # noqa: PLC0415
+
+            from src.core.database import get_db_session  # noqa: PLC0415
+            from src.core.models import HITLQueue  # noqa: PLC0415
+
+            project_title = (state.get("project") or {}).get("title", "Unknown")
+            job_url = (state.get("project") or {}).get("url", "")
+
+            async with get_db_session() as session:
+                hitl = HITLQueue(
+                    id=_uuid.uuid4(),
+                    type="manual_action",
+                    priority="urgent",
+                    title=f"Manual bid submission on {platform}: {project_title[:200]}",
+                    description=(
+                        f"Bid approved but {platform} requires manual submission. "
+                        f"Submit via the platform."
+                    ),
+                    payload={
+                        "thread_id": state["thread_id"],
+                        "platform": platform,
+                        "job_url": job_url,
+                        "bid_amount": bid_data.get("amount", 0),
+                        "proposal_preview": (bid_data.get("proposal", ""))[:500],
+                    },
+                    available_actions=["approve", "skip"],
+                    status="pending",
+                )
+                session.add(hitl)
+                await session.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "manual_submit_hitl_creation_failed",
+                thread_id=state["thread_id"],
+                error=str(exc),
+            )
+
     return update_state(
         state,
         current_agent="bid_submission",
@@ -293,13 +333,24 @@ async def email_sending_node(state: dict[str, Any]) -> dict[str, Any]:
             result = await send_approved_emails(campaign_id, session)
 
         artifacts["email_send_result"] = result
-        logger.info(
-            "email_sending_complete",
-            thread_id=state["thread_id"],
-            campaign_id=str(campaign_id),
-            sent=result.get("sent", 0),
-            failed=result.get("failed", 0),
-        )
+
+        # Warn if SMTP not configured — emails were approved but couldn't send
+        if result.get("sent", 0) == 0 and result.get("failed", 0) == 0:
+            logger.warning(
+                "email_sending_no_emails_sent",
+                thread_id=state["thread_id"],
+                campaign_id=str(campaign_id),
+                reason="SMTP may not be configured or no approved leads found",
+            )
+            artifacts["email_send_warning"] = "No emails sent — check SMTP configuration in Settings"
+        else:
+            logger.info(
+                "email_sending_complete",
+                thread_id=state["thread_id"],
+                campaign_id=str(campaign_id),
+                sent=result.get("sent", 0),
+                failed=result.get("failed", 0),
+            )
     except Exception as exc:  # noqa: BLE001
         logger.error(
             "email_sending_failed",
