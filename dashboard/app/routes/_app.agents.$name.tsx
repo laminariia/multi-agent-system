@@ -1,31 +1,55 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useParams, Link } from "@remix-run/react";
+export { RouteErrorBoundary as ErrorBoundary } from "~/components/route-error-boundary";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Separator } from "~/components/ui/separator";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import { ScrollArea } from "~/components/ui/scroll-area";
 import { StatusBadge } from "~/components/status-badge";
-import { LogViewer } from "~/components/log-viewer";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "~/components/ui/tooltip";
 import { fetchAgentStatus, fetchAgentLogs, restartAgent, pauseAgent, resumeAgent } from "~/lib/api";
-import { relativeTime } from "~/lib/utils";
+import { relativeTime, cn } from "~/lib/utils";
 import { toast } from "~/hooks/use-toast";
-import { useWsSubscription } from "~/hooks/use-ws-subscription";
+import { useWsLogStream } from "~/hooks/use-ws-log-stream";
+import type { AgentLog } from "~/lib/types";
+
+const levelColors: Record<string, string> = {
+  info: "text-primary",
+  warning: "text-amber-400",
+  error: "text-destructive",
+  debug: "text-muted-foreground",
+};
+
+const levelBg: Record<string, string> = {
+  info: "bg-primary/5",
+  warning: "bg-amber-400/5",
+  error: "bg-destructive/5",
+  debug: "bg-muted/5",
+};
 
 export default function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
   const queryClient = useQueryClient();
   const [logLevel, setLogLevel] = useState("all");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Subscribe to agent-specific WebSocket channel for real-time log updates
-  useWsSubscription("subscribe:agent", name);
+  // Live WebSocket log stream
+  const { logs: streamedLogs, isConnected, clearLogs } = useWsLogStream(name);
 
   const { data: statusData } = useQuery({
     queryKey: ["agent-status"],
     queryFn: fetchAgentStatus,
+    staleTime: 10_000,
     refetchInterval: 30_000,
   });
 
@@ -39,8 +63,41 @@ export default function AgentDetailPage() {
         limit: 100,
       }),
     enabled: !!name,
+    staleTime: 10_000,
     refetchInterval: 30_000,
   });
+
+  // Merge HTTP-fetched logs with WebSocket-streamed logs
+  const allLogs: (AgentLog & { isNew?: boolean })[] = (() => {
+    const httpLogs = logsData?.logs ?? [];
+    const httpIds = new Set(httpLogs.map((l) => l.id));
+    const newStreamedLogs = streamedLogs
+      .filter((sl) => !httpIds.has(sl.id))
+      .map((sl) => ({
+        id: sl.id,
+        timestamp: sl.timestamp,
+        level: sl.level === "debug" ? "info" as const : sl.level,
+        event_type: sl.event_type ?? "log",
+        message: sl.message,
+        details: null,
+        isNew: sl.isNew,
+      }));
+
+    const merged = [...httpLogs, ...newStreamedLogs];
+
+    // Filter by log level
+    if (logLevel !== "all") {
+      return merged.filter((l) => l.level === logLevel);
+    }
+    return merged;
+  })();
+
+  // Auto-scroll to bottom when new logs arrive
+  useEffect(() => {
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [allLogs.length]);
 
   const handleAction = async (action: "restart" | "pause" | "resume") => {
     if (!name) return;
@@ -60,6 +117,14 @@ export default function AgentDetailPage() {
       setActionLoading(null);
     }
   };
+
+  const copyLogLine = useCallback((log: AgentLog) => {
+    const ts = new Date(log.timestamp).toLocaleTimeString("en-US", { hour12: false });
+    const text = `${ts} [${log.level.toUpperCase()}] [${log.event_type}] ${log.message ?? ""}`;
+    navigator.clipboard.writeText(text);
+    setCopiedId(log.id);
+    setTimeout(() => setCopiedId(null), 1500);
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -83,6 +148,8 @@ export default function AgentDetailPage() {
               {agent.pipeline && (
                 <Badge variant="outline">Pipeline {agent.pipeline}</Badge>
               )}
+              {/* Live Indicator */}
+              <LiveIndicator isConnected={isConnected} />
             </div>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               {agent.last_heartbeat && (
@@ -180,7 +247,7 @@ export default function AgentDetailPage() {
           <Card className="border-border/50">
             <CardContent className="p-4">
               <p className="text-xs text-muted-foreground">Log Entries</p>
-              <p className="text-2xl font-bold mt-1">{logsData?.total ?? 0}</p>
+              <p className="text-2xl font-bold mt-1">{allLogs.length}</p>
             </CardContent>
           </Card>
         </div>
@@ -210,29 +277,177 @@ export default function AgentDetailPage() {
       <Card className="border-border/50">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base font-medium">Logs</CardTitle>
-            <Tabs value={logLevel} onValueChange={setLogLevel}>
-              <TabsList>
-                <TabsTrigger value="all">All</TabsTrigger>
-                <TabsTrigger value="info">Info</TabsTrigger>
-                <TabsTrigger value="warning">Warning</TabsTrigger>
-                <TabsTrigger value="error">Error</TabsTrigger>
-              </TabsList>
-            </Tabs>
+            <div className="flex items-center gap-3">
+              <CardTitle className="text-base font-medium">Logs</CardTitle>
+              <LiveIndicator isConnected={isConnected} size="sm" />
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs h-7"
+                onClick={() => {
+                  clearLogs();
+                  queryClient.invalidateQueries({ queryKey: ["agent-logs", name] });
+                }}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="mr-1.5 h-3.5 w-3.5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M3 6h18" />
+                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                </svg>
+                Clear
+              </Button>
+              <Tabs value={logLevel} onValueChange={setLogLevel}>
+                <TabsList>
+                  <TabsTrigger value="all">All</TabsTrigger>
+                  <TabsTrigger value="info">Info</TabsTrigger>
+                  <TabsTrigger value="warning">Warning</TabsTrigger>
+                  <TabsTrigger value="error">Error</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          {logsLoading ? (
+          {logsLoading && allLogs.length === 0 ? (
             <div className="space-y-2">
               {Array.from({ length: 5 }).map((_, i) => (
                 <Skeleton key={i} className="h-6" />
               ))}
             </div>
+          ) : allLogs.length === 0 ? (
+            <div className="flex items-center justify-center py-8">
+              <p className="text-sm text-muted-foreground">No logs available</p>
+            </div>
           ) : (
-            <LogViewer logs={logsData?.logs ?? []} />
+            <TooltipProvider delayDuration={300}>
+              <ScrollArea className="h-[400px] rounded-md border border-border/50 bg-background/50">
+                <div className="p-2 font-mono text-xs space-y-0.5">
+                  {allLogs.map((log) => {
+                    const ts = new Date(log.timestamp);
+                    const time = ts.toLocaleTimeString("en-US", { hour12: false });
+                    const isNew = "isNew" in log && log.isNew;
+                    return (
+                      <div
+                        key={log.id}
+                        className={cn(
+                          "group flex gap-2 rounded px-2 py-1 hover:bg-accent/30 transition-all",
+                          levelBg[log.level] ?? "",
+                          isNew && "animate-in fade-in-50 bg-primary/10"
+                        )}
+                      >
+                        <span className="text-muted-foreground shrink-0 w-[60px]">
+                          {time}
+                        </span>
+                        <span
+                          className={cn(
+                            "shrink-0 w-[52px] font-medium uppercase",
+                            levelColors[log.level] ?? "text-muted-foreground"
+                          )}
+                        >
+                          {log.level}
+                        </span>
+                        <span className="text-muted-foreground shrink-0">
+                          [{log.event_type}]
+                        </span>
+                        <span className="text-foreground/90 break-all flex-1">
+                          {log.message || "\u2014"}
+                        </span>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 text-muted-foreground hover:text-foreground"
+                              onClick={() => copyLogLine(log)}
+                            >
+                              {copiedId === log.id ? (
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  className="h-3.5 w-3.5 text-success"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                              ) : (
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  className="h-3.5 w-3.5"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                </svg>
+                              )}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="left">
+                            <p>{copiedId === log.id ? "Copied!" : "Copy log line"}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                    );
+                  })}
+                  <div ref={bottomRef} />
+                </div>
+              </ScrollArea>
+            </TooltipProvider>
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function LiveIndicator({
+  isConnected,
+  size = "default",
+}: {
+  isConnected: boolean;
+  size?: "sm" | "default";
+}) {
+  const dotSize = size === "sm" ? "h-1.5 w-1.5" : "h-2 w-2";
+  const textSize = size === "sm" ? "text-[10px]" : "text-xs";
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <div
+        className={cn(
+          "rounded-full",
+          dotSize,
+          isConnected
+            ? "bg-emerald-400 animate-pulse"
+            : "bg-muted-foreground/50"
+        )}
+      />
+      <span
+        className={cn(
+          "font-medium",
+          textSize,
+          isConnected ? "text-emerald-400" : "text-muted-foreground/50"
+        )}
+      >
+        {isConnected ? "Live" : "Offline"}
+      </span>
     </div>
   );
 }

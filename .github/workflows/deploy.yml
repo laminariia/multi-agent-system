@@ -1,35 +1,73 @@
-name: Deploy
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+#
+# Standalone deploy workflow — manual trigger or fallback.
+# The primary deploy path is via the CI/CD Pipeline workflow (ci.yml).
+# This workflow exists for manual re-deploys without re-running the full CI.
+#
+name: Deploy (Manual)
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      deploy_api:
+        description: "Deploy API service"
+        type: boolean
+        default: true
+      deploy_dashboard:
+        description: "Deploy Dashboard service"
+        type: boolean
+        default: true
 
 concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
+    name: Deploy to Railway
     runs-on: ubuntu-latest
-    # Only deploy after CI passes (or manual dispatch)
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     environment: production
+    timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Railway CLI
         run: npm i -g @railway/cli
 
       - name: Deploy API to Railway
+        if: ${{ inputs.deploy_api }}
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: railway up --detach
 
       - name: Deploy Dashboard to Railway
+        if: ${{ inputs.deploy_dashboard }}
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: railway up --detach --service dashboard --path-as-root dashboard
+
+      - name: Wait for deployment
+        run: sleep 30
+
+      - name: Health check
+        run: |
+          PRODUCTION_URL="${{ secrets.PRODUCTION_URL }}"
+          if [ -z "$PRODUCTION_URL" ]; then
+            echo "::warning::PRODUCTION_URL not set, skipping health check"
+            exit 0
+          fi
+          for i in $(seq 1 5); do
+            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "$PRODUCTION_URL/api/v1/health" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Attempt $i: status=$STATUS, retrying in 10s..."
+            sleep 10
+          done
+          echo "::error::Health check failed"
+          exit 1

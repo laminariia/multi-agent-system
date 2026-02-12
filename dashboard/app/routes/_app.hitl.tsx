@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+export { RouteErrorBoundary as ErrorBoundary } from "~/components/route-error-boundary";
 import { Badge } from "~/components/ui/badge";
 import { Input } from "~/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
@@ -58,12 +59,14 @@ export default function HITLPage() {
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       }),
+    staleTime: 10_000,
     refetchInterval: 30_000,
   });
 
   const { data: stats } = useQuery({
     queryKey: ["hitl-stats"],
     queryFn: fetchHITLStats,
+    staleTime: 30_000,
     refetchInterval: 60_000,
   });
 

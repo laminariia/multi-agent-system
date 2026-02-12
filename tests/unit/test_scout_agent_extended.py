@@ -579,15 +579,18 @@ async def test_scout_node_loads_db_credentials():
     mock_fc_instance = MagicMock()
     mock_fc_instance.close = AsyncMock()
 
+    mock_container = MagicMock()
+    mock_container.llm_client = MagicMock()
+    mock_container.heartbeat = MagicMock()
+    mock_container.loop_detector = MagicMock()
+    mock_container.browser_pool = None
+
     with (
         patch("src.core.config.get_settings") as mock_settings,
         patch("src.core.credential_loader.load_platform_credentials", new_callable=AsyncMock) as mock_load,
         patch("src.adapters.freelancer.FreelancerClient", return_value=mock_fc_instance) as mock_fc,
         patch("src.adapters.fl_ru.FlRuClient", return_value=mock_fl_ru_instance),
-        patch("src.core.llm_client.LLMClient"),
-        patch("src.agents.scout._get_valkey_client"),
-        patch("src.core.heartbeat.HeartbeatMonitor"),
-        patch("src.core.loop_detector.LoopDetector"),
+        patch("src.core.container.get_container", return_value=mock_container),
         patch("src.agents.scout.ScoutAgent") as mock_agent_cls,
     ):
         mock_settings_instance = MagicMock()
@@ -622,14 +625,17 @@ async def test_scout_node_env_fallback_no_user_id():
     mock_fc_instance = MagicMock()
     mock_fc_instance.close = AsyncMock()
 
+    mock_container = MagicMock()
+    mock_container.llm_client = MagicMock()
+    mock_container.heartbeat = MagicMock()
+    mock_container.loop_detector = MagicMock()
+    mock_container.browser_pool = None
+
     with (
         patch("src.core.config.get_settings") as mock_settings,
         patch("src.adapters.freelancer.FreelancerClient", return_value=mock_fc_instance) as mock_fc,
         patch("src.adapters.fl_ru.FlRuClient", return_value=mock_fl_ru_instance),
-        patch("src.core.llm_client.LLMClient"),
-        patch("src.agents.scout._get_valkey_client"),
-        patch("src.core.heartbeat.HeartbeatMonitor"),
-        patch("src.core.loop_detector.LoopDetector"),
+        patch("src.core.container.get_container", return_value=mock_container),
         patch("src.agents.scout.ScoutAgent") as mock_agent_cls,
     ):
         mock_settings_instance = MagicMock()

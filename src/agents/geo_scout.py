@@ -232,32 +232,26 @@ class GeoScoutAgent(ConstrainedAgent):
 async def geo_scout_node(state: dict[str, Any]) -> dict[str, Any]:
     """LangGraph node wrapper for the GeoScout agent.
 
-    Creates a :class:`GeoScoutAgent` instance with minimal dependencies
-    and runs it.  Uses ``dict[str, Any]`` signature to avoid LangGraph
-    state reconstruction issues (see MEMORY.md).
+    Creates a :class:`GeoScoutAgent` instance with shared dependencies
+    from the DI container and runs it.  Uses ``dict[str, Any]`` signature
+    to avoid LangGraph state reconstruction issues (see MEMORY.md).
     """
-    from src.core.heartbeat import HeartbeatMonitor  # noqa: PLC0415
-    from src.core.llm_client import LLMClient  # noqa: PLC0415
-    from src.core.loop_detector import LoopDetector  # noqa: PLC0415
+    from src.core.container import get_container  # noqa: PLC0415
 
+    container = get_container()
     agent = GeoScoutAgent(
-        llm_client=LLMClient(),
-        heartbeat=HeartbeatMonitor(
-            valkey=_get_valkey_client(),
-            db_pool=None,
-        ),
-        loop_detector=LoopDetector(),
+        llm_client=container.llm_client,
+        heartbeat=container.heartbeat,
+        loop_detector=container.loop_detector,
     )
 
-    result = await agent.invoke(state)
-
-    # Clean up Overpass HTTP client.
-    await agent._overpass.close()  # noqa: SLF001
+    try:
+        result = await agent.invoke(state)
+    finally:
+        # Clean up Overpass HTTP client.
+        try:
+            await agent._overpass.close()  # noqa: SLF001
+        except Exception:  # noqa: BLE001
+            logger.debug("geo_scout_overpass_close_error", exc_info=True)
 
     return result
-
-
-def _get_valkey_client() -> Any:
-    """Return the shared Valkey (redis-py) async client."""
-    from src.core.database import get_valkey  # noqa: PLC0415
-    return get_valkey()

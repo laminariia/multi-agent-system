@@ -1,13 +1,15 @@
 import { useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+export { RouteErrorBoundary as ErrorBoundary } from "~/components/route-error-boundary";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
-import { Skeleton } from "~/components/ui/skeleton";
 import { Button } from "~/components/ui/button";
 import { MetricCard } from "~/components/metric-card";
 import { AgentCard } from "~/components/agent-card";
 import { PipelineFlow } from "~/components/pipeline-flow";
 import { ActivityFeed, type ActivityEvent } from "~/components/activity-feed";
 import { JobsByPlatformChart, HITLByTypeChart, AgentStatusChart, HITLTrendsChart } from "~/components/charts";
+import { SkeletonCard, SkeletonGrid } from "~/components/skeleton-card";
+import { EmptyState } from "~/components/empty-state";
 import { fetchAgentStatus, fetchHITLStats, fetchJobs, fetchJobStats, fetchHITLTrends, fetchPipelineBStats } from "~/lib/api";
 import { OrchStatusWidget } from "~/components/orch-status-widget";
 
@@ -17,36 +19,42 @@ export default function DashboardPage() {
   const { data: agentData, isLoading: agentsLoading, error: agentError } = useQuery({
     queryKey: ["agent-status"],
     queryFn: fetchAgentStatus,
+    staleTime: 10_000,
     refetchInterval: 30_000,
   });
 
   const { data: hitlStats } = useQuery({
     queryKey: ["hitl-stats"],
     queryFn: fetchHITLStats,
+    staleTime: 30_000,
     refetchInterval: 60_000,
   });
 
   const { data: jobsData } = useQuery({
     queryKey: ["jobs", "active"],
     queryFn: () => fetchJobs({ limit: 50 }),
+    staleTime: 30_000,
     refetchInterval: 60_000,
   });
 
   const { data: jobStats } = useQuery({
     queryKey: ["job-stats"],
     queryFn: fetchJobStats,
+    staleTime: 30_000,
     refetchInterval: 60_000,
   });
 
   const { data: hitlTrends } = useQuery({
     queryKey: ["hitl-trends"],
     queryFn: () => fetchHITLTrends(7),
+    staleTime: 60_000,
     refetchInterval: 120_000,
   });
 
   const { data: pipelineBStats } = useQuery({
     queryKey: ["pipeline-b-stats"],
     queryFn: fetchPipelineBStats,
+    staleTime: 60_000,
     refetchInterval: 120_000,
   });
 
@@ -137,15 +145,14 @@ export default function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {agentsLoading && !agentData ? (
           <>
-            <Skeleton className="h-[120px]" />
-            <Skeleton className="h-[120px]" />
-            <Skeleton className="h-[120px]" />
-            <Skeleton className="h-[120px]" />
-            <Skeleton className="h-[120px]" />
+            {Array.from({ length: 5 }).map((_, i) => (
+              <SkeletonCard key={i} variant="metric" />
+            ))}
           </>
         ) : (
           <>
             <MetricCard
+              index={0}
               icon={
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -155,6 +162,7 @@ export default function DashboardPage() {
               value={activeJobs}
             />
             <MetricCard
+              index={1}
               icon={
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10" />
@@ -165,6 +173,7 @@ export default function DashboardPage() {
               value={pendingHitl}
             />
             <MetricCard
+              index={2}
               icon={
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
@@ -174,6 +183,7 @@ export default function DashboardPage() {
               value={`${workingAgents}/${agents.length}`}
             />
             <MetricCard
+              index={3}
               icon={
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
@@ -195,7 +205,7 @@ export default function DashboardPage() {
         </CardHeader>
         <CardContent>
           {agentsLoading && !agentData ? (
-            <Skeleton className="h-[80px]" />
+            <div className="animate-shimmer rounded-md bg-gradient-to-r from-muted via-muted/50 to-muted bg-[length:200%_100%] h-[80px]" />
           ) : (
             <PipelineFlow agents={agents} />
           )}
@@ -253,11 +263,7 @@ export default function DashboardPage() {
         <div className="lg:col-span-2">
           <h2 className="text-base font-medium mb-4">Agent Status</h2>
           {agentsLoading && !agentData ? (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} className="h-[140px]" />
-              ))}
-            </div>
+            <SkeletonGrid count={6} variant="agent" />
           ) : agents.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {agents.map((agent) => (
@@ -265,14 +271,15 @@ export default function DashboardPage() {
               ))}
             </div>
           ) : (
-            <Card className="border-border/50">
-              <CardContent className="flex flex-col items-center justify-center py-12">
-                <p className="text-muted-foreground">No agents registered</p>
-                <p className="text-muted-foreground/70 text-sm mt-1">
-                  Agents will appear once they start sending heartbeats
-                </p>
-              </CardContent>
-            </Card>
+            <EmptyState
+              title="No agents registered"
+              description="Agents will appear once they start sending heartbeats"
+              icon={
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+                </svg>
+              }
+            />
           )}
         </div>
 

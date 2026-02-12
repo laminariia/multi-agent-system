@@ -7,12 +7,14 @@ Reference: https://developers.freelancer.com/docs
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
 import httpx
 import structlog
 
+from src.adapters.rate_limiter import AdaptiveRateLimiter
 from src.core.exceptions import (
     PlatformAPIError,
     PlatformBannedError,
@@ -23,6 +25,9 @@ logger = structlog.get_logger(__name__)
 
 # Default timeout for all Freelancer API calls (seconds).
 _DEFAULT_TIMEOUT = 30.0
+
+# Timeout for individual HTTP requests (seconds).
+_REQUEST_TIMEOUT = 30.0
 
 
 class FreelancerClient:
@@ -48,6 +53,7 @@ class FreelancerClient:
         *,
         access_token: str = "",
         base_url: str = "https://www.freelancer.com/api",
+        rate_limiter: AdaptiveRateLimiter | None = None,
     ) -> None:
         self.client_id = client_id
         self.client_secret = client_secret
@@ -55,6 +61,7 @@ class FreelancerClient:
         self.base_url = base_url.rstrip("/")
         self._http: httpx.AsyncClient | None = None
         self._log = logger.bind(platform="freelancer")
+        self._rate_limiter = rate_limiter
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -173,6 +180,9 @@ class FreelancerClient:
         ``budget_min``, ``budget_max``, ``currency``, ``skills_required``,
         ``client_info``, ``url``, ``raw_data``.
         """
+        if self._rate_limiter:
+            await self._rate_limiter.acquire("freelancer")
+
         http = await self._get_http()
         params: dict[str, Any] = {
             "jobs[]": category,
@@ -186,7 +196,10 @@ class FreelancerClient:
 
         self._log.info("fetch_jobs", category=category, min_budget=min_budget, max_results=max_results)
         start = time.monotonic()
-        response = await http.get("/projects/0.1/projects/active/", params=params)
+        response = await asyncio.wait_for(
+            http.get("/projects/0.1/projects/active/", params=params),
+            timeout=_REQUEST_TIMEOUT,
+        )
         elapsed_ms = int((time.monotonic() - start) * 1000)
         self._log.debug("fetch_jobs_response", status=response.status_code, latency_ms=elapsed_ms)
 
@@ -256,9 +269,15 @@ class FreelancerClient:
             "milestone_percentage": milestone_percentage,
         }
 
+        if self._rate_limiter:
+            await self._rate_limiter.acquire("freelancer")
+
         self._log.info("submit_bid", project_id=project_id, amount=amount, period=period)
         start = time.monotonic()
-        response = await http.post("/projects/0.1/bids/", json=payload)
+        response = await asyncio.wait_for(
+            http.post("/projects/0.1/bids/", json=payload),
+            timeout=_REQUEST_TIMEOUT,
+        )
         elapsed_ms = int((time.monotonic() - start) * 1000)
         self._log.debug("submit_bid_response", status=response.status_code, latency_ms=elapsed_ms)
 
@@ -284,9 +303,15 @@ class FreelancerClient:
             "portfolio": True,
         }
 
+        if self._rate_limiter:
+            await self._rate_limiter.acquire("freelancer")
+
         self._log.info("get_client_profile", user_id=user_id)
         start = time.monotonic()
-        response = await http.get(url, params=params)
+        response = await asyncio.wait_for(
+            http.get(url, params=params),
+            timeout=_REQUEST_TIMEOUT,
+        )
         elapsed_ms = int((time.monotonic() - start) * 1000)
         self._log.debug("get_client_profile_response", status=response.status_code, latency_ms=elapsed_ms)
 

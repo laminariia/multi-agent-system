@@ -33,6 +33,7 @@ from src.api.dependencies import provide_db_session, provide_settings, provide_v
 from src.api.guards import jwt_auth
 from src.api.routes.agents import AgentController
 from src.api.routes.auth import AuthController
+from src.api.routes.campaigns import CampaignController
 from src.api.routes.health import health_check
 from src.api.routes.hitl import HITLController
 from src.api.routes.jobs import JobController
@@ -160,10 +161,47 @@ async def lifespan(app: Litestar) -> AsyncGenerator[None, None]:
         environment="production" if not settings.DEBUG else "development",
     )
 
+    # Initialize Semantic Cache (best-effort -- does not block startup)
+    try:
+        import asyncpg  # noqa: PLC0415
+
+        from src.core.semantic_cache import SemanticCache  # noqa: PLC0415
+
+        db_pool = await asyncpg.create_pool(settings.DATABASE_URL, min_size=1, max_size=3)
+        semantic_cache = SemanticCache(valkey=valkey, db_pool=db_pool)
+        await semantic_cache.ensure_index()
+        app.state.semantic_cache = semantic_cache
+        app.state.semantic_cache_db_pool = db_pool
+        logger.info("app.semantic_cache_initialized")
+    except Exception as exc:
+        logger.warning("app.semantic_cache_init_failed", error=str(exc))
+        app.state.semantic_cache = None
+        app.state.semantic_cache_db_pool = None
+
+    # Wire semantic cache into the shared DI container.
+    from src.core.container import get_container  # noqa: PLC0415
+
+    container = get_container()
+    container.semantic_cache = getattr(app.state, "semantic_cache", None)
+
     yield
 
     # ── Shutdown ────────────────────────────────────────────────────
     logger.info("app.shutting_down")
+
+    # Tear down the agent DI container (browser pool, HTTP clients, etc.).
+    from src.core.container import teardown_container  # noqa: PLC0415
+
+    await teardown_container()
+
+    # Close semantic cache DB pool
+    cache_pool = getattr(app.state, "semantic_cache_db_pool", None)
+    if cache_pool is not None:
+        try:
+            await cache_pool.close()
+        except Exception:
+            logger.warning("semantic_cache_pool_close_failed", exc_info=True)
+
     await engine.dispose()
     try:
         await valkey.aclose()  # type: ignore[attr-defined]
@@ -236,6 +274,7 @@ app = Litestar(
     route_handlers=[
         health_check,
         AuthController,
+        CampaignController,
         HITLController,
         AgentController,
         JobController,

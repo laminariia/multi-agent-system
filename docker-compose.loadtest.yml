@@ -1,0 +1,149 @@
+# Docker Compose for load testing the MAS API.
+#
+# Usage:
+#   # Start services
+#   docker compose -f docker-compose.loadtest.yml up -d postgres valkey api
+#
+#   # Wait for API to be healthy, then run Locust (master + 2 workers)
+#   docker compose -f docker-compose.loadtest.yml up locust-master locust-worker-1 locust-worker-2
+#
+#   # Or run Locust locally (more control):
+#   locust -f tests/load/locustfile.py --host http://localhost:8000 \
+#          --users 50 --spawn-rate 5 --run-time 60s --headless --csv results/load
+#
+#   # Validate results
+#   python tests/load/validate_results.py results/load
+#
+
+services:
+  postgres:
+    image: timescale/timescaledb-ha:pg16
+    container_name: mas-loadtest-postgres
+    environment:
+      POSTGRES_USER: mas
+      POSTGRES_PASSWORD: mas_loadtest_password
+      POSTGRES_DB: mas_loadtest
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mas -d mas_loadtest"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    tmpfs:
+      - /home/postgres/pgdata/data
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
+
+  valkey:
+    image: valkey/valkey:8.1-alpine
+    container_name: mas-loadtest-valkey
+    command: valkey-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.5"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mas-loadtest-api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://mas:mas_loadtest_password@postgres:5432/mas_loadtest
+      VALKEY_URL: valkey://valkey:6379
+      JWT_SECRET_KEY: loadtest-jwt-secret-key-must-be-32chars
+      ENCRYPTION_KEY: loadtest-encryption-key
+      OPENROUTER_API_KEY: loadtest-key
+      ENVIRONMENT: loadtest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "2.0"
+
+  locust-master:
+    image: locustio/locust:2.32
+    container_name: mas-loadtest-locust-master
+    ports:
+      - "8089:8089"
+    volumes:
+      - ./tests/load:/mnt/locust:ro
+      - ./results:/mnt/results
+    environment:
+      LOCUST_USERS: ${LOCUST_USERS:-50}
+      LOCUST_SPAWN_RATE: ${LOCUST_SPAWN_RATE:-5}
+      LOCUST_RUN_TIME: ${LOCUST_RUN_TIME:-60s}
+    command: >
+      -f /mnt/locust/locustfile.py
+      --master
+      --expect-workers 2
+      --host http://api:8000
+      --users ${LOCUST_USERS:-50}
+      --spawn-rate ${LOCUST_SPAWN_RATE:-5}
+      --run-time ${LOCUST_RUN_TIME:-60s}
+      --headless
+      --csv /mnt/results/load
+      --html /mnt/results/load_report.html
+    depends_on:
+      api:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+
+  locust-worker-1:
+    image: locustio/locust:2.32
+    container_name: mas-loadtest-locust-worker-1
+    volumes:
+      - ./tests/load:/mnt/locust:ro
+    command: >
+      -f /mnt/locust/locustfile.py
+      --worker
+      --master-host locust-master
+    depends_on:
+      - locust-master
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.5"
+
+  locust-worker-2:
+    image: locustio/locust:2.32
+    container_name: mas-loadtest-locust-worker-2
+    volumes:
+      - ./tests/load:/mnt/locust:ro
+    command: >
+      -f /mnt/locust/locustfile.py
+      --worker
+      --master-host locust-master
+    depends_on:
+      - locust-master
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.5"

@@ -46,11 +46,11 @@ function getInitials(user: User): string {
   return user.email.slice(0, 2).toUpperCase();
 }
 
-const roleBadgeVariant: Record<string, "default" | "secondary" | "outline"> = {
-  owner: "default",
-  co_owner: "default",
-  moderator: "secondary",
-  viewer: "outline",
+const roleBadgeColors: Record<string, string> = {
+  owner: "bg-red-500/20 text-red-400 border-red-500/30",
+  co_owner: "bg-red-500/15 text-red-400/80 border-red-500/20",
+  moderator: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  viewer: "bg-muted text-muted-foreground border-muted-foreground/20",
 };
 
 const statusBadgeVariant: Record<string, "default" | "warning" | "destructive" | "success"> = {
@@ -117,7 +117,10 @@ export function UserCard({
             <p className="text-sm font-medium text-foreground">
               {user.name || user.email}
             </p>
-            <Badge variant={roleBadgeVariant[user.role] ?? "outline"} className="text-[10px]">
+            <Badge
+              variant="outline"
+              className={`text-[10px] ${roleBadgeColors[user.role] ?? ""}`}
+            >
               {user.role === "co_owner" ? "co-owner" : user.role}
             </Badge>
             <Badge

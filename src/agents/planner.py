@@ -23,6 +23,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from src.agents.base import ConstrainedAgent
 from src.core.database import get_db_session
 from src.core.heartbeat import HeartbeatMonitor
+from src.core.json_repair import extract_json
 from src.core.llm_client import LLMClient
 from src.core.loop_detector import LoopDetector
 from src.core.models import AgentLog
@@ -229,21 +230,14 @@ class PlannerAgent(ConstrainedAgent):
         return self._parse_plan_response(raw_text)
 
     def _parse_plan_response(self, raw: str) -> dict[str, Any] | None:
-        """Parse the LLM's plan JSON response.
+        """Parse the LLM's plan JSON response using extract_json.
 
         Returns a validated plan dict or ``None`` on failure.
         """
-        text = raw.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text = "\n".join(lines[1:])
-            if text.endswith("```"):
-                text = text[:-3].strip()
-
         try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError as exc:
-            self._log.error("planner_json_parse_error", raw_preview=text[:300], error=str(exc))
+            parsed = extract_json(raw, expected_type=dict)
+        except ValueError as exc:
+            self._log.error("planner_json_parse_error", raw_preview=raw[:300], error=str(exc))
             return None
 
         if not isinstance(parsed, dict):
@@ -439,23 +433,13 @@ async def planner_node(state: AgentState) -> AgentState:
 
     This is the entry-point wired into the ``StateGraph``.
     """
-    llm_client = LLMClient()
-    heartbeat = HeartbeatMonitor(
-        valkey=_get_valkey_client(),
-        db_pool=None,  # DB pool injected at app startup in production
-    )
-    loop_detector = LoopDetector(max_iterations=50, max_identical_steps=3)
+    from src.core.container import get_container  # noqa: PLC0415
 
+    container = get_container()
     agent = PlannerAgent(
-        llm_client=llm_client,
-        heartbeat=heartbeat,
-        loop_detector=loop_detector,
+        llm_client=container.llm_client,
+        heartbeat=container.heartbeat,
+        loop_detector=container.loop_detector,
     )
 
     return await agent.invoke(state)
-
-
-def _get_valkey_client() -> Any:
-    """Return the shared Valkey (redis-py) async client."""
-    from src.core.database import get_valkey  # noqa: PLC0415
-    return get_valkey()

@@ -2,17 +2,25 @@ services:
   postgres:
     image: timescale/timescaledb-ha:pg16
     restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-mas}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-mas}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/home/postgres/pgdata/data
+    tmpfs:
+      - /tmp:size=256m
+      - /run:size=64m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mas}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - backend
     deploy:
       resources:
         limits:
@@ -20,16 +28,27 @@ services:
           cpus: "1.0"
 
   valkey:
-    image: valkey/valkey:8-alpine
+    image: valkey/valkey:8.1-alpine
     restart: unless-stopped
-    command: valkey-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    command: >
+      valkey-server
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --requirepass ${VALKEY_PASSWORD:-changeme}
     volumes:
       - valkey_data:/data
+    tmpfs:
+      - /tmp:size=64m
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      test: ["CMD", "valkey-cli", "-a", "${VALKEY_PASSWORD:-changeme}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - backend
     deploy:
       resources:
         limits:
@@ -39,13 +58,18 @@ services:
   api:
     image: ${DOCKER_REGISTRY:-ghcr.io}/${IMAGE_NAME:-mas}:latest
     restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
     command: >
       litestar --app src.api.main:app run
       --host 0.0.0.0 --port 8000 --workers 2
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-mas}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mas}
-      VALKEY_URL: valkey://valkey:6379
+      VALKEY_URL: valkey://default:${VALKEY_PASSWORD:-changeme}@valkey:6379
+    tmpfs:
+      - /tmp:size=128m
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,6 +81,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+    networks:
+      - frontend
+      - backend
     deploy:
       resources:
         limits:
@@ -66,11 +93,16 @@ services:
   worker:
     image: ${DOCKER_REGISTRY:-ghcr.io}/${IMAGE_NAME:-mas}:latest
     restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
     command: python -m src.worker
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-mas}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mas}
-      VALKEY_URL: valkey://valkey:6379
+      VALKEY_URL: valkey://default:${VALKEY_PASSWORD:-changeme}@valkey:6379
+    tmpfs:
+      - /tmp:size=256m
     depends_on:
       postgres:
         condition: service_healthy
@@ -78,6 +110,8 @@ services:
         condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - backend
     deploy:
       resources:
         limits:
@@ -87,16 +121,23 @@ services:
   bot:
     image: ${DOCKER_REGISTRY:-ghcr.io}/${IMAGE_NAME:-mas}:latest
     restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
     command: python -m src.bot
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-mas}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mas}
-      VALKEY_URL: valkey://valkey:6379
+      VALKEY_URL: valkey://default:${VALKEY_PASSWORD:-changeme}@valkey:6379
+    tmpfs:
+      - /tmp:size=64m
     depends_on:
       postgres:
         condition: service_healthy
       valkey:
         condition: service_healthy
+    networks:
+      - backend
     deploy:
       resources:
         limits:
@@ -106,12 +147,19 @@ services:
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ssl_certs:/etc/letsencrypt:ro
+    tmpfs:
+      - /tmp:size=64m
+      - /var/cache/nginx:size=128m
+      - /var/run:size=16m
     depends_on:
       api:
         condition: service_healthy
@@ -120,11 +168,20 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    networks:
+      - frontend
     deploy:
       resources:
         limits:
           memory: 256m
           cpus: "0.25"
+
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+    internal: true
 
 volumes:
   postgres_data:

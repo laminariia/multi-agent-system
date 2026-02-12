@@ -13,7 +13,6 @@ CRITICAL: Email sending requires HITL approval. This agent only DRAFTS emails.
 """
 from __future__ import annotations
 
-import json
 import uuid
 from decimal import Decimal
 from typing import Any
@@ -25,6 +24,7 @@ from sqlalchemy import select, update
 from src.agents.base import ConstrainedAgent
 from src.core.database import get_db_session
 from src.core.heartbeat import HeartbeatMonitor
+from src.core.json_repair import extract_json
 from src.core.llm_client import LLMClient
 from src.core.loop_detector import LoopDetector
 from src.core.models import CampaignLead, EmailCampaign, HITLQueue, Lead
@@ -452,17 +452,8 @@ class OutreachAgent(ConstrainedAgent):
 
 
 def _parse_email_json(text: str) -> dict[str, Any]:
-    """Parse JSON from an LLM response, stripping markdown code fences."""
-    cleaned = text.strip()
-    if "```" in cleaned:
-        parts = cleaned.split("```")
-        if len(parts) >= 2:  # noqa: PLR2004
-            inner = parts[1]
-            if inner.startswith("json"):
-                inner = inner[4:]
-            cleaned = inner.strip()
-
-    return json.loads(cleaned)
+    """Parse JSON from an LLM response using extract_json for robustness."""
+    return extract_json(text, expected_type=dict)
 
 
 # ======================================================================
@@ -473,33 +464,27 @@ def _parse_email_json(text: str) -> dict[str, Any]:
 async def outreach_node(state: dict[str, Any]) -> dict[str, Any]:
     """LangGraph node wrapper for the Outreach agent.
 
-    Creates an :class:`OutreachAgent` instance with minimal dependencies
-    and runs it.  Uses ``dict[str, Any]`` signature to avoid LangGraph
-    state reconstruction issues (see MEMORY.md).
+    Creates an :class:`OutreachAgent` instance with shared dependencies
+    from the DI container and runs it.  Uses ``dict[str, Any]`` signature
+    to avoid LangGraph state reconstruction issues (see MEMORY.md).
     """
-    from src.core.heartbeat import HeartbeatMonitor  # noqa: PLC0415
-    from src.core.llm_client import LLMClient  # noqa: PLC0415
-    from src.core.loop_detector import LoopDetector  # noqa: PLC0415
+    from src.core.container import get_container  # noqa: PLC0415
 
+    container = get_container()
     agent = OutreachAgent(
-        llm_client=LLMClient(),
-        heartbeat=HeartbeatMonitor(
-            valkey=_get_valkey_client(),
-            db_pool=None,
-        ),
-        loop_detector=LoopDetector(),
+        llm_client=container.llm_client,
+        heartbeat=container.heartbeat,
+        loop_detector=container.loop_detector,
     )
 
-    result = await agent.invoke(state)
-
-    # Clean up enrichment HTTP clients.
-    if agent._waterfall is not None:  # noqa: SLF001
-        await agent._waterfall.close()  # noqa: SLF001
+    try:
+        result = await agent.invoke(state)
+    finally:
+        # Clean up enrichment HTTP clients.
+        if agent._waterfall is not None:  # noqa: SLF001
+            try:
+                await agent._waterfall.close()  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                logger.debug("outreach_waterfall_close_error", exc_info=True)
 
     return result
-
-
-def _get_valkey_client() -> Any:
-    """Return the shared Valkey (redis-py) async client."""
-    from src.core.database import get_valkey  # noqa: PLC0415
-    return get_valkey()

@@ -623,7 +623,7 @@ def test_parse_email_json_markdown_fences():
 def test_parse_email_json_invalid():
     """Outreach: _parse_email_json returns exception on invalid JSON."""
     text = "not json"
-    with pytest.raises(json.JSONDecodeError):
+    with pytest.raises((json.JSONDecodeError, ValueError)):
         _parse_email_json(text)
 
 

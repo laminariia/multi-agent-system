@@ -1,3 +1,4 @@
+export { RouteErrorBoundary as ErrorBoundary } from "~/components/route-error-boundary";
 import { RunnerStatusCard } from "~/components/runner-status-card";
 import { GoalList } from "~/components/goal-list";
 import { HealthGauge } from "~/components/health-gauge";

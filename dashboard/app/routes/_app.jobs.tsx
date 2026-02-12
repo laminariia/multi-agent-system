@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+export { RouteErrorBoundary as ErrorBoundary } from "~/components/route-error-boundary";
 import { Card, CardContent } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -77,6 +78,7 @@ export default function JobsPage() {
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       }),
+    staleTime: 30_000,
     refetchInterval: 30_000,
   });
 

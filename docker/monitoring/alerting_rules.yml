@@ -1,0 +1,65 @@
+groups:
+  - name: mas-alerts
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High 5xx error rate (> 5%)"
+          description: "5xx error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: AgentHeartbeatMissing
+        expr: |
+          time() - max(agent_last_heartbeat_timestamp) by (agent) > 120
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent {{ $labels.agent }} heartbeat missing"
+          description: "No heartbeat from agent {{ $labels.agent }} for over 2 minutes."
+
+      - alert: HITLQueueBacklog
+        expr: hitl_queue_size > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HITL queue backlog (> 50 items)"
+          description: "HITL queue has {{ $value }} pending items for over 10 minutes."
+
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API latency (P95 > 2s)"
+          description: "P95 latency is {{ $value }}s over the last 5 minutes."
+
+      - alert: DatabaseConnectionPoolExhausted
+        expr: |
+          (db_pool_checked_out / db_pool_size) > 0.9
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection pool > 90% utilized"
+          description: "DB pool utilization is {{ $value | humanizePercentage }}."
+
+      - alert: ValkeyHighMemory
+        expr: |
+          (redis_memory_used_bytes / redis_memory_max_bytes) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Valkey memory usage > 80%"
+          description: "Valkey is using {{ $value | humanizePercentage }} of max memory."
