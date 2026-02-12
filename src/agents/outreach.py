@@ -95,20 +95,36 @@ class OutreachAgent(ConstrainedAgent):
         )
         self._waterfall = waterfall
 
-    def _get_waterfall(self) -> EnrichmentWaterfall:
-        """Get or lazily create the enrichment waterfall."""
-        if self._waterfall is None:
-            try:
-                from src.core.config import get_settings  # noqa: PLC0415
+    async def _get_waterfall(self, user_id: str | None = None) -> EnrichmentWaterfall:
+        """Get or lazily create the enrichment waterfall.
 
-                settings = get_settings()
-                self._waterfall = EnrichmentWaterfall(
-                    hunter_api_key=settings.HUNTER_API_KEY,
-                    apollo_api_key=settings.APOLLO_API_KEY,
-                )
-            except Exception:  # noqa: BLE001
-                logger.warning("outreach_waterfall_fallback", exc_info=True)
-                self._waterfall = EnrichmentWaterfall()
+        When *user_id* is provided, credentials are loaded from the DB
+        Settings table first (falling back to env vars).
+        """
+        if self._waterfall is None:
+            hunter_key: str | None = None
+            apollo_key: str | None = None
+
+            # Try DB credentials first when user context is available
+            if user_id:
+                hunter_key = await self._get_credential("hunter_api_key", user_id)
+                apollo_key = await self._get_credential("apollo_api_key", user_id)
+
+            # Fall back to env vars
+            if not hunter_key or not apollo_key:
+                try:
+                    from src.core.config import get_settings  # noqa: PLC0415
+
+                    settings = get_settings()
+                    hunter_key = hunter_key or settings.HUNTER_API_KEY
+                    apollo_key = apollo_key or settings.APOLLO_API_KEY
+                except Exception:  # noqa: BLE001
+                    logger.warning("outreach_waterfall_fallback", exc_info=True)
+
+            self._waterfall = EnrichmentWaterfall(
+                hunter_api_key=hunter_key or "",
+                apollo_api_key=apollo_key or "",
+            )
         return self._waterfall
 
     # ------------------------------------------------------------------
@@ -166,7 +182,8 @@ class OutreachAgent(ConstrainedAgent):
                 )
 
             # 2. Enrich leads via waterfall.
-            waterfall = self._get_waterfall()
+            user_id = state.get("user_id")  # type: ignore[typeddict-item]
+            waterfall = await self._get_waterfall(user_id=user_id)
             enriched_leads = await self._enrich_leads(leads, waterfall)
 
             # 3. Generate emails for enriched leads.

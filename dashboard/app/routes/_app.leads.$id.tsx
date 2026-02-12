@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from "@remix-run/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
@@ -27,6 +27,7 @@ function statusBadgeVariant(
 export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: lead, isLoading, error } = useQuery({
     queryKey: ["lead", id],
@@ -49,8 +50,19 @@ export default function LeadDetailPage() {
         <Button variant="ghost" size="sm" onClick={() => navigate("/leads")}>
           &larr; Back to Leads
         </Button>
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-          {error instanceof Error ? error.message : "Lead not found"}
+        <div className="flex items-center justify-between rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+          <p className="text-sm text-destructive">
+            {error instanceof Error ? error.message : "Lead not found"}
+          </p>
+          {error && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => queryClient.invalidateQueries({ queryKey: ["lead", id] })}
+            >
+              Retry
+            </Button>
+          )}
         </div>
       </div>
     );

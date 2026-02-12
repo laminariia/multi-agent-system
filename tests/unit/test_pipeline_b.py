@@ -479,8 +479,8 @@ async def test_outreach_execute_no_leads():
 
 
 @pytest.mark.asyncio
-async def test_outreach_get_waterfall():
-    """Outreach: _get_waterfall creates waterfall from settings."""
+async def test_outreach_get_waterfall_env_vars():
+    """Outreach: _get_waterfall creates waterfall from settings when no user_id."""
     mock_llm = MagicMock()
     mock_heartbeat = MagicMock()
     mock_loop_detector = MagicMock()
@@ -503,13 +503,107 @@ async def test_outreach_get_waterfall():
         mock_settings_instance.APOLLO_API_KEY = "apollo_key"
         mock_settings.return_value = mock_settings_instance
 
-        waterfall = agent._get_waterfall()  # noqa: SLF001
+        waterfall = await agent._get_waterfall()  # noqa: SLF001
 
     mock_wf_cls.assert_called_once_with(
         hunter_api_key="hunter_key",
         apollo_api_key="apollo_key",
     )
     assert waterfall == mock_waterfall_instance
+
+
+@pytest.mark.asyncio
+async def test_outreach_get_waterfall_db_credentials():
+    """Outreach: _get_waterfall loads credentials from DB when user_id provided."""
+    mock_llm = MagicMock()
+    mock_heartbeat = MagicMock()
+    mock_loop_detector = MagicMock()
+
+    agent = OutreachAgent(
+        llm_client=mock_llm,
+        heartbeat=mock_heartbeat,
+        loop_detector=mock_loop_detector,
+        waterfall=None,
+    )
+
+    mock_waterfall_instance = MagicMock(spec=EnrichmentWaterfall)
+
+    async def fake_get_credential(key_name, user_id=None):
+        creds = {"hunter_api_key": "db_hunter_key", "apollo_api_key": "db_apollo_key"}
+        return creds.get(key_name)
+
+    with (
+        patch.object(agent, "_get_credential", side_effect=fake_get_credential),
+        patch("src.agents.outreach.EnrichmentWaterfall", return_value=mock_waterfall_instance) as mock_wf_cls,
+    ):
+        waterfall = await agent._get_waterfall(user_id="user-123")  # noqa: SLF001
+
+    mock_wf_cls.assert_called_once_with(
+        hunter_api_key="db_hunter_key",
+        apollo_api_key="db_apollo_key",
+    )
+    assert waterfall == mock_waterfall_instance
+
+
+@pytest.mark.asyncio
+async def test_outreach_get_waterfall_db_partial_fallback():
+    """Outreach: _get_waterfall falls back to env when DB has only one key."""
+    mock_llm = MagicMock()
+    mock_heartbeat = MagicMock()
+    mock_loop_detector = MagicMock()
+
+    agent = OutreachAgent(
+        llm_client=mock_llm,
+        heartbeat=mock_heartbeat,
+        loop_detector=mock_loop_detector,
+        waterfall=None,
+    )
+
+    mock_waterfall_instance = MagicMock(spec=EnrichmentWaterfall)
+
+    async def fake_get_credential(key_name, user_id=None):
+        # Only hunter key in DB, no apollo
+        if key_name == "hunter_api_key":
+            return "db_hunter_key"
+        return None
+
+    with (
+        patch.object(agent, "_get_credential", side_effect=fake_get_credential),
+        patch("src.core.config.get_settings") as mock_settings,
+        patch("src.agents.outreach.EnrichmentWaterfall", return_value=mock_waterfall_instance) as mock_wf_cls,
+    ):
+        mock_settings_instance = MagicMock()
+        mock_settings_instance.HUNTER_API_KEY = "env_hunter_key"
+        mock_settings_instance.APOLLO_API_KEY = "env_apollo_key"
+        mock_settings.return_value = mock_settings_instance
+
+        waterfall = await agent._get_waterfall(user_id="user-123")  # noqa: SLF001
+
+    # Hunter from DB, Apollo from env fallback
+    mock_wf_cls.assert_called_once_with(
+        hunter_api_key="db_hunter_key",
+        apollo_api_key="env_apollo_key",
+    )
+    assert waterfall == mock_waterfall_instance
+
+
+@pytest.mark.asyncio
+async def test_outreach_get_waterfall_uses_cached():
+    """Outreach: _get_waterfall returns cached waterfall on second call."""
+    mock_llm = MagicMock()
+    mock_heartbeat = MagicMock()
+    mock_loop_detector = MagicMock()
+
+    pre_waterfall = MagicMock(spec=EnrichmentWaterfall)
+    agent = OutreachAgent(
+        llm_client=mock_llm,
+        heartbeat=mock_heartbeat,
+        loop_detector=mock_loop_detector,
+        waterfall=pre_waterfall,
+    )
+
+    result = await agent._get_waterfall()  # noqa: SLF001
+    assert result is pre_waterfall
 
 
 def test_parse_email_json_valid():
