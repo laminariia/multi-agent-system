@@ -1,7 +1,8 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Skeleton } from "~/components/ui/skeleton";
+import { Button } from "~/components/ui/button";
 import { MetricCard } from "~/components/metric-card";
 import { AgentCard } from "~/components/agent-card";
 import { PipelineFlow } from "~/components/pipeline-flow";
@@ -11,7 +12,9 @@ import { fetchAgentStatus, fetchHITLStats, fetchJobs, fetchJobStats, fetchHITLTr
 import { OrchStatusWidget } from "~/components/orch-status-widget";
 
 export default function DashboardPage() {
-  const { data: agentData, isLoading: agentsLoading } = useQuery({
+  const queryClient = useQueryClient();
+
+  const { data: agentData, isLoading: agentsLoading, error: agentError } = useQuery({
     queryKey: ["agent-status"],
     queryFn: fetchAgentStatus,
     refetchInterval: 30_000,
@@ -108,9 +111,27 @@ export default function DashboardPage() {
     return events.slice(0, 20);
   }, [agents]);
 
+  const hasError = !!agentError;
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+
+      {/* Error banner */}
+      {hasError && (
+        <div className="flex items-center justify-between rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+          <p className="text-sm text-destructive">
+            Failed to load dashboard data. The API may be unavailable.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => queryClient.invalidateQueries()}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
 
       {/* Metric cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">

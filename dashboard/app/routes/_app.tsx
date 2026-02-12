@@ -17,6 +17,7 @@ import { useThemeStore } from "~/stores/theme-store";
 import { fetchHITLPending, fetchUsers } from "~/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "~/hooks/use-toast";
+import { cn } from "~/lib/utils";
 
 export default function AppLayout() {
   const navigate = useNavigate();
@@ -24,7 +25,9 @@ export default function AppLayout() {
   const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectAttemptsRef = useRef(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
 
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
@@ -56,9 +59,11 @@ export default function AppLayout() {
     }
   }, [isAuthenticated, navigate]);
 
-  // WebSocket connection
+  // WebSocket connection with infinite retry and status tracking
   const connectWs = useCallback(() => {
     if (!accessToken) return;
+
+    setWsStatus("connecting");
 
     const apiUrl = window.ENV?.API_URL;
     const wsHost = apiUrl
@@ -72,6 +77,8 @@ export default function AppLayout() {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        reconnectAttemptsRef.current = 0;
+        setWsStatus("connected");
         ws.send(
           JSON.stringify({
             type: "auth",
@@ -148,16 +155,36 @@ export default function AppLayout() {
 
       ws.onclose = () => {
         wsRef.current = null;
-        reconnectTimeoutRef.current = setTimeout(connectWs, 3000);
+        setWsStatus("disconnected");
+        // Infinite retry with exponential backoff (max 30s)
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
+        reconnectAttemptsRef.current += 1;
+        reconnectTimeoutRef.current = setTimeout(connectWs, delay);
       };
 
       ws.onerror = () => {
         ws.close();
       };
     } catch {
-      reconnectTimeoutRef.current = setTimeout(connectWs, 5000);
+      setWsStatus("disconnected");
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
+      reconnectAttemptsRef.current += 1;
+      reconnectTimeoutRef.current = setTimeout(connectWs, delay);
     }
   }, [accessToken, queryClient]);
+
+  // Reconnect on tab focus
+  useEffect(() => {
+    const onFocus = () => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+        reconnectAttemptsRef.current = 0;
+        connectWs();
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [connectWs]);
 
   useEffect(() => {
     connectWs();
@@ -364,6 +391,39 @@ export default function AppLayout() {
           </nav>
 
           <div className="flex items-center gap-1">
+            {/* WebSocket status indicator */}
+            <div
+              className={cn(
+                "flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-medium transition-colors",
+                wsStatus === "connected"
+                  ? "text-emerald-500"
+                  : wsStatus === "connecting"
+                  ? "text-amber-500"
+                  : "text-red-400"
+              )}
+              title={
+                wsStatus === "connected"
+                  ? "Real-time updates active"
+                  : wsStatus === "connecting"
+                  ? "Connecting to server..."
+                  : "Disconnected — retrying..."
+              }
+            >
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  wsStatus === "connected"
+                    ? "bg-emerald-500"
+                    : wsStatus === "connecting"
+                    ? "bg-amber-500 animate-pulse"
+                    : "bg-red-400 animate-pulse"
+                )}
+              />
+              {wsStatus !== "connected" && (
+                <span>{wsStatus === "connecting" ? "Connecting" : "Offline"}</span>
+              )}
+            </div>
+
             {/* Theme toggle */}
             <button
               onClick={toggleTheme}

@@ -13,7 +13,7 @@ function formatUptime(seconds: number | null): string {
 }
 
 export function RunnerStatusCard() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["orch-status"],
     queryFn: fetchOrchestratorStatus,
     refetchInterval: 15_000,
@@ -21,6 +21,16 @@ export function RunnerStatusCard() {
 
   if (isLoading && !data) {
     return <Skeleton className="h-[180px]" />;
+  }
+
+  if (error && !data) {
+    return (
+      <Card className="border-destructive/30">
+        <CardContent className="flex items-center justify-center py-8">
+          <p className="text-sm text-destructive">Failed to load orchestrator status</p>
+        </CardContent>
+      </Card>
+    );
   }
 
   const alive = data?.alive ?? false;

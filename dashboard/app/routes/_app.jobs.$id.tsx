@@ -73,8 +73,21 @@ export default function JobDetailPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-[300px]" />
+        <Skeleton className="h-5 w-24" />
+        <div className="flex items-start justify-between gap-4">
+          <Skeleton className="h-8 w-72" />
+          <Skeleton className="h-9 w-28" />
+        </div>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2 space-y-4">
+            <Skeleton className="h-[200px]" />
+            <Skeleton className="h-[120px]" />
+          </div>
+          <div className="space-y-4">
+            <Skeleton className="h-[180px]" />
+            <Skeleton className="h-[120px]" />
+          </div>
+        </div>
       </div>
     );
   }
