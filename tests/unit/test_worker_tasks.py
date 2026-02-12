@@ -78,33 +78,54 @@ class TestRunScoutCycle:
 
 
 class TestRunProjectPipeline:
-    """Test run_project_pipeline task."""
+    """Test run_project_pipeline task.
+
+    The function now uses ``create_graph_with_persistence`` (checkpointed)
+    instead of ``build_planner_pipeline_graph``, so we mock the new deps:
+    ``get_settings``, ``get_valkey``, ``asyncpg.create_pool``, and
+    ``create_graph_with_persistence``.
+    """
+
+    def _pipeline_patches(self):
+        """Return a tuple of patch contexts for run_project_pipeline deps.
+
+        The function uses lazy imports, so we patch at the source module:
+        ``src.core.config.get_settings``, ``src.core.database.get_valkey``,
+        ``asyncpg.create_pool``, ``src.core.graph.create_graph_with_persistence``.
+        """
+        from unittest.mock import MagicMock
+
+        mock_settings = MagicMock()
+        mock_settings.DATABASE_URL = "postgresql://test:test@localhost/test"
+
+        mock_valkey = MagicMock()
+
+        mock_pool = AsyncMock()
+        mock_pool.close = AsyncMock()
+
+        mock_graph = AsyncMock()
+        mock_graph.ainvoke = AsyncMock(return_value={"status": "completed"})
+
+        patches = {
+            "settings": patch("src.core.config.get_settings", return_value=mock_settings),
+            "valkey": patch("src.core.database.get_valkey", return_value=mock_valkey),
+            "pool": patch("asyncpg.create_pool", new_callable=AsyncMock, return_value=mock_pool),
+            "graph": patch("src.core.graph.create_graph_with_persistence", return_value=mock_graph),
+        }
+        return patches, mock_graph, mock_pool
 
     @pytest.mark.asyncio
     async def test_creates_project_context_from_payload(self) -> None:
-        """Should create ProjectContext with payload data."""
-        # Create a mock object that supports both dict and attribute access
-        from unittest.mock import MagicMock
-        mock_project = MagicMock()
-        mock_project.__getitem__ = lambda self, key: {
-            "project_id": "proj-123",
-            "job_id": "job-456",
-            "platform": "freelancer",
-            "client": {},
-            "requirements": "Build a website",
-            "budget": 1000,
-            "deadline": None,
-        }[key]
-        mock_project.project_id = "proj-123"
+        """Should create ProjectContext with payload data and return result."""
+        patches, mock_graph, mock_pool = self._pipeline_patches()
+        mock_graph.ainvoke = AsyncMock(return_value={"status": "completed"})
 
         with (
-            patch("src.worker.tasks.ProjectContext", return_value=mock_project),
-            patch("src.core.graph.build_planner_pipeline_graph") as mock_build,
+            patches["settings"],
+            patches["valkey"],
+            patches["pool"],
+            patches["graph"],
         ):
-            mock_graph = AsyncMock()
-            mock_graph.ainvoke = AsyncMock(return_value={"status": "completed"})
-            mock_build.return_value = mock_graph
-
             payload = {
                 "project_id": "proj-123",
                 "job_id": "job-456",
@@ -119,20 +140,16 @@ class TestRunProjectPipeline:
             assert result["project_id"] == "proj-123"
 
     @pytest.mark.asyncio
-    async def test_calls_build_planner_pipeline_graph_and_ainvoke(self) -> None:
-        """Should build planner pipeline graph and invoke it."""
-        from unittest.mock import MagicMock
-        mock_project = MagicMock()
-        mock_project.project_id = "proj-123"
+    async def test_uses_checkpointed_graph_with_planner_pipeline(self) -> None:
+        """Should call create_graph_with_persistence with planner_pipeline=True."""
+        patches, mock_graph, mock_pool = self._pipeline_patches()
 
         with (
-            patch("src.worker.tasks.ProjectContext", return_value=mock_project),
-            patch("src.core.graph.build_planner_pipeline_graph") as mock_build,
+            patches["settings"],
+            patches["valkey"],
+            patches["pool"],
+            patches["graph"] as mock_create,
         ):
-            mock_graph = AsyncMock()
-            mock_graph.ainvoke = AsyncMock(return_value={"status": "in_progress"})
-            mock_build.return_value = mock_graph
-
             payload = {
                 "project_id": "proj-123",
                 "requirements": "Test task",
@@ -141,30 +158,70 @@ class TestRunProjectPipeline:
 
             await run_project_pipeline(payload)
 
-            mock_build.assert_called_once()
-            mock_graph.ainvoke.assert_awaited_once()
+            mock_create.assert_called_once()
+            call_kwargs = mock_create.call_args
+            assert call_kwargs.kwargs.get("planner_pipeline") is True
+
+    @pytest.mark.asyncio
+    async def test_passes_thread_id_in_config(self) -> None:
+        """Should invoke graph with configurable thread_id."""
+        patches, mock_graph, mock_pool = self._pipeline_patches()
+
+        with (
+            patches["settings"],
+            patches["valkey"],
+            patches["pool"],
+            patches["graph"],
+        ):
+            payload = {
+                "project_id": "proj-abc",
+                "requirements": "Test",
+                "budget": 200,
+            }
+
+            await run_project_pipeline(payload)
+
+            call = mock_graph.ainvoke.call_args
+            config = (
+                call.kwargs.get("config")
+                or call[1].get("config")
+                or call[0][1]
+            )
+            assert config["configurable"]["thread_id"] == "pipeline-proj-abc"
+
+    @pytest.mark.asyncio
+    async def test_returns_thread_id_in_result(self) -> None:
+        """Should include thread_id in the result dict."""
+        patches, mock_graph, mock_pool = self._pipeline_patches()
+
+        with (
+            patches["settings"],
+            patches["valkey"],
+            patches["pool"],
+            patches["graph"],
+        ):
+            payload = {
+                "project_id": "proj-xyz",
+                "requirements": "Test",
+                "budget": 100,
+            }
+
+            result = await run_project_pipeline(payload)
+
+            assert result["thread_id"] == "pipeline-proj-xyz"
 
     @pytest.mark.asyncio
     async def test_returns_project_id_and_final_status(self) -> None:
         """Should return project ID and final status."""
-        mock_project = {
-            "project_id": "proj-abc",
-            "job_id": "",
-            "platform": "freelancer",
-            "client": {},
-            "requirements": "Test",
-            "budget": 200,
-            "deadline": None,
-        }
+        patches, mock_graph, mock_pool = self._pipeline_patches()
+        mock_graph.ainvoke = AsyncMock(return_value={"status": "delivered"})
 
         with (
-            patch("src.worker.tasks.ProjectContext", return_value=mock_project),
-            patch("src.core.graph.build_planner_pipeline_graph") as mock_build,
+            patches["settings"],
+            patches["valkey"],
+            patches["pool"],
+            patches["graph"],
         ):
-            mock_graph = AsyncMock()
-            mock_graph.ainvoke = AsyncMock(return_value={"status": "delivered"})
-            mock_build.return_value = mock_graph
-
             payload = {
                 "project_id": "proj-abc",
                 "requirements": "Test",
@@ -176,6 +233,50 @@ class TestRunProjectPipeline:
             assert result["task"] == "project_pipeline"
             assert result["project_id"] == "proj-abc"
             assert result["status"] == "delivered"
+
+    @pytest.mark.asyncio
+    async def test_closes_db_pool_after_completion(self) -> None:
+        """Should close the temporary DB pool even on success."""
+        patches, mock_graph, mock_pool = self._pipeline_patches()
+
+        with (
+            patches["settings"],
+            patches["valkey"],
+            patches["pool"],
+            patches["graph"],
+        ):
+            payload = {
+                "project_id": "proj-close",
+                "requirements": "Test",
+                "budget": 100,
+            }
+
+            await run_project_pipeline(payload)
+
+            mock_pool.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_closes_db_pool_on_graph_failure(self) -> None:
+        """Should close the DB pool even when graph.ainvoke raises."""
+        patches, mock_graph, mock_pool = self._pipeline_patches()
+        mock_graph.ainvoke = AsyncMock(side_effect=RuntimeError("graph exploded"))
+
+        with (
+            patches["settings"],
+            patches["valkey"],
+            patches["pool"],
+            patches["graph"],
+        ):
+            payload = {
+                "project_id": "proj-fail",
+                "requirements": "Test",
+                "budget": 100,
+            }
+
+            with pytest.raises(RuntimeError, match="graph exploded"):
+                await run_project_pipeline(payload)
+
+            mock_pool.close.assert_awaited_once()
 
 
 class TestRunBidGeneration:
@@ -237,17 +338,20 @@ class TestDispatchTask:
     async def test_dispatches_project_pipeline_correctly(self) -> None:
         """Should dispatch project_pipeline to correct handler."""
         from unittest.mock import MagicMock
-        mock_project = MagicMock()
-        mock_project.project_id = "p1"
+
+        mock_settings = MagicMock()
+        mock_settings.DATABASE_URL = "postgresql://test:test@localhost/test"
+        mock_pool = AsyncMock()
+        mock_pool.close = AsyncMock()
+        mock_graph = AsyncMock()
+        mock_graph.ainvoke = AsyncMock(return_value={"status": "completed"})
 
         with (
-            patch("src.worker.tasks.ProjectContext", return_value=mock_project),
-            patch("src.core.graph.build_planner_pipeline_graph") as mock_build,
+            patch("src.core.config.get_settings", return_value=mock_settings),
+            patch("src.core.database.get_valkey", return_value=MagicMock()),
+            patch("asyncpg.create_pool", new_callable=AsyncMock, return_value=mock_pool),
+            patch("src.core.graph.create_graph_with_persistence", return_value=mock_graph),
         ):
-            mock_graph = AsyncMock()
-            mock_graph.ainvoke = AsyncMock(return_value={"status": "completed"})
-            mock_build.return_value = mock_graph
-
             payload = {"project_id": "p1", "requirements": "Test", "budget": 100}
             result = await dispatch_task("project_pipeline", payload)
 

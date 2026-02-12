@@ -51,9 +51,16 @@ async def run_project_pipeline(payload: dict[str, Any]) -> dict[str, Any]:
     Starts at the Planner node (skipping Scout/Bid/HITL which have
     already completed by the time a project is won).
 
+    Uses a checkpointed graph so that HITL pauses (plan_review,
+    final_review) can be resumed later via ``resume_from_hitl``.
+
     Expects payload with: project_id, job_id, platform, requirements, budget.
     """
-    from src.core.graph import build_planner_pipeline_graph  # noqa: PLC0415
+    import asyncpg  # noqa: PLC0415
+
+    from src.core.config import get_settings  # noqa: PLC0415
+    from src.core.database import get_valkey  # noqa: PLC0415
+    from src.core.graph import create_graph_with_persistence  # noqa: PLC0415
 
     project = ProjectContext(
         project_id=payload["project_id"],
@@ -65,25 +72,38 @@ async def run_project_pipeline(payload: dict[str, Any]) -> dict[str, Any]:
         deadline=payload.get("deadline"),
     )
 
+    thread_id = f"pipeline-{project['project_id']}"
     state = create_initial_state(
         project=project,
         first_agent="planner",
-        thread_id=f"pipeline-{project['project_id']}",
+        thread_id=thread_id,
     )
 
-    graph = build_planner_pipeline_graph()
-    result = await graph.ainvoke(state)
+    settings = get_settings()
+    valkey = get_valkey()
+    db_pool = await asyncpg.create_pool(dsn=settings.DATABASE_URL, min_size=1, max_size=5)
+
+    try:
+        graph = create_graph_with_persistence(
+            valkey=valkey, db_pool=db_pool, planner_pipeline=True,
+        )
+        config = {"configurable": {"thread_id": thread_id}}
+        result = await graph.ainvoke(state, config=config)
+    finally:
+        await db_pool.close()
 
     final_status = result.get("status", "unknown")
     logger.info(
         "project_pipeline_complete",
         project_id=project["project_id"],
+        thread_id=thread_id,
         status=final_status,
     )
 
     return {
         "task": "project_pipeline",
         "project_id": project["project_id"],
+        "thread_id": thread_id,
         "status": final_status,
     }
 
