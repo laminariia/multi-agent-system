@@ -8,6 +8,7 @@ import { HITLCard } from "~/components/hitl-card";
 import { Pagination } from "~/components/pagination";
 import { Button } from "~/components/ui/button";
 import { fetchHITLPending, resolveHITL, bulkResolveHITL, fetchHITLStats } from "~/lib/api";
+import { downloadCSV } from "~/lib/utils";
 import { toast } from "~/hooks/use-toast";
 import { useAuthStore } from "~/stores/auth-store";
 
@@ -158,25 +159,48 @@ export default function HITLPage() {
           )}
         </div>
 
-        {stats && (
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span>
-              Today: {stats.today.resolved} resolved
-            </span>
-            <span className="text-border">|</span>
-            <span>
-              Avg: {stats.avg_resolution_time_minutes.toFixed(0)}m
-            </span>
-            {stats.today.expired > 0 && (
-              <>
-                <span className="text-border">|</span>
-                <span className="text-destructive">
-                  {stats.today.expired} expired
-                </span>
-              </>
-            )}
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {stats && (
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <span>
+                Today: {stats.today.resolved} resolved
+              </span>
+              <span className="text-border">|</span>
+              <span>
+                Avg: {stats.avg_resolution_time_minutes.toFixed(0)}m
+              </span>
+              {stats.today.expired > 0 && (
+                <>
+                  <span className="text-border">|</span>
+                  <span className="text-destructive">
+                    {stats.today.expired} expired
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={items.length === 0}
+            onClick={() => {
+              const rows = items.map((i) => ({
+                title: i.title,
+                type: i.type,
+                priority: i.priority,
+                description: i.description ?? "",
+                created_at: i.created_at,
+                expires_at: i.expires_at ?? "",
+              }));
+              downloadCSV(
+                rows,
+                `hitl-${new Date().toISOString().slice(0, 10)}.csv`
+              );
+            }}
+          >
+            Export CSV
+          </Button>
+        </div>
       </div>
 
       {/* Filter tabs + search */}

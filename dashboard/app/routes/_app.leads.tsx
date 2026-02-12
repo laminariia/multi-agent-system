@@ -7,10 +7,12 @@ import { Card, CardContent } from "~/components/ui/card";
 import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Pagination } from "~/components/pagination";
 import { JobsByPlatformChart } from "~/components/charts";
 import { MetricCard } from "~/components/metric-card";
 import { fetchLeads, fetchPipelineBStats, startScan } from "~/lib/api";
+import { downloadCSV } from "~/lib/utils";
 import { toast } from "~/hooks/use-toast";
 import type { Lead } from "~/lib/types";
 
@@ -22,6 +24,14 @@ const statusFilters = [
   { value: "enriched", label: "Enriched" },
   { value: "contacted", label: "Contacted" },
   { value: "failed", label: "Failed" },
+] as const;
+
+const sortOptions = [
+  { value: "newest", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
+  { value: "name_asc", label: "Name A-Z" },
+  { value: "name_desc", label: "Name Z-A" },
+  { value: "city_asc", label: "City A-Z" },
 ] as const;
 
 function statusBadgeVariant(
@@ -47,17 +57,19 @@ export default function LeadsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [cityFilter, setCityFilter] = useState("");
   const [scanCity, setScanCity] = useState("");
+  const [sortOrder, setSortOrder] = useState("newest");
   const [isScanning, setIsScanning] = useState(false);
   const [page, setPage] = useState(0);
 
   const handleStatusChange = (v: string) => { setStatusFilter(v); setPage(0); };
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["leads", statusFilter, cityFilter, page],
+    queryKey: ["leads", statusFilter, cityFilter, sortOrder, page],
     queryFn: () =>
       fetchLeads({
         status: statusFilter === "all" ? undefined : statusFilter,
         city: cityFilter || undefined,
+        sort: sortOrder === "newest" ? undefined : sortOrder,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       }),
@@ -123,16 +135,40 @@ export default function LeadsPage() {
           )}
         </div>
 
-        {stats && (
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span>Total: {stats.total_leads}</span>
-            {Object.entries(stats.by_status).map(([status, count]) => (
-              <span key={status}>
-                {status}: {count}
-              </span>
-            ))}
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {stats && (
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <span>Total: {stats.total_leads}</span>
+              {Object.entries(stats.by_status).map(([status, count]) => (
+                <span key={status}>
+                  {status}: {count}
+                </span>
+              ))}
+            </div>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={leads.length === 0}
+            onClick={() => {
+              const rows = leads.map((l) => ({
+                name: l.name,
+                category: l.category ?? "",
+                city: l.city ?? "",
+                phone: l.phone ?? "",
+                email: l.email ?? "",
+                status: l.status,
+                discovered_at: l.discovered_at ?? "",
+              }));
+              downloadCSV(
+                rows,
+                `leads-${new Date().toISOString().slice(0, 10)}.csv`
+              );
+            }}
+          >
+            Export CSV
+          </Button>
+        </div>
       </div>
 
       {/* Scan controls */}
@@ -256,6 +292,19 @@ export default function LeadsPage() {
           onChange={(e) => setCityFilter(e.target.value)}
           className="max-w-[200px]"
         />
+
+        <Select value={sortOrder} onValueChange={(v) => { setSortOrder(v); setPage(0); }}>
+          <SelectTrigger className="w-[140px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {sortOptions.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Loading state */}

@@ -8,6 +8,7 @@ from typing import Any
 import structlog
 from litestar import Controller, get, post
 from litestar.exceptions import HTTPException
+from litestar.params import Parameter
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,6 +69,10 @@ class PipelineBController(Controller):
         city: str | None = None,
         status: str | None = None,
         search: str | None = None,
+        sort: str | None = Parameter(
+            default=None,
+            description="Sort order: newest | oldest | name_asc | name_desc | city_asc",
+        ),
         limit: int = 50,
         offset: int = 0,
     ) -> dict[str, Any]:
@@ -81,7 +86,15 @@ class PipelineBController(Controller):
         if search:
             query = query.where(Lead.name.ilike(f"%{search}%"))
 
-        query = query.order_by(Lead.discovered_at.desc()).limit(limit).offset(offset)
+        sort_map = {
+            "newest": Lead.discovered_at.desc(),
+            "oldest": Lead.discovered_at.asc(),
+            "name_asc": Lead.name.asc(),
+            "name_desc": Lead.name.desc(),
+            "city_asc": Lead.city.asc().nulls_last(),
+        }
+        order = sort_map.get(sort, Lead.discovered_at.desc())
+        query = query.order_by(order).limit(limit).offset(offset)
 
         result = await db_session.execute(query)
         leads = result.scalars().all()

@@ -74,6 +74,10 @@ class JobController(Controller):
             default=None,
             description="Search jobs by title (case-insensitive substring)",
         ),
+        sort: str | None = Parameter(
+            default=None,
+            description="Sort order: newest | oldest | score_high | score_low | budget_high | budget_low",
+        ),
         limit: int = Parameter(default=20, ge=1, le=100),
         offset: int = Parameter(default=0, ge=0),
     ) -> JobListResponseSchema:
@@ -94,7 +98,16 @@ class JobController(Controller):
         total = (await db_session.execute(count_stmt)).scalar_one()
 
         # Fetch page
-        stmt = stmt.order_by(Job.discovered_at.desc()).limit(limit).offset(offset)
+        sort_map = {
+            "newest": Job.discovered_at.desc(),
+            "oldest": Job.discovered_at.asc(),
+            "score_high": Job.score.desc().nulls_last(),
+            "score_low": Job.score.asc().nulls_last(),
+            "budget_high": Job.budget_max.desc().nulls_last(),
+            "budget_low": Job.budget_min.asc().nulls_last(),
+        }
+        order = sort_map.get(sort, Job.discovered_at.desc())
+        stmt = stmt.order_by(order).limit(limit).offset(offset)
         result = await db_session.execute(stmt)
         rows = result.scalars().unique().all()
 

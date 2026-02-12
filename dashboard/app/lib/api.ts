@@ -307,6 +307,7 @@ export async function fetchJobs(params?: {
   platform?: string;
   min_score?: number;
   search?: string;
+  sort?: string;
   limit?: number;
   offset?: number;
 }): Promise<JobListResponse> {
@@ -315,6 +316,7 @@ export async function fetchJobs(params?: {
   if (params?.platform) searchParams.set("platform", params.platform);
   if (params?.min_score != null) searchParams.set("min_score", String(params.min_score));
   if (params?.search) searchParams.set("search", params.search);
+  if (params?.sort) searchParams.set("sort", params.sort);
   if (params?.limit) searchParams.set("limit", String(params.limit));
   if (params?.offset) searchParams.set("offset", String(params.offset));
 
@@ -418,6 +420,7 @@ export async function fetchLeads(params?: {
   city?: string;
   status?: string;
   search?: string;
+  sort?: string;
   limit?: number;
   offset?: number;
 }): Promise<LeadListResponse> {
@@ -425,6 +428,7 @@ export async function fetchLeads(params?: {
   if (params?.city) searchParams.set("city", params.city);
   if (params?.status) searchParams.set("status", params.status);
   if (params?.search) searchParams.set("search", params.search);
+  if (params?.sort) searchParams.set("sort", params.sort);
   if (params?.limit) searchParams.set("limit", String(params.limit));
   if (params?.offset) searchParams.set("offset", String(params.offset));
 

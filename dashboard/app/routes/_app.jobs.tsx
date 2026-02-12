@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~
 import { JobCard } from "~/components/job-card";
 import { Pagination } from "~/components/pagination";
 import { fetchJobs, startJobScan } from "~/lib/api";
+import { downloadCSV } from "~/lib/utils";
 import { toast } from "~/hooks/use-toast";
 
 const PAGE_SIZE = 24;
@@ -31,11 +32,21 @@ const platformOptions = [
   { value: "kwork", label: "Kwork" },
 ] as const;
 
+const sortOptions = [
+  { value: "newest", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
+  { value: "score_high", label: "Score: High" },
+  { value: "score_low", label: "Score: Low" },
+  { value: "budget_high", label: "Budget: High" },
+  { value: "budget_low", label: "Budget: Low" },
+] as const;
+
 export default function JobsPage() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("all");
   const [platformFilter, setPlatformFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState("newest");
   const [page, setPage] = useState(0);
   const [scanning, setScanning] = useState(false);
 
@@ -56,12 +67,13 @@ export default function JobsPage() {
   };
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["jobs", statusFilter, platformFilter, debouncedSearch, page],
+    queryKey: ["jobs", statusFilter, platformFilter, debouncedSearch, sortOrder, page],
     queryFn: () =>
       fetchJobs({
         status: statusFilter === "all" ? undefined : statusFilter,
         platform: platformFilter === "all" ? undefined : platformFilter,
         search: debouncedSearch || undefined,
+        sort: sortOrder === "newest" ? undefined : sortOrder,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       }),
@@ -134,6 +146,31 @@ export default function JobsPage() {
               </>
             )}
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={jobs.length === 0}
+            onClick={() => {
+              const rows = jobs.map((j) => ({
+                title: j.title,
+                platform: j.platform,
+                status: j.status,
+                score:
+                  j.score != null ? Math.round(j.score * 100) + "%" : "",
+                budget_min: j.budget_min ?? "",
+                budget_max: j.budget_max ?? "",
+                currency: j.currency,
+                discovered_at: j.discovered_at,
+                url: j.url ?? "",
+              }));
+              downloadCSV(
+                rows,
+                `jobs-${new Date().toISOString().slice(0, 10)}.csv`
+              );
+            }}
+          >
+            Export CSV
+          </Button>
           <Input
             placeholder="Search jobs..."
             value={searchQuery}
@@ -146,6 +183,18 @@ export default function JobsPage() {
             </SelectTrigger>
             <SelectContent>
               {platformOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={sortOrder} onValueChange={(v) => { setSortOrder(v); setPage(0); }}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {sortOptions.map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
                 </SelectItem>
