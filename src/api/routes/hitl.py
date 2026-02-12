@@ -230,7 +230,7 @@ class HITLController(Controller):
             NotFoundException: When the HITL item does not exist.
             MASException: When the item is expired or already resolved.
         """
-        stmt = select(HITLQueue).where(HITLQueue.id == hitl_id)
+        stmt = select(HITLQueue).where(HITLQueue.id == hitl_id).with_for_update()
         result = await db_session.execute(stmt)
         item = result.scalar_one_or_none()
 
@@ -401,8 +401,8 @@ class HITLController(Controller):
         errors: list[dict[str, Any]] = []
         resolved_ids: list[str] = []
 
-        # Fetch all items in a single query
-        stmt = select(HITLQueue).where(HITLQueue.id.in_(data.ids))
+        # Fetch all items in a single query with row-level lock
+        stmt = select(HITLQueue).where(HITLQueue.id.in_(data.ids)).with_for_update()
         result = await db_session.execute(stmt)
         items_by_id = {item.id: item for item in result.scalars().all()}
 

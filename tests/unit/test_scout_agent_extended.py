@@ -559,3 +559,91 @@ async def test_upwork_adapter_included(
     result = await agent._fetch_all_platforms()
     assert len(result) == 1
     assert result[0]["platform"] == "upwork"
+
+
+# ---------------------------------------------------------------------------
+# scout_node DB credential loading
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scout_node_loads_db_credentials():
+    """scout_node should load Freelancer credentials from DB when user_id present."""
+    from src.agents.scout import scout_node
+
+    _project = {"title": "T", "requirements": "r", "budget_min": 100, "budget_max": 500, "platforms": ["freelancer"]}
+    state = create_initial_state(project=_project, user_id="user-123")
+
+    # Adapter mocks need async close() since scout_node awaits it
+    mock_fl_ru_instance = MagicMock(spec=[])  # spec=[] prevents auto-close attr
+    mock_fc_instance = MagicMock()
+    mock_fc_instance.close = AsyncMock()
+
+    with (
+        patch("src.core.config.get_settings") as mock_settings,
+        patch("src.core.credential_loader.load_platform_credentials", new_callable=AsyncMock) as mock_load,
+        patch("src.adapters.freelancer.FreelancerClient", return_value=mock_fc_instance) as mock_fc,
+        patch("src.adapters.fl_ru.FlRuClient", return_value=mock_fl_ru_instance),
+        patch("src.core.llm_client.LLMClient"),
+        patch("src.agents.scout._get_valkey_client"),
+        patch("src.core.heartbeat.HeartbeatMonitor"),
+        patch("src.core.loop_detector.LoopDetector"),
+        patch("src.agents.scout.ScoutAgent") as mock_agent_cls,
+    ):
+        mock_settings_instance = MagicMock()
+        mock_settings_instance.FREELANCER_CLIENT_ID = ""
+        mock_settings_instance.FREELANCER_CLIENT_SECRET = ""
+        mock_settings_instance.BRIGHTDATA_USERNAME = ""
+        mock_settings_instance.BROWSER_POOL_MAX = 2
+        mock_settings_instance.BROWSER_PROXY_ROTATION_MINUTES = 30
+        mock_settings.return_value = mock_settings_instance
+
+        mock_load.return_value = {"client_id": "db_id", "client_secret": "db_secret"}
+
+        mock_agent = MagicMock()
+        mock_agent.invoke = AsyncMock(return_value=state)
+        mock_agent_cls.return_value = mock_agent
+
+        await scout_node(state)
+
+        mock_load.assert_called_once_with("freelancer", user_id="user-123")
+        mock_fc.assert_called_once_with(client_id="db_id", client_secret="db_secret")
+
+
+@pytest.mark.asyncio
+async def test_scout_node_env_fallback_no_user_id():
+    """scout_node should use env credentials when no user_id in state."""
+    from src.agents.scout import scout_node
+
+    _project = {"title": "T", "requirements": "r", "budget_min": 100, "budget_max": 500, "platforms": ["freelancer"]}
+    state = create_initial_state(project=_project)
+
+    mock_fl_ru_instance = MagicMock(spec=[])
+    mock_fc_instance = MagicMock()
+    mock_fc_instance.close = AsyncMock()
+
+    with (
+        patch("src.core.config.get_settings") as mock_settings,
+        patch("src.adapters.freelancer.FreelancerClient", return_value=mock_fc_instance) as mock_fc,
+        patch("src.adapters.fl_ru.FlRuClient", return_value=mock_fl_ru_instance),
+        patch("src.core.llm_client.LLMClient"),
+        patch("src.agents.scout._get_valkey_client"),
+        patch("src.core.heartbeat.HeartbeatMonitor"),
+        patch("src.core.loop_detector.LoopDetector"),
+        patch("src.agents.scout.ScoutAgent") as mock_agent_cls,
+    ):
+        mock_settings_instance = MagicMock()
+        mock_settings_instance.FREELANCER_CLIENT_ID = "env_id"
+        mock_settings_instance.FREELANCER_CLIENT_SECRET = "env_secret"
+        mock_settings_instance.BRIGHTDATA_USERNAME = ""
+        mock_settings_instance.BROWSER_POOL_MAX = 2
+        mock_settings_instance.BROWSER_PROXY_ROTATION_MINUTES = 30
+        mock_settings.return_value = mock_settings_instance
+
+        mock_agent = MagicMock()
+        mock_agent.invoke = AsyncMock(return_value=state)
+        mock_agent_cls.return_value = mock_agent
+
+        await scout_node(state)
+
+        mock_fc.assert_called_once_with(client_id="env_id", client_secret="env_secret")

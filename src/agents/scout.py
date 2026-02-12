@@ -430,11 +430,25 @@ async def scout_node(state: AgentState) -> AgentState:
     # -- Build adapters (only those with configured credentials) ----------
     adapters: dict[str, Any] = {}
 
-    if settings.FREELANCER_CLIENT_ID:
+    # Try DB credentials for Freelancer, fall back to env vars
+    freelancer_id = settings.FREELANCER_CLIENT_ID or ""
+    freelancer_secret = settings.FREELANCER_CLIENT_SECRET or ""
+    user_id = state.get("user_id")  # type: ignore[typeddict-item]
+    if user_id:
+        try:
+            from src.core.credential_loader import load_platform_credentials  # noqa: PLC0415
+            db_creds = await load_platform_credentials("freelancer", user_id=user_id)
+            if db_creds:
+                freelancer_id = db_creds.get("client_id", "") or freelancer_id
+                freelancer_secret = db_creds.get("client_secret", "") or freelancer_secret
+        except Exception:  # noqa: BLE001
+            logger.debug("scout_credential_load_fallback", exc_info=True)
+
+    if freelancer_id:
         from src.adapters.freelancer import FreelancerClient  # noqa: PLC0415
         adapters["freelancer"] = FreelancerClient(
-            client_id=settings.FREELANCER_CLIENT_ID,
-            client_secret=settings.FREELANCER_CLIENT_SECRET or "",
+            client_id=freelancer_id,
+            client_secret=freelancer_secret,
         )
 
     # FL.ru is always available (public RSS, no auth required).

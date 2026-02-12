@@ -187,13 +187,21 @@ async def test_critic_rejects_low_score(
     )
 
     state = _build_state(artifacts=_make_dev_artifacts())
-    with patch.object(agent, "_log_review_decision", new_callable=AsyncMock):
+    with (
+        patch.object(agent, "_log_review_decision", new_callable=AsyncMock),
+        patch.object(agent, "_create_hitl_escalation", new_callable=AsyncMock) as mock_escalation,
+    ):
         result = await agent._execute(state)
 
     assert result["requires_hitl"] is True
     assert result["status"] == "paused"
     assert result["next_agent"] is None
     assert result["hitl_request_id"] is not None
+    # Verify HITL queue entry was created
+    mock_escalation.assert_called_once()
+    call_kwargs = mock_escalation.call_args.kwargs
+    assert "rejected" in call_kwargs["reason"]
+    assert call_kwargs["score"] == 0.40
 
 
 async def test_critic_max_revisions_escalates(
@@ -220,12 +228,19 @@ async def test_critic_max_revisions_escalates(
     artifacts["_critic_revision_count"] = [str(_MAX_REVISION_CYCLES)]
 
     state = _build_state(artifacts=artifacts)
-    with patch.object(agent, "_log_review_decision", new_callable=AsyncMock):
+    with (
+        patch.object(agent, "_log_review_decision", new_callable=AsyncMock),
+        patch.object(agent, "_create_hitl_escalation", new_callable=AsyncMock) as mock_escalation,
+    ):
         result = await agent._execute(state)
 
     assert result["requires_hitl"] is True
     assert result["status"] == "paused"
     assert result["next_agent"] is None
+    # Verify HITL queue entry was created for revision exhaustion
+    mock_escalation.assert_called_once()
+    call_kwargs = mock_escalation.call_args.kwargs
+    assert "revision_limit_exceeded" in call_kwargs["reason"]
 
 
 async def test_critic_no_artifacts_returns_no_next(
@@ -439,7 +454,10 @@ async def test_critic_scope_creep_escalates_to_hitl(
     )
 
     state = _build_state(artifacts=_make_dev_artifacts())
-    with patch.object(agent, "_log_review_decision", new_callable=AsyncMock):
+    with (
+        patch.object(agent, "_log_review_decision", new_callable=AsyncMock),
+        patch.object(agent, "_create_hitl_escalation", new_callable=AsyncMock) as mock_escalation,
+    ):
         result = await agent._execute(state)
 
     assert result["requires_hitl"] is True
@@ -447,6 +465,10 @@ async def test_critic_scope_creep_escalates_to_hitl(
     assert result["next_agent"] is None
     assert result["hitl_request_id"] is not None
     assert result["artifacts"]["_critic_revision_type"] == ["scope_creep"]
+    # Verify HITL queue entry was created for scope creep
+    mock_escalation.assert_called_once()
+    call_kwargs = mock_escalation.call_args.kwargs
+    assert call_kwargs["reason"] == "scope_creep"
 
 
 async def test_critic_minor_revision_routes_to_dev(

@@ -15,6 +15,7 @@ handles:
 from __future__ import annotations
 
 import abc
+import asyncio
 import time
 from typing import Any
 
@@ -161,6 +162,7 @@ ROLE_CONSTRAINTS: dict[str, dict[str, Any]] = {
 }
 
 _DEFAULT_MAX_RETRIES = 3
+_DEFAULT_NODE_TIMEOUT_SECONDS = 600  # 10 minutes per agent invocation
 
 
 class ConstrainedAgent(abc.ABC):
@@ -254,7 +256,10 @@ class ConstrainedAgent(abc.ABC):
                 t0 = time.perf_counter()
 
                 with self._sentry_transaction(state["thread_id"]):
-                    result_state = await self._execute(state)
+                    result_state = await asyncio.wait_for(
+                        self._execute(state),
+                        timeout=_DEFAULT_NODE_TIMEOUT_SECONDS,
+                    )
 
                 elapsed_ms = (time.perf_counter() - t0) * 1000
 
@@ -281,6 +286,24 @@ class ConstrainedAgent(abc.ABC):
                 self._record_metric("failed", 0)
                 return update_state(
                     append_error(state, f"Loop detected in {self.agent_name}"),
+                    status="failed",
+                    next_agent=None,
+                )
+
+            except TimeoutError:
+                elapsed = time.perf_counter() - t0
+                self._log.error(
+                    "node_timeout",
+                    thread_id=state["thread_id"],
+                    timeout_seconds=_DEFAULT_NODE_TIMEOUT_SECONDS,
+                    elapsed_seconds=round(elapsed, 1),
+                )
+                self._record_metric("timeout", elapsed)
+                return update_state(
+                    append_error(
+                        state,
+                        f"{self.agent_name} timed out after {_DEFAULT_NODE_TIMEOUT_SECONDS}s",
+                    ),
                     status="failed",
                     next_agent=None,
                 )
