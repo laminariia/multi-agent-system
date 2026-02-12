@@ -556,3 +556,28 @@ class TestAppConfiguration:
         from src.api.main import _settings, app
 
         assert app.debug == _settings.DEBUG
+
+    def test_openapi_config_has_swagger_render_plugin(self) -> None:
+        """Should include SwaggerRenderPlugin for /swagger UI."""
+        from litestar.openapi.plugins import SwaggerRenderPlugin
+
+        from src.api.main import openapi_config
+
+        plugin_types = [type(p) for p in openapi_config.render_plugins]
+        assert SwaggerRenderPlugin in plugin_types
+
+    def test_openapi_config_has_redoc_render_plugin(self) -> None:
+        """Should include RedocRenderPlugin for /redoc UI."""
+        from litestar.openapi.plugins import RedocRenderPlugin
+
+        from src.api.main import openapi_config
+
+        plugin_types = [type(p) for p in openapi_config.render_plugins]
+        assert RedocRenderPlugin in plugin_types
+
+    def test_rate_limit_config_excludes_swagger_and_redoc(self) -> None:
+        """Should exclude /swagger and /redoc from rate limiting."""
+        from src.api.main import rate_limit_config
+
+        assert "/swagger" in rate_limit_config.exclude
+        assert "/redoc" in rate_limit_config.exclude

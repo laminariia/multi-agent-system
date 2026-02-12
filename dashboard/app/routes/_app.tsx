@@ -21,6 +21,28 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "~/hooks/use-toast";
 import { cn } from "~/lib/utils";
 
+/** Send a browser desktop notification if the tab is not focused and permission is granted. */
+function sendBrowserNotification(title: string, body: string, onClick?: () => void) {
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (document.hasFocus()) return;
+  if (Notification.permission !== "granted") return;
+
+  const n = new Notification(title, {
+    body,
+    icon: "/favicon.ico",
+    tag: "mas-hitl", // deduplicate rapid notifications
+  });
+  if (onClick) {
+    n.onclick = () => {
+      window.focus();
+      onClick();
+      n.close();
+    };
+  }
+  // Auto-close after 10 seconds
+  setTimeout(() => n.close(), 10_000);
+}
+
 export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -28,6 +50,8 @@ export default function AppLayout() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const reconnectAttemptsRef = useRef(0);
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
 
@@ -37,6 +61,15 @@ export default function AppLayout() {
   const logout = useAuthStore((s) => s.logout);
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
+
+  // Request browser notification permission on first auth
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, [isAuthenticated]);
 
   // Fetch pending count for sidebar badge
   const { data: hitlData } = useQuery({
@@ -118,6 +151,12 @@ export default function AppLayout() {
                 description: title,
                 link: "/hitl",
               });
+              // Desktop notification when tab is not focused
+              sendBrowserNotification(
+                "HITL: Action Required",
+                title,
+                () => navigateRef.current("/hitl")
+              );
             }
             if (msg.type === "hitl:resolved") {
               const desc = msg.data?.title
@@ -145,6 +184,14 @@ export default function AppLayout() {
                 description: desc,
                 variant: isError ? "destructive" : "default",
               });
+              // Desktop notification for agent errors
+              if (isError) {
+                sendBrowserNotification(
+                  "Agent Error",
+                  desc,
+                  () => navigateRef.current(`/agents/${agentName}`)
+                );
+              }
               addNotification({
                 type: "agent",
                 title: `Agent ${msg.data.action}`,
