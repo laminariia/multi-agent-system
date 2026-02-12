@@ -135,7 +135,7 @@ class TestGetLead:
 
     @pytest.mark.asyncio
     async def test_get_lead_invalid_uuid(self) -> None:
-        """Should raise HTTPException 404 when lead_id is not a valid UUID."""
+        """Should raise HTTPException 400 when lead_id is not a valid UUID."""
         db_session = AsyncMock()
 
         with pytest.raises(HTTPException) as exc_info:
@@ -145,8 +145,8 @@ class TestGetLead:
                 lead_id="invalid-uuid",
             )
 
-        assert exc_info.value.status_code == 404
-        assert "Lead not found" in exc_info.value.detail
+        assert exc_info.value.status_code == 400
+        assert "Invalid lead ID format" in exc_info.value.detail
         # Database should NOT have been queried
         db_session.execute.assert_not_called()
 

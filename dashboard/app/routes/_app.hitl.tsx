@@ -142,7 +142,7 @@ export default function HITLPage() {
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">
             HITL Queue
@@ -159,7 +159,7 @@ export default function HITLPage() {
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
           {stats && (
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <span>
@@ -204,7 +204,7 @@ export default function HITLPage() {
       </div>
 
       {/* Filter tabs + search */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4">
         <Tabs
           value={activeFilter}
           onValueChange={handleFilterChange}
@@ -221,7 +221,7 @@ export default function HITLPage() {
           placeholder="Search by title..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="max-w-[220px]"
+          className="w-full sm:w-[220px]"
         />
         <Button
           variant={bulkMode ? "default" : "outline"}
@@ -302,16 +302,17 @@ export default function HITLPage() {
       {/* Bulk action bar */}
       {bulkMode && selectedIds.size > 0 && (
         <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background p-4 shadow-lg">
-          <div className="mx-auto flex max-w-screen-xl items-center justify-between gap-4">
+          <div className="mx-auto flex flex-col sm:flex-row max-w-screen-xl items-center justify-between gap-3 sm:gap-4">
             <span className="text-sm font-medium text-foreground">
               {selectedIds.size} selected
             </span>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-center gap-2 w-full sm:w-auto">
               <Button
                 variant="success"
                 size="sm"
                 disabled={bulkLoading}
                 onClick={() => handleBulkAction("approve")}
+                className="flex-1 sm:flex-none"
               >
                 Approve All
               </Button>
@@ -320,6 +321,7 @@ export default function HITLPage() {
                 size="sm"
                 disabled={bulkLoading}
                 onClick={() => handleBulkAction("reject")}
+                className="flex-1 sm:flex-none"
               >
                 Reject All
               </Button>
@@ -328,6 +330,7 @@ export default function HITLPage() {
                 size="sm"
                 disabled={bulkLoading}
                 onClick={() => handleBulkAction("skip")}
+                className="flex-1 sm:flex-none"
               >
                 Skip All
               </Button>
@@ -335,6 +338,7 @@ export default function HITLPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setSelectedIds(new Set())}
+                className="flex-1 sm:flex-none"
               >
                 Clear
               </Button>

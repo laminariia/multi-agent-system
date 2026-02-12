@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.guards import require_role
+from src.api.schemas import PipelineBScanRequestSchema
 from src.core.models import Lead, User
 
 logger = structlog.get_logger(__name__)
@@ -31,7 +32,7 @@ class PipelineBController(Controller):
     @post("/scan", guards=[require_role("owner", "co_owner", "moderator")])
     async def start_scan(
         self,
-        data: dict[str, Any],
+        data: PipelineBScanRequestSchema,
         db_session: AsyncSession,
         request: Request[User, Token, Any],
     ) -> dict[str, Any]:
@@ -39,9 +40,7 @@ class PipelineBController(Controller):
 
         Request body: {"city": "Berlin"}
         """
-        city = data.get("city", "").strip()
-        if not city:
-            raise HTTPException(status_code=400, detail="City name is required")
+        city = data.city.strip()
 
         # Run pipeline in background (don't block the request)
         thread_id = uuid.uuid4().hex
@@ -145,7 +144,9 @@ class PipelineBController(Controller):
         try:
             lead_uuid = uuid.UUID(lead_id)
         except (ValueError, TypeError) as exc:
-            raise HTTPException(status_code=404, detail="Lead not found") from exc
+            raise HTTPException(
+                status_code=400, detail=f"Invalid lead ID format: {lead_id}"
+            ) from exc
 
         result = await db_session.execute(select(Lead).where(Lead.id == lead_uuid))
         lead = result.scalar_one_or_none()

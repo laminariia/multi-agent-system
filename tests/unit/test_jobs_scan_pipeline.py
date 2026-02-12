@@ -16,6 +16,7 @@ import pytest
 from litestar.exceptions import NotFoundException
 
 from src.api.routes.jobs import JobController
+from src.api.schemas import JobScanRequestSchema
 from src.core.exceptions import MASException
 
 pytestmark = [pytest.mark.asyncio]
@@ -112,35 +113,20 @@ class TestStartScan:
         result = await controller.start_scan.fn(
             controller,
             request=request,
-            data={"platform": "freelancer"},
+            data=JobScanRequestSchema(platform="freelancer"),
         )
 
         assert result["status"] == "started"
         assert result["platform"] == "freelancer"
         assert "freelancer" in result["message"]
 
-    @patch("src.worker.tasks.run_scout_cycle", new_callable=AsyncMock)
-    @patch("src.api.routes.jobs.asyncio")
-    async def test_start_scan_invalid_platform_defaults_to_all(
+    async def test_start_scan_invalid_platform_rejected_by_schema(
         self,
-        mock_asyncio: MagicMock,
-        _mock_run_scout: AsyncMock,
     ) -> None:
-        """Should fall back to platform='all' when an invalid platform is given."""
-        controller = JobController(owner=MagicMock())
-        request = _create_mock_request()
-
-        mock_task = MagicMock()
-        mock_asyncio.create_task.return_value = mock_task
-
-        result = await controller.start_scan.fn(
-            controller,
-            request=request,
-            data={"platform": "invalid_platform"},
-        )
-
-        assert result["status"] == "started"
-        assert result["platform"] == "all"
+        """Schema should reject an invalid platform value via regex pattern."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            JobScanRequestSchema(platform="invalid_platform")
 
     @patch("src.worker.tasks.run_scout_cycle", new_callable=AsyncMock)
     @patch("src.api.routes.jobs.asyncio")
@@ -159,7 +145,7 @@ class TestStartScan:
         await controller.start_scan.fn(
             controller,
             request=request,
-            data={"platform": "freelancer"},
+            data=JobScanRequestSchema(platform="freelancer"),
         )
 
         mock_asyncio.create_task.assert_called_once()

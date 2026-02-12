@@ -938,13 +938,14 @@ def test_build_pipeline_b_graph_with_checkpointer():
 async def test_pipeline_b_start_scan_valid():
     """API: start_scan with valid city → returns status=started."""
     from src.api.routes.pipeline_b import PipelineBController
+    from src.api.schemas import PipelineBScanRequestSchema
 
     controller = PipelineBController(owner=MagicMock())
     mock_session = AsyncMock()
     mock_request = MagicMock()
     mock_request.user = MagicMock()
     mock_request.user.id = uuid.uuid4()
-    data = {"city": "Berlin"}
+    data = PipelineBScanRequestSchema(city="Berlin")
 
     with patch("src.api.routes.pipeline_b.asyncio.create_task") as mock_task:
         result = await PipelineBController.start_scan.fn(
@@ -962,28 +963,13 @@ async def test_pipeline_b_start_scan_valid():
 
 @pytest.mark.asyncio
 async def test_pipeline_b_start_scan_empty_city():
-    """API: start_scan with empty city → 400 error."""
-    from litestar.exceptions import HTTPException
+    """API: start_scan with empty city → Pydantic ValidationError."""
+    from pydantic import ValidationError
 
-    from src.api.routes.pipeline_b import PipelineBController
+    from src.api.schemas import PipelineBScanRequestSchema
 
-    controller = PipelineBController(owner=MagicMock())
-    mock_session = AsyncMock()
-    mock_request = MagicMock()
-    mock_request.user = MagicMock()
-    mock_request.user.id = uuid.uuid4()
-    data = {"city": ""}
-
-    with pytest.raises(HTTPException) as exc_info:
-        await PipelineBController.start_scan.fn(
-            controller,
-            data=data,
-            db_session=mock_session,
-            request=mock_request,
-        )
-
-    assert exc_info.value.status_code == 400
-    assert "City name is required" in exc_info.value.detail
+    with pytest.raises(ValidationError):
+        PipelineBScanRequestSchema(city="")
 
 
 @pytest.mark.asyncio

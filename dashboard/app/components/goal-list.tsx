@@ -285,6 +285,7 @@ function GoalRow({
           className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
           disabled={isDeleting}
           onClick={() => onDelete(goal.id)}
+          aria-label={`Delete goal: ${goal.title}`}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"

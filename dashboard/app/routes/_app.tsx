@@ -91,6 +91,11 @@ export default function AppLayout() {
         try {
           const msg = JSON.parse(event.data);
 
+          if (msg.type === "ping") {
+            ws.send(JSON.stringify({ type: "pong" }));
+            return;
+          }
+
           if (
             msg.type === "hitl:new" ||
             msg.type === "hitl:resolved"
@@ -258,6 +263,7 @@ export default function AppLayout() {
             size="icon"
             className="ml-auto h-7 w-7 text-muted-foreground"
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             <svg
               className={`h-4 w-4 transition-transform ${sidebarCollapsed ? "rotate-180" : ""}`}
@@ -429,6 +435,7 @@ export default function AppLayout() {
               onClick={toggleTheme}
               className="p-2 rounded-md hover:bg-accent transition-colors"
               title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             >
               {theme === "dark" ? (
                 <svg className="h-5 w-5 text-muted-foreground" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -454,6 +461,7 @@ export default function AppLayout() {
               <button
                 onClick={() => navigate("/hitl")}
                 className="relative p-2 rounded-md hover:bg-accent transition-colors"
+                aria-label={`${pendingCount} pending notifications`}
               >
                 <svg
                   className="h-5 w-5 text-muted-foreground"

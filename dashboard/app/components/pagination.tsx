@@ -37,7 +37,7 @@ export function Pagination({
   if (totalPages > 1) addPage(totalPages - 1);
 
   return (
-    <div className={cn("flex items-center justify-between", className)}>
+    <nav aria-label="Pagination" className={cn("flex items-center justify-between", className)}>
       <p className="text-sm text-muted-foreground">
         {from}–{to} of {total}
       </p>
@@ -48,12 +48,15 @@ export function Pagination({
           disabled={page === 0}
           onClick={() => onPageChange(page - 1)}
           className="h-8 w-8 p-0"
+          aria-label="Previous page"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
         </Button>
         {pages.map((p, i) =>
           p === "..." ? (
-            <span key={`dots-${i}`} className="px-1 text-muted-foreground text-sm">...</span>
+            <span key={`dots-${i}`} className="px-1 text-muted-foreground text-sm" aria-label="More pages">
+              <span aria-hidden="true">...</span>
+            </span>
           ) : (
             <Button
               key={p}
@@ -61,6 +64,8 @@ export function Pagination({
               size="sm"
               onClick={() => onPageChange(p)}
               className="h-8 w-8 p-0 text-xs"
+              aria-label={`Page ${p + 1}`}
+              aria-current={p === page ? "page" : undefined}
             >
               {p + 1}
             </Button>
@@ -72,10 +77,11 @@ export function Pagination({
           disabled={page >= totalPages - 1}
           onClick={() => onPageChange(page + 1)}
           className="h-8 w-8 p-0"
+          aria-label="Next page"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
         </Button>
       </div>
-    </div>
+    </nav>
   );
 }

@@ -111,7 +111,7 @@ export default function JobsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Jobs</h1>
           {total > 0 && (
@@ -121,7 +121,7 @@ export default function JobsPage() {
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
           <Button
             variant="default"
             size="sm"
@@ -175,10 +175,10 @@ export default function JobsPage() {
             placeholder="Search jobs..."
             value={searchQuery}
             onChange={(e) => handleSearchChange(e.target.value)}
-            className="w-[200px]"
+            className="w-full sm:w-[200px]"
           />
           <Select value={platformFilter} onValueChange={handlePlatformChange}>
-            <SelectTrigger className="w-[160px]">
+            <SelectTrigger className="w-full sm:w-[160px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -190,7 +190,7 @@ export default function JobsPage() {
             </SelectContent>
           </Select>
           <Select value={sortOrder} onValueChange={(v) => { setSortOrder(v); setPage(0); }}>
-            <SelectTrigger className="w-[140px]">
+            <SelectTrigger className="w-full sm:w-[140px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

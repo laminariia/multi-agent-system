@@ -29,6 +29,7 @@ from src.api.schemas import (
     JobDisqualifySchema,
     JobListResponseSchema,
     JobResponseSchema,
+    JobScanRequestSchema,
 )
 from src.core.models import Job, User
 
@@ -253,17 +254,14 @@ class JobController(Controller):
     async def start_scan(
         self,
         request: Request[User, Token, Any],
-        data: dict[str, Any] | None = None,
+        data: JobScanRequestSchema | None = None,
     ) -> dict[str, Any]:
         """Manually trigger a Scout agent scan.
 
         Accepts an optional body ``{"platform": "freelancer"}`` to restrict
         the scan to a single platform.  Defaults to ``"all"``.
         """
-        platform = (data or {}).get("platform", "all")
-        valid_platforms = {"freelancer", "upwork", "fl_ru", "kwork", "all"}
-        if platform not in valid_platforms:
-            platform = "all"
+        platform = data.platform if data else "all"
 
         from src.worker.tasks import run_scout_cycle  # noqa: PLC0415
 
@@ -313,7 +311,7 @@ class JobController(Controller):
             NotFoundException: When the job does not exist.
             MASException: When the job status does not allow pipeline execution (409).
         """
-        stmt = select(Job).where(Job.id == job_id)
+        stmt = select(Job).where(Job.id == job_id).with_for_update()
         result = await db_session.execute(stmt)
         job = result.scalar_one_or_none()
 

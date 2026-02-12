@@ -463,7 +463,7 @@ export default function SettingsPage() {
                       <p className="text-sm font-medium">{label}</p>
                       {isEditing ? (
                         <Input
-                          type="password"
+                          type="text"
                           placeholder={`Enter ${label} key`}
                           value={keyValues[key] ?? ""}
                           onChange={(e) =>
@@ -474,6 +474,8 @@ export default function SettingsPage() {
                           }
                           className="mt-1.5 font-mono text-xs"
                           autoComplete="off"
+                          required
+                          minLength={10}
                         />
                       ) : (
                         <p className="text-xs text-muted-foreground font-mono mt-0.5">
@@ -650,9 +652,11 @@ export default function SettingsPage() {
             <div className="space-y-2">
               <Label>Username (optional)</Label>
               <Input
+                type="text"
                 placeholder="Your platform username"
                 value={newAccountUsername}
                 onChange={(e) => setNewAccountUsername(e.target.value)}
+                autoComplete="off"
               />
             </div>
 
@@ -676,6 +680,7 @@ export default function SettingsPage() {
                         }))
                       }
                       autoComplete="off"
+                      required
                     />
                   </div>
                 ))

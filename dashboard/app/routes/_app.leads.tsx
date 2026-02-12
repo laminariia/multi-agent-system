@@ -125,7 +125,7 @@ export default function LeadsPage() {
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Leads</h1>
           {total > 0 && (
@@ -135,7 +135,7 @@ export default function LeadsPage() {
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
           {stats && (
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <span>Total: {stats.total_leads}</span>
@@ -275,7 +275,7 @@ export default function LeadsPage() {
       )}
 
       {/* Filters */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4">
         <Tabs value={statusFilter} onValueChange={handleStatusChange}>
           <TabsList>
             {statusFilters.map((tab) => (
@@ -290,11 +290,11 @@ export default function LeadsPage() {
           placeholder="Filter by city..."
           value={cityFilter}
           onChange={(e) => setCityFilter(e.target.value)}
-          className="max-w-[200px]"
+          className="w-full sm:w-[200px]"
         />
 
         <Select value={sortOrder} onValueChange={(v) => { setSortOrder(v); setPage(0); }}>
-          <SelectTrigger className="w-[140px]">
+          <SelectTrigger className="w-full sm:w-[140px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

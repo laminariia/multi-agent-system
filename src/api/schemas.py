@@ -614,6 +614,28 @@ class LogResponseSchema(_BaseSchema):
 # =============================================================================
 
 
+class JobScanRequestSchema(_BaseSchema):
+    """Request body for triggering a manual Scout scan."""
+
+    platform: str = Field(
+        default="all",
+        pattern=r"^(freelancer|upwork|fl_ru|kwork|all)$",
+        description="Platform to scan (default: all)",
+    )
+
+
+class PipelineBScanRequestSchema(_BaseSchema):
+    """Request body for triggering a Pipeline B geo scan."""
+
+    city: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        examples=["Berlin"],
+        description="City name to scan for offline businesses",
+    )
+
+
 class CredentialTestRequestSchema(_BaseSchema):
     """Request to test a credential/API key."""
 

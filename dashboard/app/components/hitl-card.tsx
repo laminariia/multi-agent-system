@@ -77,6 +77,7 @@ export function HITLCard({ item, onResolve, userRole, selected, onSelect }: HITL
                 checked={selected ?? false}
                 onChange={(e) => onSelect(item.id, e.target.checked)}
                 className="h-4 w-4 rounded border-border accent-primary flex-shrink-0 cursor-pointer"
+                aria-label={`Select ${item.title}`}
               />
             )}
             {item.priority === "urgent" && (
