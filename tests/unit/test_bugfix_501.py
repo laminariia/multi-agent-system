@@ -360,6 +360,118 @@ async def test_api_service_goal_id_generation_empty():
 
 
 # ---------------------------------------------------------------------------
+# Bug 2: _apply_email_approval sets status="active" for pipeline re-invocation
+# ---------------------------------------------------------------------------
+
+
+def test_apply_email_approval_approve_sets_active():
+    """_apply_email_approval sets status='active' on approve so pipeline continues."""
+    from src.core.graph import _apply_email_approval
+
+    saved = {
+        "thread_id": "t1",
+        "status": "paused",
+        "requires_hitl": True,
+        "hitl_request_id": "req-1",
+        "current_agent": "hitl_email",
+        "next_agent": None,
+        "errors": [],
+        "artifacts": {"campaign_id": "camp-1"},
+    }
+    result = _apply_email_approval(saved, "approve", {}, "t1")
+    assert result["status"] == "active"
+    assert result["artifacts"]["emails_approved"] is True
+    assert result["current_agent"] == "hitl_email"
+
+
+def test_apply_email_approval_edit_sets_active():
+    """_apply_email_approval sets status='active' on edit so pipeline continues."""
+    from src.core.graph import _apply_email_approval
+
+    saved = {
+        "thread_id": "t1",
+        "status": "paused",
+        "requires_hitl": True,
+        "hitl_request_id": "req-1",
+        "current_agent": "hitl_email",
+        "next_agent": None,
+        "errors": [],
+        "artifacts": {"campaign_id": "camp-1"},
+    }
+    result = _apply_email_approval(saved, "edit", {"edits": {"body": "new"}}, "t1")
+    assert result["status"] == "active"
+    assert result["artifacts"]["emails_approved"] is True
+    assert result["artifacts"]["hitl_edits"] == [{"body": "new"}]
+
+
+def test_apply_email_approval_reject_sets_failed():
+    """_apply_email_approval sets status='failed' on reject."""
+    from src.core.graph import _apply_email_approval
+
+    saved = {
+        "thread_id": "t1",
+        "status": "paused",
+        "requires_hitl": True,
+        "hitl_request_id": "req-1",
+        "current_agent": "hitl_email",
+        "next_agent": None,
+        "errors": [],
+        "artifacts": {},
+    }
+    result = _apply_email_approval(saved, "reject", {}, "t1")
+    assert result["status"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Bug 3: goal_id with invalid/corrupt entries
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_goal_id_generation_skips_invalid_ids():
+    """goal_id generation ignores malformed goal IDs gracefully."""
+    from src.bot.orchestrator_commands import _add_goal_to_db
+
+    mock_rows = [("g_001",), ("invalid",), ("g_abc",), ("g_050",), ("nounder",)]
+    mock_result = MagicMock()
+    mock_result.all.return_value = mock_rows
+
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(return_value=mock_result)
+    mock_session.add = MagicMock()
+
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("src.bot.orchestrator_commands.get_db_session", return_value=mock_ctx):
+        new_id = await _add_goal_to_db("Test with bad IDs")
+
+    # max(1, 50) + 1 = 51
+    assert new_id == "g_051"
+
+
+@pytest.mark.asyncio
+async def test_api_service_goal_id_skips_invalid_ids():
+    """OrchestratorService.add_goal ignores malformed goal IDs."""
+    from src.api.services.orchestrator import OrchestratorService
+
+    mock_rows = [("g_005",), ("bad",), ("g_xyz",), ("g_010",)]
+    mock_id_result = MagicMock()
+    mock_id_result.all.return_value = mock_rows
+
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(return_value=mock_id_result)
+    mock_session.add = MagicMock()
+    mock_session.flush = AsyncMock()
+
+    result = await OrchestratorService.add_goal(mock_session, "Test with bad IDs")
+
+    # max(5, 10) + 1 = 11
+    assert result["id"] == "g_011"
+
+
+# ---------------------------------------------------------------------------
 # Pipeline B graph includes email_sending_node
 # ---------------------------------------------------------------------------
 

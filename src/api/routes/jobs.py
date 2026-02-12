@@ -267,7 +267,9 @@ class JobController(Controller):
 
         from src.worker.tasks import run_scout_cycle  # noqa: PLC0415
 
-        task = asyncio.create_task(run_scout_cycle({"platform": platform}))
+        task = asyncio.create_task(
+            run_scout_cycle({"platform": platform, "user_id": str(request.user.id)})
+        )
         _background_tasks.add(task)
         task.add_done_callback(_background_tasks.discard)
 
@@ -338,6 +340,7 @@ class JobController(Controller):
             "platform": job.platform,
             "requirements": job.description or job.title,
             "budget": float(job.budget_max or job.budget_min or 0),
+            "user_id": str(request.user.id),
         }
 
         task = asyncio.create_task(run_project_pipeline(payload))

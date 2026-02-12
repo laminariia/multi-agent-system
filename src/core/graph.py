@@ -1120,12 +1120,14 @@ async def run_scout_bid_pipeline(
 async def run_pipeline_b(
     city: str,
     thread_id: str | None = None,
+    user_id: str | None = None,
 ) -> AgentState:
     """Run Pipeline B (Geo Scout -> Outreach) for a city.
 
     Args:
         city: City name to scan for offline businesses.
         thread_id: Optional thread identifier.
+        user_id: Optional user UUID string for credential loading.
 
     Returns:
         Final AgentState after pipeline completes or pauses for HITL.
@@ -1147,6 +1149,7 @@ async def run_pipeline_b(
         project=project,
         first_agent="geoscout",
         thread_id=tid,
+        user_id=user_id,
     )
     # Set city in artifacts for the geo_scout agent
     initial_state["artifacts"] = {"_scan_city": city}
@@ -1567,7 +1570,8 @@ def _apply_email_approval(
             saved_state,  # type: ignore[arg-type]
             requires_hitl=False,
             hitl_request_id=None,
-            status="completed",
+            status="active",
+            current_agent="hitl_email",
             next_agent=None,
             artifacts=artifacts,
         )
@@ -1595,7 +1599,8 @@ def _apply_email_approval(
             saved_state,  # type: ignore[arg-type]
             requires_hitl=False,
             hitl_request_id=None,
-            status="completed",
+            status="active",
+            current_agent="hitl_email",
             next_agent=None,
             artifacts=artifacts,
         )
@@ -1608,7 +1613,8 @@ def _apply_email_approval(
         saved_state,  # type: ignore[arg-type]
         requires_hitl=False,
         hitl_request_id=None,
-        status="completed",
+        status="active",
+        current_agent="hitl_email",
         next_agent=None,
         artifacts=artifacts,
     )

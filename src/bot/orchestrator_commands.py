@@ -228,10 +228,15 @@ async def _add_goal_to_db(title: str, priority: str = "medium", category: str = 
     async with get_db_session() as session:
         result = await session.execute(select(OrchestratorGoal.goal_id))
         all_ids = [row[0] for row in result.all()]
-        if all_ids:
-            next_num = max(int(gid.split("_")[1]) for gid in all_ids if "_" in gid) + 1
-        else:
-            next_num = 1
+        nums: list[int] = []
+        for gid in all_ids:
+            parts = gid.split("_", 1)
+            if len(parts) == 2:
+                try:
+                    nums.append(int(parts[1]))
+                except (ValueError, TypeError):
+                    continue
+        next_num = max(nums) + 1 if nums else 1
         new_id = f"g_{next_num:03d}"
 
         goal = OrchestratorGoal(

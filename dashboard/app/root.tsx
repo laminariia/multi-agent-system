@@ -26,11 +26,16 @@ export async function loader() {
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  // Inline script to apply saved theme BEFORE first paint (prevents flash).
+  // Reads the zustand persisted store from localStorage.
+  const themeScript = `(function(){try{var t=JSON.parse(localStorage.getItem("theme-storage")||"{}");document.documentElement.className=t.state&&t.state.theme||"dark"}catch(e){document.documentElement.className="dark"}})()`;
+
   return (
-    <html lang="en" className="dark">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <Meta />
         <Links />
       </head>

@@ -21,6 +21,7 @@ async def run_scout_cycle(payload: dict[str, Any] | None = None) -> dict[str, An
     """
     from src.agents.scout import scout_node
 
+    user_id = payload.get("user_id") if payload else None
     state = create_initial_state(
         project=ProjectContext(
             project_id="scout-queue-task",
@@ -32,6 +33,7 @@ async def run_scout_cycle(payload: dict[str, Any] | None = None) -> dict[str, An
             deadline=None,
         ),
         first_agent="scout",
+        user_id=user_id,
     )
 
     result = await scout_node(state)
@@ -77,6 +79,7 @@ async def run_project_pipeline(payload: dict[str, Any]) -> dict[str, Any]:
         project=project,
         first_agent="planner",
         thread_id=thread_id,
+        user_id=payload.get("user_id"),
     )
 
     settings = get_settings()
@@ -126,6 +129,7 @@ async def run_bid_generation(payload: dict[str, Any]) -> dict[str, Any]:
             deadline=None,
         ),
         first_agent="bid",
+        user_id=payload.get("user_id"),
     )
 
     state["artifacts"] = {"scout": payload.get("job_ids", [])}
@@ -173,6 +177,7 @@ async def run_pipeline_b_scan(payload: dict[str, Any]) -> dict[str, Any]:
         project=project,
         first_agent="geoscout",
         thread_id=thread_id,
+        user_id=payload.get("user_id"),
     )
     # Set city in artifacts for the geo_scout agent
     state["artifacts"] = {"_scan_city": city}

@@ -7,13 +7,15 @@ from typing import Any
 
 import structlog
 from litestar import Controller, get, post
+from litestar.connection import Request
 from litestar.exceptions import HTTPException
 from litestar.params import Parameter
+from litestar.security.jwt import Token
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.guards import require_role
-from src.core.models import Lead
+from src.core.models import Lead, User
 
 logger = structlog.get_logger(__name__)
 
@@ -31,6 +33,7 @@ class PipelineBController(Controller):
         self,
         data: dict[str, Any],
         db_session: AsyncSession,
+        request: Request[User, Token, Any],
     ) -> dict[str, Any]:
         """Trigger a Pipeline B geo scan for a city.
 
@@ -46,7 +49,9 @@ class PipelineBController(Controller):
         from src.core.graph import run_pipeline_b  # noqa: PLC0415
 
         # Start the pipeline as a background task (stored to prevent GC)
-        task = asyncio.create_task(run_pipeline_b(city, thread_id=thread_id))
+        task = asyncio.create_task(
+            run_pipeline_b(city, thread_id=thread_id, user_id=str(request.user.id))
+        )
         _background_tasks.add(task)
         task.add_done_callback(_background_tasks.discard)
 

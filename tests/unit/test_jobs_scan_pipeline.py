@@ -414,4 +414,5 @@ class TestRunPipeline:
             "platform": "upwork",
             "requirements": "Build an API",
             "budget": 1000.0,
+            "user_id": str(request.user.id),
         })

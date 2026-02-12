@@ -346,10 +346,10 @@ def test_route_after_hitl_email_always_ends():
 # ---------------------------------------------------------------------------
 
 def test_apply_email_approval_approve():
-    """Approve sets emails_approved=True and status=completed."""
+    """Approve sets emails_approved=True and status=active for pipeline re-invocation."""
     saved = {"thread_id": "t1", "status": "paused", "artifacts": {"outreach": []}}
     result = _apply_email_approval(saved, "approve", {}, "t1")
-    assert result["status"] == "completed"
+    assert result["status"] == "active"
     assert result["artifacts"]["emails_approved"] is True
     assert result["requires_hitl"] is False
 
@@ -367,7 +367,7 @@ def test_apply_email_approval_edit():
     saved = {"thread_id": "t1", "status": "paused", "artifacts": {}}
     edits = {"subject": "Updated subject"}
     result = _apply_email_approval(saved, "edit", {"edits": edits}, "t1")
-    assert result["status"] == "completed"
+    assert result["status"] == "active"
     assert result["artifacts"]["emails_approved"] is True
     assert result["artifacts"]["hitl_edits"] == [edits]
 
@@ -376,7 +376,7 @@ def test_apply_email_approval_unknown_action():
     """Unknown action defaults to approve with emails_approved=True."""
     saved = {"thread_id": "t1", "status": "paused", "artifacts": {}}
     result = _apply_email_approval(saved, "later", {}, "t1")
-    assert result["status"] == "completed"
+    assert result["status"] == "active"
     assert result["artifacts"]["emails_approved"] is True
 
 

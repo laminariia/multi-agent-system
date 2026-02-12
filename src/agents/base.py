@@ -209,12 +209,13 @@ class ConstrainedAgent(abc.ABC):
     async def invoke(self, state: AgentState) -> AgentState:
         """Execute this agent's logic with full lifecycle management.
 
-        1. Heartbeat ping.
-        2. Loop detection check.
-        3. Role constraint validation.
-        4. Delegate to ``_execute``.
-        5. Error handling + retry.
-        6. State update (current_agent, updated_at).
+        1. Load user-specific credentials (if user_id in state).
+        2. Heartbeat ping.
+        3. Loop detection check.
+        4. Role constraint validation.
+        5. Delegate to ``_execute``.
+        6. Error handling + retry.
+        7. State update (current_agent, updated_at).
         """
         # Mark the state as belonging to this agent
         state = update_state(
@@ -222,6 +223,11 @@ class ConstrainedAgent(abc.ABC):
             current_agent=self.agent_name,
             current_task=state.get("current_task"),
         )
+
+        # Load DB-stored API key into LLMClient when user context is available
+        user_id = state.get("user_id")  # type: ignore[typeddict-item]
+        if user_id:
+            await self._load_user_credentials(user_id)
 
         for attempt in range(1, self.max_retries + 1):
             try:
@@ -462,6 +468,25 @@ class ConstrainedAgent(abc.ABC):
         lines.append("")
         lines.append("If you are unsure about an action, STOP and request human clarification.")
         return "\n".join(lines)
+
+    async def _load_user_credentials(self, user_id: str) -> None:
+        """Load the user's OpenRouter API key from DB and update the LLM client.
+
+        Called once per ``invoke()`` when the state contains a ``user_id``.
+        Falls back gracefully to env vars if no DB key is stored.
+        """
+        try:
+            from src.core.credential_loader import get_api_key  # noqa: PLC0415
+
+            key = await get_api_key("openrouter_api_key", user_id=user_id)
+            if key:
+                self.llm_client.update_credentials(api_key=key)
+        except Exception:
+            self._log.debug(
+                "credential_load_skipped",
+                user_id=user_id,
+                exc_info=True,
+            )
 
     async def _get_credential(self, key_name: str, user_id: str | None = None) -> str | None:
         """Retrieve an API key at runtime, checking DB then environment.

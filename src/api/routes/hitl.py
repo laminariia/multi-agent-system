@@ -213,7 +213,7 @@ class HITLController(Controller):
     @post(
         "/{hitl_id:uuid}/resolve",
         summary="Resolve a HITL item",
-        guards=[require_role("owner")],
+        guards=[require_role("owner", "co_owner")],
     )
     async def resolve(
         self,
@@ -380,7 +380,7 @@ class HITLController(Controller):
     @post(
         "/bulk-resolve",
         summary="Bulk resolve multiple HITL items",
-        guards=[require_role("owner")],
+        guards=[require_role("owner", "co_owner")],
     )
     async def bulk_resolve(
         self,

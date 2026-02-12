@@ -845,14 +845,19 @@ async def test_pipeline_b_start_scan_valid():
     """API: start_scan with valid city → returns status=started."""
     from src.api.routes.pipeline_b import PipelineBController
 
+    controller = PipelineBController(owner=MagicMock())
     mock_session = AsyncMock()
+    mock_request = MagicMock()
+    mock_request.user = MagicMock()
+    mock_request.user.id = uuid.uuid4()
     data = {"city": "Berlin"}
 
     with patch("src.api.routes.pipeline_b.asyncio.create_task") as mock_task:
         result = await PipelineBController.start_scan.fn(
-            self=None,
+            controller,
             data=data,
             db_session=mock_session,
+            request=mock_request,
         )
 
     assert result["status"] == "started"
@@ -868,14 +873,19 @@ async def test_pipeline_b_start_scan_empty_city():
 
     from src.api.routes.pipeline_b import PipelineBController
 
+    controller = PipelineBController(owner=MagicMock())
     mock_session = AsyncMock()
+    mock_request = MagicMock()
+    mock_request.user = MagicMock()
+    mock_request.user.id = uuid.uuid4()
     data = {"city": ""}
 
     with pytest.raises(HTTPException) as exc_info:
         await PipelineBController.start_scan.fn(
-            self=None,
+            controller,
             data=data,
             db_session=mock_session,
+            request=mock_request,
         )
 
     assert exc_info.value.status_code == 400
