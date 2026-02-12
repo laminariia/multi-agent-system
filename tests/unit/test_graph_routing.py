@@ -471,7 +471,14 @@ async def test_bid_submission_node_non_freelancer():
         "next_agent": None,
     }
 
-    result = await bid_submission_node(state)
+    mock_session = AsyncMock()
+    mock_session.add = MagicMock()  # add() is sync in SQLAlchemy
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("src.core.database.get_db_session", return_value=mock_ctx):
+        result = await bid_submission_node(state)
 
     assert result["artifacts"]["bid_submitted"] is False
     assert result["artifacts"]["manual_submit_required"] is True
@@ -512,7 +519,14 @@ async def test_bid_submission_node_missing_project():
         "next_agent": None,
     }
 
-    result = await bid_submission_node(state)
+    mock_session = AsyncMock()
+    mock_session.add = MagicMock()  # add() is sync in SQLAlchemy
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("src.core.database.get_db_session", return_value=mock_ctx):
+        result = await bid_submission_node(state)
 
     assert result["artifacts"]["manual_submit_required"] is True
     assert result["next_agent"] == "planner"

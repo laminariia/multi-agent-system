@@ -155,7 +155,7 @@ class TestWsHandler:
     async def test_auth_with_valid_token(self) -> None:
         mock_socket = AsyncMock()
         mock_channels = MagicMock()
-        mock_channels.subscribe = MagicMock()
+        mock_channels.subscribe = AsyncMock()
 
         mock_token = MagicMock()
         mock_token.sub = "user-123"
@@ -181,7 +181,7 @@ class TestWsHandler:
     async def test_auth_subscribes_to_default_channels(self) -> None:
         mock_socket = AsyncMock()
         mock_channels = MagicMock()
-        mock_channels.subscribe = MagicMock()
+        mock_channels.subscribe = AsyncMock()
 
         mock_token = MagicMock()
         mock_token.sub = "user-123"
@@ -245,7 +245,7 @@ class TestWsHandler:
     async def test_subscribe_project_after_auth(self) -> None:
         mock_socket = AsyncMock()
         mock_channels = MagicMock()
-        mock_channels.subscribe = MagicMock()
+        mock_channels.subscribe = AsyncMock()
 
         mock_token = MagicMock()
         mock_token.sub = "user-123"
@@ -279,7 +279,7 @@ class TestWsHandler:
     async def test_subscribe_agent_after_auth(self) -> None:
         mock_socket = AsyncMock()
         mock_channels = MagicMock()
-        mock_channels.subscribe = MagicMock()
+        mock_channels.subscribe = AsyncMock()
 
         mock_token = MagicMock()
         mock_token.sub = "user-123"
@@ -305,7 +305,7 @@ class TestWsHandler:
     async def test_unknown_message_type_sends_error(self) -> None:
         mock_socket = AsyncMock()
         mock_channels = MagicMock()
-        mock_channels.subscribe = MagicMock()
+        mock_channels.subscribe = AsyncMock()
 
         mock_token = MagicMock()
         mock_token.sub = "user-123"
@@ -330,8 +330,8 @@ class TestWsHandler:
     async def test_disconnect_unsubscribes_channels(self) -> None:
         mock_socket = AsyncMock()
         mock_channels = MagicMock()
-        mock_channels.subscribe = MagicMock()
-        mock_channels.unsubscribe = MagicMock()
+        mock_channels.subscribe = AsyncMock()
+        mock_channels.unsubscribe = AsyncMock()
 
         mock_token = MagicMock()
         mock_token.sub = "user-123"
@@ -355,7 +355,7 @@ class TestWsHandler:
         """Token.decode should receive the raw JWT, not 'Bearer ...'."""
         mock_socket = AsyncMock()
         mock_channels = MagicMock()
-        mock_channels.subscribe = MagicMock()
+        mock_channels.subscribe = AsyncMock()
 
         mock_token = MagicMock()
         mock_token.sub = "user-456"
@@ -381,7 +381,7 @@ class TestWsHandler:
         """Subscribing to the same project twice should only subscribe once."""
         mock_socket = AsyncMock()
         mock_channels = MagicMock()
-        mock_channels.subscribe = MagicMock()
+        mock_channels.subscribe = AsyncMock()
 
         mock_token = MagicMock()
         mock_token.sub = "user-123"
