@@ -265,3 +265,40 @@ def test_mark_failed_preserves_existing_errors():
     s2 = mark_failed(s, "New failure")
     assert "Previous error" in s2["errors"]
     assert "New failure" in s2["errors"]
+
+
+# ---------------------------------------------------------------------------
+# create_initial_state — user_id parameter
+# ---------------------------------------------------------------------------
+
+
+def test_create_initial_state_with_user_id():
+    """create_initial_state should include user_id in state when provided."""
+    s = create_initial_state(project=_project(), user_id="user-abc-123")
+    assert s["user_id"] == "user-abc-123"
+
+
+def test_create_initial_state_without_user_id():
+    """create_initial_state should NOT include user_id key when omitted."""
+    s = create_initial_state(project=_project())
+    assert "user_id" not in s
+
+
+def test_create_initial_state_user_id_none_explicitly():
+    """create_initial_state with user_id=None should NOT include user_id key."""
+    s = create_initial_state(project=_project(), user_id=None)
+    assert "user_id" not in s
+
+
+def test_create_initial_state_user_id_with_other_fields():
+    """user_id should coexist with all other standard state fields."""
+    s = create_initial_state(
+        project=_project(),
+        first_agent="bid",
+        thread_id="t-custom",
+        user_id="user-xyz",
+    )
+    assert s["user_id"] == "user-xyz"
+    assert s["current_agent"] == "bid"
+    assert s["thread_id"] == "t-custom"
+    assert s["status"] == "active"
