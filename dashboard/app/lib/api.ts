@@ -9,6 +9,8 @@ import type {
   Job,
   JobListResponse,
   JobStats,
+  JobScanResponse,
+  RunPipelineResponse,
   UserListResponse,
   User,
   LeadDetail,
@@ -325,6 +327,19 @@ export async function disqualifyJob(id: string, reason: string) {
       body: JSON.stringify({ reason }),
     }
   );
+}
+
+export async function startJobScan(platform?: string): Promise<JobScanResponse> {
+  return apiFetch<JobScanResponse>("/jobs/scan", {
+    method: "POST",
+    body: JSON.stringify({ platform: platform ?? "all" }),
+  });
+}
+
+export async function runPipeline(jobId: string): Promise<RunPipelineResponse> {
+  return apiFetch<RunPipelineResponse>(`/jobs/${jobId}/run-pipeline`, {
+    method: "POST",
+  });
 }
 
 // --- Users (owner-only) ---

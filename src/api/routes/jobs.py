@@ -1,10 +1,14 @@
 """Job discovery and management routes.
 
-Provides endpoints for listing, viewing, and disqualifying jobs
-discovered by the Scout agent.  Mounted at ``/api/v1/jobs``.
+Provides endpoints for listing, viewing, disqualifying jobs
+discovered by the Scout agent, triggering manual scans, and
+running the full Pipeline A for a specific job.
+
+Mounted at ``/api/v1/jobs``.
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
 from decimal import Decimal
 from typing import Any
@@ -29,6 +33,9 @@ from src.api.schemas import (
 from src.core.models import Job, User
 
 logger = structlog.get_logger(__name__)
+
+# Strong references to background tasks so they aren't garbage-collected.
+_background_tasks: set[asyncio.Task[Any]] = set()
 
 
 class JobController(Controller):
@@ -219,6 +226,130 @@ class JobController(Controller):
             status="disqualified",
             disqualify_reason=data.reason,
         )
+
+    # -----------------------------------------------------------------
+    # POST /api/v1/jobs/scan
+    # -----------------------------------------------------------------
+
+    @post(
+        "/scan",
+        summary="Trigger manual Scout scan",
+        description="Start a background Scout agent cycle to discover new jobs.",
+        guards=[require_role("owner", "co_owner", "moderator")],
+    )
+    async def start_scan(
+        self,
+        request: Request[User, Token, Any],
+        data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Manually trigger a Scout agent scan.
+
+        Accepts an optional body ``{"platform": "freelancer"}`` to restrict
+        the scan to a single platform.  Defaults to ``"all"``.
+        """
+        platform = (data or {}).get("platform", "all")
+        valid_platforms = {"freelancer", "upwork", "fl_ru", "kwork", "all"}
+        if platform not in valid_platforms:
+            platform = "all"
+
+        from src.worker.tasks import run_scout_cycle  # noqa: PLC0415
+
+        task = asyncio.create_task(run_scout_cycle({"platform": platform}))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+
+        logger.info(
+            "scout_scan_triggered",
+            platform=platform,
+            by=str(request.user.id),
+        )
+
+        return {
+            "status": "started",
+            "platform": platform,
+            "message": (
+                f"Scout scan started for platform '{platform}'. "
+                "Check /api/v1/jobs for new results."
+            ),
+        }
+
+    # -----------------------------------------------------------------
+    # POST /api/v1/jobs/{job_id}/run-pipeline
+    # -----------------------------------------------------------------
+
+    @post(
+        "/{job_id:uuid}/run-pipeline",
+        summary="Run full Pipeline A for a job",
+        description="Trigger the Planner pipeline for a specific qualified/won job.",
+        guards=[require_role("owner", "co_owner")],
+    )
+    async def run_pipeline(
+        self,
+        job_id: uuid.UUID,
+        db_session: AsyncSession,
+        request: Request[User, Token, Any],
+    ) -> dict[str, Any]:
+        """Run the full Pipeline A (Planner -> Dev/Content/Design -> Critic -> Packager)
+        for a specific job.
+
+        Only jobs with status ``qualified``, ``bid_sent``, or ``won`` are eligible.
+
+        Raises:
+            NotFoundException: When the job does not exist.
+            MASException: When the job status does not allow pipeline execution (409).
+        """
+        stmt = select(Job).where(Job.id == job_id)
+        result = await db_session.execute(stmt)
+        job = result.scalar_one_or_none()
+
+        if job is None:
+            raise NotFoundException(detail=f"Job {job_id} not found")
+
+        allowed_statuses = ("qualified", "bid_sent", "won")
+        if job.status not in allowed_statuses:
+            from src.core.exceptions import MASException  # noqa: PLC0415
+
+            raise MASException(
+                f"Cannot run pipeline for job in '{job.status}' status. "
+                f"Only jobs with status {allowed_statuses!r} are eligible.",
+                details={"error_code": "CONFLICT", "status_code": 409},
+            )
+
+        thread_id = f"pipeline-{job.id}"
+
+        from src.worker.tasks import run_project_pipeline  # noqa: PLC0415
+
+        payload = {
+            "project_id": str(job.id),
+            "job_id": str(job.id),
+            "platform": job.platform,
+            "requirements": job.description or job.title,
+            "budget": float(job.budget_max or job.budget_min or 0),
+        }
+
+        task = asyncio.create_task(run_project_pipeline(payload))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+
+        job.status = "in_progress"
+        await db_session.flush()
+
+        logger.info(
+            "pipeline_a_triggered",
+            job_id=str(job.id),
+            thread_id=thread_id,
+            by=str(request.user.id),
+        )
+
+        return {
+            "status": "started",
+            "job_id": str(job.id),
+            "thread_id": thread_id,
+            "message": (
+                f"Pipeline A started for job {job.id}. "
+                f"Thread ID: {thread_id}."
+            ),
+        }
 
 
 # ---------------------------------------------------------------------------

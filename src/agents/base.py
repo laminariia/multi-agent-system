@@ -463,6 +463,26 @@ class ConstrainedAgent(abc.ABC):
         lines.append("If you are unsure about an action, STOP and request human clarification.")
         return "\n".join(lines)
 
+    async def _get_credential(self, key_name: str, user_id: str | None = None) -> str | None:
+        """Retrieve an API key at runtime, checking DB then environment.
+
+        This is a convenience wrapper around
+        :func:`src.core.credential_loader.get_api_key` so that any agent
+        subclass can easily obtain credentials without importing the loader
+        directly.
+
+        Args:
+            key_name: Lowercase key identifier, e.g. ``"gemini_api_key"``.
+            user_id: Optional user UUID string.  When provided, user-stored
+                keys in the database take precedence over environment defaults.
+
+        Returns:
+            The credential value, or ``None`` if not configured.
+        """
+        from src.core.credential_loader import get_api_key  # noqa: PLC0415
+
+        return await get_api_key(key_name, user_id=user_id)
+
     def _assert_tool_allowed(self, tool_name: str) -> None:
         """Raise if *tool_name* is not in this agent's allowed set or is forbidden."""
         if tool_name in self._forbidden_tools:

@@ -7,9 +7,11 @@ import { Button } from "~/components/ui/button";
 import { Separator } from "~/components/ui/separator";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Textarea } from "~/components/ui/textarea";
-import { fetchJob, disqualifyJob } from "~/lib/api";
+import { fetchJob, disqualifyJob, runPipeline } from "~/lib/api";
 import { relativeTime } from "~/lib/utils";
 import { toast } from "~/hooks/use-toast";
+
+const PIPELINE_ELIGIBLE_STATUSES = new Set(["qualified", "bid_sent", "won"]);
 
 export default function JobDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -17,6 +19,7 @@ export default function JobDetailPage() {
   const [showDisqualify, setShowDisqualify] = useState(false);
   const [disqualifyReason, setDisqualifyReason] = useState("");
   const [disqualifying, setDisqualifying] = useState(false);
+  const [runningPipeline, setRunningPipeline] = useState(false);
 
   const { data: job, isLoading, error } = useQuery({
     queryKey: ["job", id],
@@ -41,6 +44,29 @@ export default function JobDetailPage() {
       });
     } finally {
       setDisqualifying(false);
+    }
+  };
+
+  const handleRunPipeline = async () => {
+    if (!id) return;
+    setRunningPipeline(true);
+    try {
+      const res = await runPipeline(id);
+      toast({
+        title: "Pipeline started",
+        description: `Full pipeline running for this job. Thread: ${res.thread_id}`,
+        variant: "success",
+      });
+      queryClient.invalidateQueries({ queryKey: ["job", id] });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    } catch (err) {
+      toast({
+        title: "Failed to start pipeline",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setRunningPipeline(false);
     }
   };
 
@@ -75,6 +101,8 @@ export default function JobDetailPage() {
       ? `Up to $${job.budget_max}`
       : "Not specified";
 
+  const canRunPipeline = PIPELINE_ELIGIBLE_STATUSES.has(job.status);
+
   return (
     <div className="space-y-6">
       {/* Back link */}
@@ -96,6 +124,31 @@ export default function JobDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {canRunPipeline && (
+            <Button
+              variant="default"
+              size="sm"
+              disabled={runningPipeline}
+              onClick={handleRunPipeline}
+            >
+              {runningPipeline ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <svg className="mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="5 3 19 12 5 21 5 3" />
+                  </svg>
+                  Run Pipeline
+                </>
+              )}
+            </Button>
+          )}
           {job.url && (
             <Button variant="outline" size="sm" asChild>
               <a href={job.url} target="_blank" rel="noopener noreferrer">
@@ -103,7 +156,7 @@ export default function JobDetailPage() {
               </a>
             </Button>
           )}
-          {job.status !== "disqualified" && (
+          {job.status !== "disqualified" && job.status !== "in_progress" && job.status !== "completed" && (
             <Button
               variant="destructive"
               size="sm"
@@ -114,6 +167,22 @@ export default function JobDetailPage() {
           )}
         </div>
       </div>
+
+      {/* In progress banner */}
+      {job.status === "in_progress" && (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 flex items-center gap-3">
+          <div className="h-3 w-3 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+              Pipeline A is running
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Planner, Dev, Content, Design, and Critic agents are processing this job.
+              Check HITL queue for any pending approvals.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Disqualify form */}
       {showDisqualify && (
@@ -295,7 +364,7 @@ export default function JobDetailPage() {
             )}
             {job.status === "in_progress" && (
               <TimelineEntry
-                label="Work in progress"
+                label="Pipeline A running"
                 icon={
                   <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
                 }

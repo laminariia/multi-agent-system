@@ -188,6 +188,19 @@ export interface ScanResponse {
   message: string;
 }
 
+export interface JobScanResponse {
+  status: string;
+  platform: string;
+  message: string;
+}
+
+export interface RunPipelineResponse {
+  status: string;
+  job_id: string;
+  thread_id: string;
+  message: string;
+}
+
 // --- Orchestrator ---
 
 export interface OrchestratorStatus {
