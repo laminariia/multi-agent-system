@@ -1,15 +1,17 @@
 """Tests for g_501 bugfixes: FreelancerClient instantiation, email sending node, goal_id generation.
 
 Covers:
-1. FreelancerClient gets proper credentials from Settings
-2. email_sending_node calls send_approved_emails when approved
-3. email_sending_node skips when not approved
-4. email_sending_node handles missing campaign_id
-5. _route_after_hitl_email routes to email_sending_node when approved
-6. _route_after_hitl_email routes to END when not approved or failed
-7. goal_id generation with IDs like g_099, g_100, g_101
-8. goal_id generation with empty table
-9. goal_id generation in API service with 100+ goals
+1. FreelancerClient gets proper credentials from DB-stored Settings (credential_loader)
+2. FreelancerClient falls back to env vars when DB credentials absent
+3. FreelancerClient works with missing credentials (empty strings)
+4. email_sending_node calls send_approved_emails when approved
+5. email_sending_node skips when not approved
+6. email_sending_node handles missing campaign_id
+7. _route_after_hitl_email routes to email_sending_node when approved
+8. _route_after_hitl_email routes to END when not approved or failed
+9. goal_id generation with IDs like g_099, g_100, g_101
+10. goal_id generation with empty table
+11. goal_id generation in API service with 100+ goals
 """
 
 from __future__ import annotations
@@ -25,13 +27,9 @@ from langgraph.graph import END
 
 
 @pytest.mark.asyncio
-async def test_bid_submission_node_uses_settings_credentials():
-    """bid_submission_node passes FREELANCER_CLIENT_ID/SECRET from Settings."""
+async def test_bid_submission_node_uses_db_credentials():
+    """bid_submission_node prefers DB-stored credentials from credential_loader."""
     from src.core.graph import bid_submission_node
-
-    mock_settings = MagicMock()
-    mock_settings.FREELANCER_CLIENT_ID = "test_client_id"  # noqa: S105
-    mock_settings.FREELANCER_CLIENT_SECRET = "test_secret"  # noqa: S105
 
     mock_client_instance = MagicMock()
     mock_client_instance.submit_bid = AsyncMock(return_value={"result": {"id": 42}})
@@ -49,7 +47,60 @@ async def test_bid_submission_node_uses_settings_credentials():
         "hitl_request_id": None,
     }
 
+    # DB credentials available — should be used instead of env vars
+    db_creds = {"client_id": "db_client_id", "client_secret": "db_secret"}  # noqa: S105
+
     with (
+        patch(
+            "src.core.credential_loader.load_platform_credentials",
+            new_callable=AsyncMock,
+            return_value=db_creds,
+        ),
+        patch(
+            "src.adapters.freelancer.FreelancerClient",
+            return_value=mock_client_instance,
+        ) as mock_cls,
+    ):
+        result = await bid_submission_node(state)
+
+    mock_cls.assert_called_once_with(
+        client_id="db_client_id",
+        client_secret="db_secret",  # noqa: S106
+    )
+    assert result["artifacts"]["bid_submitted"] is True
+
+
+@pytest.mark.asyncio
+async def test_bid_submission_node_falls_back_to_env_credentials():
+    """bid_submission_node uses env vars when DB credentials are absent."""
+    from src.core.graph import bid_submission_node
+
+    mock_settings = MagicMock()
+    mock_settings.FREELANCER_CLIENT_ID = "env_client_id"  # noqa: S105
+    mock_settings.FREELANCER_CLIENT_SECRET = "env_secret"  # noqa: S105
+
+    mock_client_instance = MagicMock()
+    mock_client_instance.submit_bid = AsyncMock(return_value={"result": {"id": 1}})
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "project": {"platform": "freelancer", "job_id": "456"},
+        "artifacts": {"bid": {"proposal": "Hi", "amount": 50}},
+        "current_agent": "bid",
+        "next_agent": None,
+        "errors": [],
+        "requires_hitl": False,
+        "hitl_request_id": None,
+    }
+
+    # DB credentials not available — fall back to env vars
+    with (
+        patch(
+            "src.core.credential_loader.load_platform_credentials",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
         patch("src.core.graph.get_settings", return_value=mock_settings),
         patch(
             "src.adapters.freelancer.FreelancerClient",
@@ -59,8 +110,8 @@ async def test_bid_submission_node_uses_settings_credentials():
         result = await bid_submission_node(state)
 
     mock_cls.assert_called_once_with(
-        client_id="test_client_id",
-        client_secret="test_secret",  # noqa: S106
+        client_id="env_client_id",
+        client_secret="env_secret",  # noqa: S106
     )
     assert result["artifacts"]["bid_submitted"] is True
 
@@ -89,7 +140,13 @@ async def test_bid_submission_node_handles_missing_credentials():
         "hitl_request_id": None,
     }
 
+    # No DB creds, no env creds → empty strings
     with (
+        patch(
+            "src.core.credential_loader.load_platform_credentials",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
         patch("src.core.graph.get_settings", return_value=mock_settings),
         patch(
             "src.adapters.freelancer.FreelancerClient",
@@ -100,6 +157,69 @@ async def test_bid_submission_node_handles_missing_credentials():
 
     # Empty string fallback for None
     mock_cls.assert_called_once_with(client_id="", client_secret="")
+
+
+@pytest.mark.asyncio
+async def test_bid_submission_node_non_freelancer_platform():
+    """bid_submission_node marks non-freelancer platforms as manual_submit_required."""
+    from src.core.graph import bid_submission_node
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "project": {"platform": "upwork", "job_id": "789"},
+        "artifacts": {"bid": {"proposal": "Test", "amount": 200}},
+        "current_agent": "bid",
+        "next_agent": None,
+        "errors": [],
+        "requires_hitl": False,
+        "hitl_request_id": None,
+    }
+
+    result = await bid_submission_node(state)
+
+    assert result["artifacts"]["bid_submitted"] is False
+    assert result["artifacts"]["manual_submit_required"] is True
+    assert result["next_agent"] == "planner"
+
+
+@pytest.mark.asyncio
+async def test_bid_submission_node_submission_failure():
+    """bid_submission_node handles submit_bid failure gracefully."""
+    from src.core.graph import bid_submission_node
+
+    mock_client_instance = MagicMock()
+    mock_client_instance.submit_bid = AsyncMock(side_effect=RuntimeError("API down"))
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "project": {"platform": "freelancer", "job_id": "999"},
+        "artifacts": {"bid": {"proposal": "Hello", "amount": 100}},
+        "current_agent": "bid",
+        "next_agent": None,
+        "errors": [],
+        "requires_hitl": False,
+        "hitl_request_id": None,
+    }
+
+    with (
+        patch(
+            "src.core.credential_loader.load_platform_credentials",
+            new_callable=AsyncMock,
+            return_value={"client_id": "x", "client_secret": "y"},
+        ),
+        patch(
+            "src.adapters.freelancer.FreelancerClient",
+            return_value=mock_client_instance,
+        ),
+    ):
+        result = await bid_submission_node(state)
+
+    assert result["artifacts"]["bid_submitted"] is False
+    assert "API down" in result["artifacts"]["bid_submission_error"]
+    # Pipeline continues to planner despite failure
+    assert result["next_agent"] == "planner"
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +311,39 @@ async def test_email_sending_node_no_campaign_id():
     assert result["current_agent"] == "email_sending"
     assert result["status"] == "completed"
     assert result["artifacts"]["email_send_result"]["error"] == "no campaign_id"
+    assert result["artifacts"]["email_send_result"]["sent"] == 0
+
+
+@pytest.mark.asyncio
+async def test_email_sending_node_handles_send_exception():
+    """email_sending_node captures exception from send_approved_emails gracefully."""
+    from src.core.graph import email_sending_node
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "artifacts": {"emails_approved": True, "campaign_id": "camp-err"},
+        "current_agent": "hitl_email",
+        "next_agent": None,
+        "errors": [],
+        "requires_hitl": False,
+        "hitl_request_id": None,
+    }
+
+    mock_send = AsyncMock(side_effect=RuntimeError("SMTP connection refused"))
+    mock_session = AsyncMock()
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with (
+        patch("src.enrichment.email_sender.send_approved_emails", mock_send),
+        patch("src.core.database.get_db_session", return_value=mock_ctx),
+    ):
+        result = await email_sending_node(state)
+
+    assert result["status"] == "completed"
+    assert "SMTP connection refused" in result["artifacts"]["email_send_result"]["error"]
     assert result["artifacts"]["email_send_result"]["sent"] == 0
 
 

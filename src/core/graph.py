@@ -89,11 +89,20 @@ async def bid_submission_node(state: dict[str, Any]) -> dict[str, Any]:
     if platform == "freelancer":
         try:
             from src.adapters.freelancer import FreelancerClient  # noqa: PLC0415
+            from src.core.credential_loader import load_platform_credentials  # noqa: PLC0415
 
-            settings = get_settings()
+            # Try DB-stored credentials first, fall back to env vars.
+            db_creds = await load_platform_credentials("freelancer")
+            if db_creds:
+                client_id = db_creds.get("client_id", "")
+                client_secret = db_creds.get("client_secret", "")
+            else:
+                settings = get_settings()
+                client_id = settings.FREELANCER_CLIENT_ID or ""
+                client_secret = settings.FREELANCER_CLIENT_SECRET or ""
             client = FreelancerClient(
-                client_id=settings.FREELANCER_CLIENT_ID or "",
-                client_secret=settings.FREELANCER_CLIENT_SECRET or "",
+                client_id=client_id,
+                client_secret=client_secret,
             )
             project_id = bid_data.get("project_id") or (
                 state.get("project") or {}
