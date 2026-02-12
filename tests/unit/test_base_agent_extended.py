@@ -443,3 +443,111 @@ async def test_invoke_sentry_transaction_includes_agent_role(sample_state, infra
         await _agent(ok, infra, agent_name="dev", allowed_tools=["write_code"]).invoke(sample_state)
 
     mock_start.assert_called_once_with("dev", sample_state["thread_id"])
+
+
+# ===== _load_user_credentials ==============================================
+
+
+async def test_load_user_credentials_calls_get_api_key(sample_state, infra):
+    """_load_user_credentials should call get_api_key with openrouter_api_key."""
+    agent = _agent(AsyncMock(), infra)
+
+    with patch("src.core.credential_loader.get_api_key", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = "sk-from-db"
+        await agent._load_user_credentials("user-123")
+
+    mock_get.assert_awaited_once_with("openrouter_api_key", user_id="user-123")
+
+
+async def test_load_user_credentials_updates_llm_client(sample_state, infra):
+    """_load_user_credentials should call llm_client.update_credentials with the DB key."""
+    agent = _agent(AsyncMock(), infra)
+
+    with patch("src.core.credential_loader.get_api_key", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = "sk-user-key-abc"
+        await agent._load_user_credentials("user-456")
+
+    infra["llm"].update_credentials.assert_called_once_with(api_key="sk-user-key-abc")
+
+
+async def test_load_user_credentials_skips_when_no_key(sample_state, infra):
+    """_load_user_credentials should not call update_credentials when get_api_key returns None."""
+    agent = _agent(AsyncMock(), infra)
+
+    with patch("src.core.credential_loader.get_api_key", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = None
+        await agent._load_user_credentials("user-789")
+
+    infra["llm"].update_credentials.assert_not_called()
+
+
+async def test_load_user_credentials_handles_exception_gracefully(sample_state, infra):
+    """_load_user_credentials should log and not raise when get_api_key fails."""
+    agent = _agent(AsyncMock(), infra)
+
+    with patch("src.core.credential_loader.get_api_key", new_callable=AsyncMock) as mock_get:
+        mock_get.side_effect = RuntimeError("DB connection failed")
+        # Should not raise
+        await agent._load_user_credentials("user-err")
+
+    infra["llm"].update_credentials.assert_not_called()
+
+
+async def test_load_user_credentials_logs_on_exception(sample_state, infra):
+    """_load_user_credentials should log debug on failure."""
+    agent = _agent(AsyncMock(), infra)
+
+    with (
+        patch("src.core.credential_loader.get_api_key", new_callable=AsyncMock, side_effect=Exception("boom")),
+        patch.object(agent._log, "debug") as mock_debug,
+    ):
+        await agent._load_user_credentials("user-log")
+
+    mock_debug.assert_called_once()
+    assert mock_debug.call_args[0][0] == "credential_load_skipped"
+    assert mock_debug.call_args[1]["user_id"] == "user-log"
+
+
+# ===== invoke() with user_id in state =======================================
+
+
+async def test_invoke_loads_credentials_when_user_id_present(sample_state, infra):
+    """invoke() should call _load_user_credentials when state has user_id."""
+    async def ok(state):
+        return update_state(state, next_agent="bid", status="active")
+
+    agent = _agent(ok, infra)
+    state_with_user = {**sample_state, "user_id": "user-invoke-1"}
+
+    with patch.object(agent, "_load_user_credentials", new_callable=AsyncMock) as mock_load:
+        await agent.invoke(state_with_user)
+
+    mock_load.assert_awaited_once_with("user-invoke-1")
+
+
+async def test_invoke_skips_credentials_when_no_user_id(sample_state, infra):
+    """invoke() should NOT call _load_user_credentials when state has no user_id."""
+    async def ok(state):
+        return update_state(state, next_agent="bid", status="active")
+
+    agent = _agent(ok, infra)
+
+    with patch.object(agent, "_load_user_credentials", new_callable=AsyncMock) as mock_load:
+        await agent.invoke(sample_state)
+
+    mock_load.assert_not_awaited()
+
+
+async def test_invoke_succeeds_despite_credential_load_failure(sample_state, infra):
+    """invoke() should still succeed if _load_user_credentials raises (graceful fallback)."""
+    async def ok(state):
+        return update_state(state, next_agent="bid", status="active")
+
+    agent = _agent(ok, infra)
+    state_with_user = {**sample_state, "user_id": "user-fail"}
+
+    with patch("src.core.credential_loader.get_api_key", new_callable=AsyncMock, side_effect=Exception("db down")):
+        result = await agent.invoke(state_with_user)
+
+    assert result["status"] == "active"
+    assert result["next_agent"] == "bid"
