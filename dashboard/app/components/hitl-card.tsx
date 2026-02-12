@@ -43,9 +43,11 @@ interface HITLCardProps {
   item: HITLItem;
   onResolve: (id: string, action: string) => Promise<void>;
   userRole?: string;
+  selected?: boolean;
+  onSelect?: (id: string, selected: boolean) => void;
 }
 
-export function HITLCard({ item, onResolve, userRole }: HITLCardProps) {
+export function HITLCard({ item, onResolve, userRole, selected, onSelect }: HITLCardProps) {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const config = typeConfig[item.type] ?? typeConfig.alert;
   const canResolve = !userRole || userRole === "owner" || userRole === "co_owner";
@@ -60,7 +62,7 @@ export function HITLCard({ item, onResolve, userRole }: HITLCardProps) {
   };
 
   return (
-    <Card className="relative overflow-hidden border-border/50 hover:border-primary/30 transition-colors animate-fade-in">
+    <Card className={`relative overflow-hidden border-border/50 hover:border-primary/30 transition-colors animate-fade-in ${selected ? "ring-2 ring-primary border-primary/50" : ""}`}>
       {/* Priority indicator stripe */}
       {item.priority === "urgent" && (
         <div className="absolute top-0 left-0 right-0 h-0.5 bg-red-500" />
@@ -69,6 +71,14 @@ export function HITLCard({ item, onResolve, userRole }: HITLCardProps) {
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
+            {onSelect && (
+              <input
+                type="checkbox"
+                checked={selected ?? false}
+                onChange={(e) => onSelect(item.id, e.target.checked)}
+                className="h-4 w-4 rounded border-border accent-primary flex-shrink-0 cursor-pointer"
+              />
+            )}
             {item.priority === "urgent" && (
               <span className="flex-shrink-0 h-2 w-2 rounded-full bg-red-500 animate-pulse-dot" />
             )}

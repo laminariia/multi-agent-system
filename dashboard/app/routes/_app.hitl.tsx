@@ -6,7 +6,8 @@ import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Skeleton } from "~/components/ui/skeleton";
 import { HITLCard } from "~/components/hitl-card";
 import { Pagination } from "~/components/pagination";
-import { fetchHITLPending, resolveHITL, fetchHITLStats } from "~/lib/api";
+import { Button } from "~/components/ui/button";
+import { fetchHITLPending, resolveHITL, bulkResolveHITL, fetchHITLStats } from "~/lib/api";
 import { toast } from "~/hooks/use-toast";
 import { useAuthStore } from "~/stores/auth-store";
 
@@ -28,6 +29,9 @@ export default function HITLPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
   const user = useAuthStore((s) => s.user);
 
   useEffect(() => {
@@ -81,6 +85,53 @@ export default function HITLPage() {
         variant: "destructive",
       });
     }
+  };
+
+  const toggleSelect = (id: string, selected: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (selected) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const handleBulkAction = async (action: string) => {
+    if (selectedIds.size === 0) return;
+    setBulkLoading(true);
+    try {
+      const result = await bulkResolveHITL(Array.from(selectedIds), action);
+      const parts: string[] = [];
+      if (result.resolved > 0) parts.push(`${result.resolved} resolved`);
+      if (result.failed > 0) parts.push(`${result.failed} failed`);
+      toast({
+        title: `Bulk ${action}`,
+        description: parts.join(", ") || "Done",
+        variant: result.failed > 0 && result.resolved === 0 ? "destructive" : "success",
+      });
+      setSelectedIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ["hitl-pending"] });
+      queryClient.invalidateQueries({ queryKey: ["hitl-pending-count"] });
+      queryClient.invalidateQueries({ queryKey: ["hitl-stats"] });
+    } catch (err) {
+      toast({
+        title: "Bulk action failed",
+        description: err instanceof Error ? err.message : "Something went wrong",
+        variant: "destructive",
+      });
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleToggleBulkMode = () => {
+    setBulkMode((prev) => {
+      if (prev) setSelectedIds(new Set());
+      return !prev;
+    });
   };
 
   const items = data?.items ?? [];
@@ -148,6 +199,13 @@ export default function HITLPage() {
           onChange={(e) => setSearchQuery(e.target.value)}
           className="max-w-[220px]"
         />
+        <Button
+          variant={bulkMode ? "default" : "outline"}
+          size="sm"
+          onClick={handleToggleBulkMode}
+        >
+          {bulkMode ? "Exit Bulk" : "Bulk Select"}
+        </Button>
       </div>
 
       {/* Loading state */}
@@ -203,6 +261,8 @@ export default function HITLPage() {
               item={item}
               onResolve={handleResolve}
               userRole={user?.role}
+              selected={bulkMode ? selectedIds.has(item.id) : undefined}
+              onSelect={bulkMode ? toggleSelect : undefined}
             />
           ))}
         </div>
@@ -214,6 +274,50 @@ export default function HITLPage() {
         total={total}
         onPageChange={setPage}
       />
+
+      {/* Bulk action bar */}
+      {bulkMode && selectedIds.size > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background p-4 shadow-lg">
+          <div className="mx-auto flex max-w-screen-xl items-center justify-between gap-4">
+            <span className="text-sm font-medium text-foreground">
+              {selectedIds.size} selected
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="success"
+                size="sm"
+                disabled={bulkLoading}
+                onClick={() => handleBulkAction("approve")}
+              >
+                Approve All
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={bulkLoading}
+                onClick={() => handleBulkAction("reject")}
+              >
+                Reject All
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={bulkLoading}
+                onClick={() => handleBulkAction("skip")}
+              >
+                Skip All
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedIds(new Set())}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

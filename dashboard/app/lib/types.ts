@@ -56,6 +56,12 @@ export interface HITLResolveResponse {
   next_action: string;
 }
 
+export interface HITLBulkResolveResponse {
+  resolved: number;
+  failed: number;
+  errors: { id: string; error: string }[];
+}
+
 export interface HITLStats {
   today: {
     pending: number;
@@ -293,6 +299,13 @@ export interface APIKeyStatus {
   configured: boolean;
   source: string | null;
   masked: string | null;
+}
+
+export interface CredentialTestResult {
+  key_name: string;
+  success: boolean;
+  message: string;
+  latency_ms: number | null;
 }
 
 export interface CredentialsSummary {

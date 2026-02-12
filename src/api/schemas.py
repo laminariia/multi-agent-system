@@ -255,6 +255,22 @@ class HITLStatsSchema(_BaseSchema):
     by_type: dict[str, HITLTypeStatsSchema] = Field(default_factory=dict)
 
 
+class HITLBulkResolveRequestSchema(_BaseSchema):
+    """Bulk resolve multiple HITL items with the same action."""
+
+    ids: list[uuid.UUID] = Field(..., min_length=1, max_length=50, description="HITL item IDs to resolve")
+    action: str = Field(..., examples=["approve"], description="Resolution action applied to all items")
+    note: str | None = Field(default=None, max_length=2000, description="Optional note")
+
+
+class HITLBulkResolveResponseSchema(_BaseSchema):
+    """Result of bulk resolution."""
+
+    resolved: int = Field(default=0, ge=0, description="Successfully resolved count")
+    failed: int = Field(default=0, ge=0, description="Failed count (already resolved, expired, etc)")
+    errors: list[dict[str, Any]] = Field(default_factory=list, description="Per-item errors")
+
+
 class HITLTrendDaySchema(_BaseSchema):
     """Single day in the HITL trends response."""
 
@@ -596,6 +612,31 @@ class LogResponseSchema(_BaseSchema):
 # =============================================================================
 # Settings / Credentials schemas
 # =============================================================================
+
+
+class CredentialTestRequestSchema(_BaseSchema):
+    """Request to test a credential/API key."""
+
+    key_name: str = Field(
+        ...,
+        examples=["gemini_api_key"],
+        description="Name of the API key or platform to test",
+    )
+
+
+class CredentialTestResponseSchema(_BaseSchema):
+    """Result of credential test."""
+
+    key_name: str = Field(..., examples=["gemini_api_key"])
+    success: bool = Field(..., description="Whether the credential is valid")
+    message: str = Field(
+        ...,
+        examples=["API key is valid"],
+        description="Human-readable result",
+    )
+    latency_ms: int | None = Field(
+        default=None, description="Response time in milliseconds",
+    )
 
 
 class PlatformAccountCreateSchema(_BaseSchema):

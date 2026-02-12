@@ -22,6 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.guards import require_role
 from src.api.schemas import (
+    HITLBulkResolveRequestSchema,
+    HITLBulkResolveResponseSchema,
     HITLItemSchema,
     HITLPendingResponseSchema,
     HITLResolveRequestSchema,
@@ -369,6 +371,161 @@ class HITLController(Controller):
             status="resolved",
             resolution=data.action,
             next_action=next_action,
+        )
+
+    # -----------------------------------------------------------------
+    # POST /api/v1/hitl/bulk-resolve
+    # -----------------------------------------------------------------
+
+    @post(
+        "/bulk-resolve",
+        summary="Bulk resolve multiple HITL items",
+        guards=[require_role("owner")],
+    )
+    async def bulk_resolve(
+        self,
+        data: HITLBulkResolveRequestSchema,
+        request: Request[User, Token, Any],
+        db_session: AsyncSession,
+        valkey: aioredis.Redis,
+        channels: ChannelsPlugin,
+    ) -> HITLBulkResolveResponseSchema:
+        """Resolve multiple HITL items in one request with the same action.
+
+        Skips items that are already resolved, expired, or do not support
+        the requested action, recording per-item errors.
+        """
+        now = datetime.now(UTC)
+        resolved_count = 0
+        failed_count = 0
+        errors: list[dict[str, Any]] = []
+        resolved_ids: list[str] = []
+
+        # Fetch all items in a single query
+        stmt = select(HITLQueue).where(HITLQueue.id.in_(data.ids))
+        result = await db_session.execute(stmt)
+        items_by_id = {item.id: item for item in result.scalars().all()}
+
+        for item_id in data.ids:
+            item = items_by_id.get(item_id)
+
+            if item is None:
+                failed_count += 1
+                errors.append({"id": str(item_id), "error": "Not found"})
+                continue
+
+            if item.status == "resolved":
+                failed_count += 1
+                errors.append({"id": str(item_id), "error": "Already resolved"})
+                continue
+
+            if item.expires_at is not None and item.expires_at < now:
+                item.status = "expired"
+                failed_count += 1
+                errors.append({"id": str(item_id), "error": "Expired"})
+                continue
+
+            if data.action not in item.available_actions:
+                failed_count += 1
+                errors.append({
+                    "id": str(item_id),
+                    "error": f"Action '{data.action}' not available",
+                })
+                continue
+
+            # Apply resolution
+            item.status = "resolved"
+            item.resolution = data.action
+            item.resolution_note = data.note
+            item.resolved_by = request.user.id
+            item.resolved_at = now
+            resolved_count += 1
+            resolved_ids.append(str(item_id))
+
+        await db_session.flush()
+
+        logger.info(
+            "hitl.bulk_resolved",
+            resolved=resolved_count,
+            failed=failed_count,
+            action=data.action,
+            resolved_by=str(request.user.id),
+        )
+
+        # Fire-and-forget resume for each resumable item
+        _RESUMABLE_TYPES = {"bid_approval", "plan_review", "email_approval", "final_review"}
+        for item_id_str in resolved_ids:
+            item_id_uuid = uuid.UUID(item_id_str)
+            item = items_by_id.get(item_id_uuid)
+            if item is None:
+                continue
+            thread_id_from_payload = (item.payload or {}).get("thread_id")
+            if item.type in _RESUMABLE_TYPES and thread_id_from_payload and data.action != "later":
+                try:
+                    import asyncio  # noqa: PLC0415
+
+                    from src.core.graph import resume_from_hitl as _resume  # noqa: PLC0415
+
+                    hitl_response: dict[str, Any] = {
+                        "action": data.action,
+                        "note": data.note,
+                    }
+                    if item.type == "bid_approval":
+                        hitl_response["bid_ids"] = [
+                            (item.payload or {}).get("bid_id", "")
+                        ]
+
+                    task = asyncio.create_task(
+                        _resume(
+                            thread_id_from_payload,
+                            hitl_response,
+                            hitl_type=item.type,
+                            valkey=valkey,
+                        ),
+                    )
+                    _background_resume_tasks.add(task)
+                    task.add_done_callback(_background_resume_tasks.discard)
+                except Exception:
+                    logger.warning(
+                        "hitl.bulk_resume_dispatch_failed",
+                        hitl_id=item_id_str,
+                        exc_info=True,
+                    )
+
+        # Single WebSocket publish with all resolved IDs
+        if resolved_ids:
+            try:
+                await publish_event(channels, CHANNEL_HITL_RESOLVED, {
+                    "type": "hitl:bulk_resolved",
+                    "data": {
+                        "hitl_ids": resolved_ids,
+                        "action": data.action,
+                        "resolved_count": resolved_count,
+                        "resolved_by": request.user.email,
+                    },
+                })
+            except Exception:
+                logger.debug("hitl.bulk_ws_publish_failed", exc_info=True)
+
+            # Single Valkey pub/sub notification with summary
+            try:
+                await valkey.publish(
+                    "hitl:resolved:bot",
+                    json.dumps({
+                        "bulk": True,
+                        "hitl_ids": resolved_ids,
+                        "action": data.action,
+                        "resolved_count": resolved_count,
+                        "resolved_by": request.user.email,
+                    }),
+                )
+            except Exception:
+                logger.warning("hitl.bulk_bot_notify_failed", exc_info=True)
+
+        return HITLBulkResolveResponseSchema(
+            resolved=resolved_count,
+            failed=failed_count,
+            errors=errors,
         )
 
     # -----------------------------------------------------------------

@@ -3,6 +3,7 @@ import type {
   RegisterPendingResponse,
   HITLPendingResponse,
   HITLResolveResponse,
+  HITLBulkResolveResponse,
   HITLStats,
   AgentStatusList,
   AgentLogList,
@@ -24,6 +25,7 @@ import type {
   Phase,
   LogResponse,
   CredentialsSummary,
+  CredentialTestResult,
   PlatformAccount,
 } from "./types";
 
@@ -234,6 +236,17 @@ export async function resolveHITL(
   return apiFetch<HITLResolveResponse>(`/hitl/${id}/resolve`, {
     method: "POST",
     body: JSON.stringify({ action, note }),
+  });
+}
+
+export async function bulkResolveHITL(
+  ids: string[],
+  action: string,
+  note?: string
+): Promise<HITLBulkResolveResponse> {
+  return apiFetch<HITLBulkResolveResponse>("/hitl/bulk-resolve", {
+    method: "POST",
+    body: JSON.stringify({ ids, action, note }),
   });
 }
 
@@ -537,5 +550,12 @@ export async function saveAPIKeys(keys: Record<string, string>): Promise<{ api_k
   return apiFetch<{ api_keys: Record<string, any>; message: string }>("/settings/api-keys", {
     method: "PUT",
     body: JSON.stringify(keys),
+  });
+}
+
+export async function testCredential(keyName: string): Promise<CredentialTestResult> {
+  return apiFetch<CredentialTestResult>("/settings/test-credential", {
+    method: "POST",
+    body: JSON.stringify({ key_name: keyName }),
   });
 }

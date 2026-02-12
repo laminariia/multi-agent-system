@@ -8,9 +8,11 @@ Mounted at ``/api/v1/settings``.
 """
 from __future__ import annotations
 
+import time
 import uuid
 from typing import Any
 
+import httpx
 import structlog
 from cryptography.fernet import InvalidToken
 from litestar import Controller, Request, delete, get, put
@@ -21,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.guards import require_role
+from src.api.schemas import CredentialTestRequestSchema, CredentialTestResponseSchema
 from src.core.models import PlatformAccount, User
 from src.security.encryption import (
     decrypt_credentials,
@@ -492,6 +495,139 @@ class SettingsController(Controller):
         )
 
         return {"api_keys": masked_keys, "message": "API keys updated"}
+
+    # -----------------------------------------------------------------
+    # POST /api/v1/settings/test-credential
+    # -----------------------------------------------------------------
+
+    @post(
+        "/test-credential",
+        summary="Test an API key or platform credential",
+        description=(
+            "Makes a minimal API call to verify that the given credential is "
+            "valid. Supported keys: gemini, anthropic, openai, hunter. "
+            "Other keys receive a presence-only check."
+        ),
+        guards=[require_role("owner", "co_owner")],
+    )
+    async def test_credential(
+        self,
+        data: CredentialTestRequestSchema,
+        request: Request[User, Token, Any],
+        db_session: AsyncSession,
+    ) -> CredentialTestResponseSchema:
+        """Validate a single API credential by calling its provider."""
+        from src.core.credential_loader import get_api_key  # noqa: PLC0415
+
+        user_id = str(request.auth.sub)
+        key_name = data.key_name
+
+        # 1. Load the credential
+        key_value = await get_api_key(key_name, user_id=user_id)
+        if not key_value:
+            return CredentialTestResponseSchema(
+                key_name=key_name,
+                success=False,
+                message="Key not configured",
+                latency_ms=None,
+            )
+
+        # 2. Test the credential based on key type
+        result = await self._test_key(key_name, key_value)
+
+        logger.info(
+            "settings.test_credential",
+            user_id=user_id,
+            key_name=key_name,
+            success=result.success,
+        )
+
+        return result
+
+    @staticmethod
+    async def _test_key(
+        key_name: str,
+        key_value: str,
+    ) -> CredentialTestResponseSchema:
+        """Run a provider-specific validation for the given key."""
+        # Keys that have testable endpoints
+        _TESTABLE: dict[str, tuple[str, dict[str, str]]] = {
+            "gemini_api_key": (
+                f"https://generativelanguage.googleapis.com/v1/models?key={key_value}",
+                {},
+            ),
+            "anthropic_api_key": (
+                "https://api.anthropic.com/v1/models",
+                {
+                    "x-api-key": key_value,
+                    "anthropic-version": "2023-06-01",
+                },
+            ),
+            "openai_api_key": (
+                "https://api.openai.com/v1/models",
+                {"Authorization": f"Bearer {key_value}"},
+            ),
+            "hunter_api_key": (
+                f"https://api.hunter.io/v2/account?api_key={key_value}",
+                {},
+            ),
+        }
+
+        if key_name == "e2b_api_key":
+            # No simple ping endpoint; presence check only
+            return CredentialTestResponseSchema(
+                key_name=key_name,
+                success=bool(key_value),
+                message="Key is configured (no automated test available)",
+                latency_ms=None,
+            )
+
+        test_spec = _TESTABLE.get(key_name)
+        if test_spec is None:
+            # Generic keys without a known test endpoint
+            return CredentialTestResponseSchema(
+                key_name=key_name,
+                success=True,
+                message="Key is configured (no automated test available)",
+                latency_ms=None,
+            )
+
+        url, headers = test_spec
+        try:
+            start = time.monotonic()
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url, headers=headers)
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+
+            if resp.status_code == 200:
+                return CredentialTestResponseSchema(
+                    key_name=key_name,
+                    success=True,
+                    message="API key is valid",
+                    latency_ms=elapsed_ms,
+                )
+
+            return CredentialTestResponseSchema(
+                key_name=key_name,
+                success=False,
+                message=f"Provider returned HTTP {resp.status_code}",
+                latency_ms=elapsed_ms,
+            )
+
+        except httpx.TimeoutException:
+            return CredentialTestResponseSchema(
+                key_name=key_name,
+                success=False,
+                message="Connection timed out (10s)",
+                latency_ms=None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return CredentialTestResponseSchema(
+                key_name=key_name,
+                success=False,
+                message=f"Connection failed: {exc}",
+                latency_ms=None,
+            )
 
     # -----------------------------------------------------------------
     # Helpers

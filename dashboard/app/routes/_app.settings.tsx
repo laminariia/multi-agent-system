@@ -22,12 +22,13 @@ import {
 } from "~/components/ui/select";
 import { useAuthStore } from "~/stores/auth-store";
 import { toast } from "~/hooks/use-toast";
-import type { CredentialsSummary, PlatformAccount } from "~/lib/types";
+import type { CredentialsSummary, CredentialTestResult, PlatformAccount } from "~/lib/types";
 import {
   fetchCredentials,
   saveAPIKeys,
   createPlatformAccount,
   deletePlatformAccount,
+  testCredential,
 } from "~/lib/api";
 
 // --- Constants ---
@@ -108,6 +109,10 @@ export default function SettingsPage() {
   const [savingAccount, setSavingAccount] = useState(false);
   const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Credential testing
+  const [testingKey, setTestingKey] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, CredentialTestResult>>({});
 
   // Load credentials on mount
   const loadCredentials = useCallback(async () => {
@@ -233,6 +238,49 @@ export default function SettingsPage() {
   const hasKeyChanges = Object.entries(editingKeys).some(
     ([key, editing]) => editing && keyValues[key]?.trim()
   );
+
+  // --- Credential Testing ---
+
+  const handleTestKey = async (keyName: string) => {
+    setTestingKey(keyName);
+    try {
+      const result = await testCredential(keyName);
+      setTestResults((prev) => ({ ...prev, [keyName]: result }));
+      if (result.success) {
+        toast({
+          title: "Key valid",
+          description: result.latency_ms != null
+            ? `${result.message} (${result.latency_ms}ms)`
+            : result.message,
+          variant: "success",
+        });
+      } else {
+        toast({
+          title: "Key invalid",
+          description: result.message,
+          variant: "destructive",
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setTestResults((prev) => ({
+        ...prev,
+        [keyName]: {
+          key_name: keyName,
+          success: false,
+          message,
+          latency_ms: null,
+        },
+      }));
+      toast({
+        title: "Test failed",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setTestingKey(null);
+    }
+  };
 
   // --- Platform Accounts ---
 
@@ -400,8 +448,11 @@ export default function SettingsPage() {
           ) : (
             <div className="space-y-3">
               {API_KEY_DEFINITIONS.map(({ key, label }) => {
-                const status = credentials?.api_keys?.[key];
+                const apiKeyName = `${key}_api_key`;
+                const status = credentials?.api_keys?.[key] ?? credentials?.api_keys?.[apiKeyName];
                 const isEditing = editingKeys[key] ?? false;
+                const testResult = testResults[apiKeyName];
+                const isTesting = testingKey === apiKeyName;
 
                 return (
                   <div
@@ -431,6 +482,14 @@ export default function SettingsPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                      {testResult && !isTesting && (
+                        <span
+                          className={`text-sm font-bold ${testResult.success ? "text-green-500" : "text-red-500"}`}
+                          title={testResult.message}
+                        >
+                          {testResult.success ? "\u2713" : "\u2717"}
+                        </span>
+                      )}
                       {status?.configured ? (
                         <Badge variant="success" className="text-xs">
                           Configured
@@ -442,6 +501,17 @@ export default function SettingsPage() {
                         >
                           Not set
                         </Badge>
+                      )}
+                      {status?.configured && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleTestKey(apiKeyName)}
+                          disabled={isTesting || testingKey !== null}
+                          className="text-xs px-2"
+                        >
+                          {isTesting ? "Testing..." : "Test"}
+                        </Button>
                       )}
                       <Button
                         variant="outline"
