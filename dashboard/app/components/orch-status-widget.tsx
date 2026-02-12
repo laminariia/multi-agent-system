@@ -8,7 +8,7 @@ import { cn } from "~/lib/utils";
 export function OrchStatusWidget() {
   const navigate = useNavigate();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["orch-status"],
     queryFn: fetchOrchestratorStatus,
     refetchInterval: 30_000,
@@ -16,6 +16,16 @@ export function OrchStatusWidget() {
 
   if (isLoading && !data) {
     return <Skeleton className="h-[120px]" />;
+  }
+
+  if (error && !data) {
+    return (
+      <Card className="border-destructive/30">
+        <CardContent className="flex items-center justify-center p-5">
+          <p className="text-xs text-destructive">Failed to load orchestrator status</p>
+        </CardContent>
+      </Card>
+    );
   }
 
   const alive = data?.alive ?? false;

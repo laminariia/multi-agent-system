@@ -7,7 +7,7 @@ import { cn } from "~/lib/utils";
 import type { Phase } from "~/lib/types";
 
 export function MilestoneTimeline() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["orch-milestones"],
     queryFn: fetchMilestones,
     refetchInterval: 60_000,
@@ -15,6 +15,16 @@ export function MilestoneTimeline() {
 
   if (isLoading && !data) {
     return <Skeleton className="h-[300px]" />;
+  }
+
+  if (error && !data) {
+    return (
+      <Card className="border-destructive/30">
+        <CardContent className="flex items-center justify-center py-12">
+          <p className="text-sm text-destructive">Failed to load milestones</p>
+        </CardContent>
+      </Card>
+    );
   }
 
   if (!data || data.length === 0) {

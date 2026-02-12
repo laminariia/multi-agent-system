@@ -36,7 +36,7 @@ const severityColors: Record<string, string> = {
 };
 
 export function HealthGauge() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["orch-health"],
     queryFn: fetchHealth,
     refetchInterval: 30_000,
@@ -44,6 +44,16 @@ export function HealthGauge() {
 
   if (isLoading && !data) {
     return <Skeleton className="h-[400px]" />;
+  }
+
+  if (error && !data) {
+    return (
+      <Card className="border-destructive/30">
+        <CardContent className="flex items-center justify-center py-12">
+          <p className="text-sm text-destructive">Failed to load health report</p>
+        </CardContent>
+      </Card>
+    );
   }
 
   if (!data) {

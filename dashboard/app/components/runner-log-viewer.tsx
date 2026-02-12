@@ -23,7 +23,7 @@ export function RunnerLogViewer() {
   const [lineCount, setLineCount] = useState(40);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["orch-logs", lineCount],
     queryFn: () => fetchOrchestratorLogs({ n: lineCount }),
     refetchInterval: 30_000,
@@ -37,6 +37,16 @@ export function RunnerLogViewer() {
 
   if (isLoading && !data) {
     return <Skeleton className="h-[400px]" />;
+  }
+
+  if (error && !data) {
+    return (
+      <Card className="border-destructive/30">
+        <CardContent className="flex items-center justify-center py-12">
+          <p className="text-sm text-destructive">Failed to load logs</p>
+        </CardContent>
+      </Card>
+    );
   }
 
   const lines = data?.lines ?? [];

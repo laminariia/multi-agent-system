@@ -57,7 +57,7 @@ export function GoalList() {
   const [newPriority, setNewPriority] = useState("medium");
   const [newCategory, setNewCategory] = useState("feature");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["orch-goals", filter],
     queryFn: () => fetchGoals({ status: filter === "all" ? undefined : filter }),
     refetchInterval: 30_000,
@@ -209,7 +209,13 @@ export function GoalList() {
           </div>
         )}
 
-        {!isLoading && goals.length === 0 && (
+        {error && !data && (
+          <div className="flex items-center justify-center py-8">
+            <p className="text-sm text-destructive">Failed to load goals</p>
+          </div>
+        )}
+
+        {!isLoading && !error && goals.length === 0 && (
           <div className="flex items-center justify-center py-8">
             <p className="text-sm text-muted-foreground">No goals found</p>
           </div>

@@ -108,6 +108,8 @@ async function apiFetch<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const token = getAccessToken();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -118,34 +120,45 @@ async function apiFetch<T>(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  let res = await fetch(`${getApiBase()}${path}`, {
-    ...options,
-    headers,
-  });
+  try {
+    let res = await fetch(`${getApiBase()}${path}`, {
+      ...options,
+      headers,
+      signal: options.signal ?? controller.signal,
+    });
 
-  // On 401, try to refresh and retry once
-  if (res.status === 401 && token) {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
-      headers["Authorization"] = `Bearer ${newToken}`;
-      res = await fetch(`${getApiBase()}${path}`, {
-        ...options,
-        headers,
-      });
-    } else {
-      clearAuth();
-      throw new Error("Session expired");
+    // On 401, try to refresh and retry once
+    if (res.status === 401 && token) {
+      const newToken = await refreshAccessToken();
+      if (newToken) {
+        headers["Authorization"] = `Bearer ${newToken}`;
+        res = await fetch(`${getApiBase()}${path}`, {
+          ...options,
+          headers,
+          signal: options.signal ?? controller.signal,
+        });
+      } else {
+        clearAuth();
+        throw new Error("Session expired");
+      }
     }
-  }
 
-  if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(
-      `API Error ${res.status}: ${errorBody || res.statusText}`
-    );
-  }
+    if (!res.ok) {
+      const errorBody = await res.text();
+      throw new Error(
+        `API Error ${res.status}: ${errorBody || res.statusText}`
+      );
+    }
 
-  return res.json();
+    return res.json();
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Request timed out");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // --- Auth ---
