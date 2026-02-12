@@ -47,6 +47,7 @@ Return a single JSON object (no markdown fences) with exactly these fields:
 {
   "verdict": "approve",
   "score": 0.92,
+  "revision_type": "none",
   "issues": [
     {
       "severity": "minor",
@@ -63,9 +64,26 @@ Return a single JSON object (no markdown fences) with exactly these fields:
 
 # Decision Thresholds
 - APPROVE: score >= 0.85 -- work is ready for delivery.
-- REVISE:  score 0.60 - 0.84 -- specific, fixable issues found; route back
-  to the originating agent (Dev, Content, or Design).
+- REVISE:  score 0.60 - 0.84 -- specific, fixable issues found; see Revision
+  Classification below for routing.
 - REJECT:  score < 0.60 -- fundamental problems; escalate to HITL immediately.
+
+# Revision Classification (when verdict is "revise")
+When the verdict is "revise", you MUST classify the revision type:
+
+- "minor":       Small fixes (typo, colour change, missing alt tag, style tweak).
+                  Route back to the originating agent (Dev/Content/Design) for
+                  automatic correction.  Examples: "fix button colour", "add alt
+                  attribute", "correct spelling error".
+- "major":       Significant rework needed (redesign a page section, add a new
+                  feature, restructure components).  Route back to Planner for
+                  re-decomposition.  Examples: "redesign hero section", "add form
+                  validation", "restructure navigation".
+- "scope_creep": Work requested is outside the original project requirements.
+                  Escalate to HITL immediately so a human can discuss scope with
+                  the client.  Examples: "client wants admin panel (not in spec)",
+                  "add e-commerce (original scope was landing page)".
+- "none":        Use when verdict is "approve" or "reject" (no revision needed).
 
 # Scoring Guidelines
 - Start at 1.0 and subtract based on issue severity:

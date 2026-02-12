@@ -2,6 +2,7 @@ import { Link } from "@remix-run/react";
 import { Badge } from "~/components/ui/badge";
 import { Progress } from "~/components/ui/progress";
 import type { Job } from "~/lib/types";
+import type { BadgeProps } from "~/components/ui/badge";
 import { relativeTime, cn } from "~/lib/utils";
 
 const platformIcons: Record<string, string> = {
@@ -20,6 +21,37 @@ const statusConfig: Record<string, { label: string; className: string }> = {
   disqualified: { label: "Disqualified", className: "bg-muted text-muted-foreground border-muted-foreground/30" },
 };
 
+const currencySymbols: Record<string, string> = {
+  USD: "$",
+  EUR: "\u20AC",
+  GBP: "\u00A3",
+  RUB: "\u20BD",
+};
+
+function scoreVariant(score: number): BadgeProps["variant"] {
+  if (score >= 80) return "success";
+  if (score >= 50) return "warning";
+  return "secondary";
+}
+
+function formatBudget(
+  min: number | null,
+  max: number | null,
+  currency: string,
+): string | null {
+  if (min == null && max == null) return null;
+  const sym = currencySymbols[currency] ?? "";
+  const suffix = sym ? "" : ` ${currency}`;
+  const fmt = (n: number) => n.toLocaleString("en-US");
+  if (min != null && max != null) {
+    return `${sym}${fmt(min)}\u2013${sym}${fmt(max)}${suffix}`;
+  }
+  if (min != null) {
+    return `${sym}${fmt(min)}+${suffix}`;
+  }
+  return `Up to ${sym}${fmt(max!)}${suffix}`;
+}
+
 interface JobCardProps {
   job: Job;
   compact?: boolean;
@@ -28,14 +60,7 @@ interface JobCardProps {
 export function JobCard({ job, compact }: JobCardProps) {
   const status = statusConfig[job.status] ?? statusConfig.discovered;
   const scorePercent = job.score != null ? Math.round(job.score * 100) : null;
-  const budgetText =
-    job.budget_min != null && job.budget_max != null
-      ? `$${job.budget_min}–$${job.budget_max}`
-      : job.budget_min != null
-      ? `$${job.budget_min}+`
-      : job.budget_max != null
-      ? `Up to $${job.budget_max}`
-      : null;
+  const budgetText = formatBudget(job.budget_min, job.budget_max, job.currency);
 
   if (compact) {
     return (
@@ -54,12 +79,9 @@ export function JobCard({ job, compact }: JobCardProps) {
           </div>
         </div>
         {scorePercent != null && (
-          <div className="w-16 shrink-0">
-            <Progress value={scorePercent} className="h-1.5" />
-            <p className="text-[10px] text-muted-foreground text-center mt-0.5">
-              {scorePercent}%
-            </p>
-          </div>
+          <Badge variant={scoreVariant(scorePercent)} className="text-[10px] shrink-0">
+            Score: {scorePercent}
+          </Badge>
         )}
         <Badge variant="outline" className={cn("text-[10px] shrink-0", status.className)}>
           {status.label}
@@ -73,49 +95,57 @@ export function JobCard({ job, compact }: JobCardProps) {
       to={`/jobs/${job.id}`}
       className="block rounded-lg border border-border/50 p-4 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 transition-all animate-fade-in"
     >
+      {/* Row 1: Platform icon + title/budget | status badge */}
       <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded bg-secondary text-[10px] font-bold text-muted-foreground">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="flex h-8 w-8 items-center justify-center rounded bg-secondary text-[10px] font-bold text-muted-foreground shrink-0">
             {platformIcons[job.platform] ?? job.platform.slice(0, 2).toUpperCase()}
           </span>
           <div className="min-w-0">
             <p className="text-sm font-medium leading-tight line-clamp-1">{job.title}</p>
             {budgetText && (
-              <p className="text-xs text-muted-foreground mt-0.5">{budgetText} {job.currency}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{budgetText}</p>
             )}
           </div>
         </div>
-        <Badge variant="outline" className={cn("text-[10px] shrink-0", status.className)}>
+        <Badge variant="outline" className={cn("text-[10px] shrink-0 ml-2", status.className)}>
           {status.label}
         </Badge>
       </div>
 
+      {/* Row 2: Skill badges (first 3) */}
       {job.skills_required && job.skills_required.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-3">
-          {job.skills_required.slice(0, 5).map((skill) => (
-            <span
+          {job.skills_required.slice(0, 3).map((skill) => (
+            <Badge
               key={skill}
-              className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground"
+              variant="secondary"
+              className="px-1.5 py-0 text-[10px] font-normal"
             >
               {skill}
-            </span>
+            </Badge>
           ))}
-          {job.skills_required.length > 5 && (
-            <span className="text-[10px] text-muted-foreground">
-              +{job.skills_required.length - 5}
+          {job.skills_required.length > 3 && (
+            <span className="text-[10px] text-muted-foreground self-center">
+              +{job.skills_required.length - 3}
             </span>
           )}
         </div>
       )}
 
+      {/* Row 3: Score badge + progress | discovered time */}
       <div className="flex items-center justify-between">
-        {scorePercent != null && (
+        {scorePercent != null ? (
           <div className="flex items-center gap-2 flex-1 mr-3">
-            <Progress value={scorePercent} className="h-1.5 flex-1 max-w-[100px]" />
-            <span className="text-[10px] text-muted-foreground">{scorePercent}%</span>
+            <Badge variant={scoreVariant(scorePercent)} className="text-[10px] shrink-0">
+              Score: {scorePercent}
+            </Badge>
+            <Progress value={scorePercent} className="h-1.5 flex-1 max-w-[80px]" />
           </div>
+        ) : (
+          <span />
         )}
-        <span className="text-[10px] text-muted-foreground">
+        <span className="text-[10px] text-muted-foreground shrink-0">
           {relativeTime(job.discovered_at)}
         </span>
       </div>

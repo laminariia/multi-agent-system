@@ -26,6 +26,7 @@ from litestar.config.cors import CORSConfig
 from litestar.exceptions import HTTPException
 from litestar.middleware.rate_limit import RateLimitConfig
 from litestar.openapi import OpenAPIConfig
+from litestar.openapi.plugins import RedocRenderPlugin, SwaggerRenderPlugin
 from sqlalchemy import text as sa_text
 
 from src.api.dependencies import provide_db_session, provide_settings, provide_valkey
@@ -36,6 +37,9 @@ from src.api.routes.health import health_check
 from src.api.routes.hitl import HITLController
 from src.api.routes.jobs import JobController
 from src.api.routes.metrics import MetricsController
+from src.api.routes.orchestrator import OrchestratorController
+from src.api.routes.pipeline_b import PipelineBController
+from src.api.routes.settings import SettingsController
 from src.api.routes.users import UserController
 from src.api.schemas import ErrorResponseSchema, ErrorSchema
 from src.api.websocket import (
@@ -44,6 +48,9 @@ from src.api.websocket import (
     CHANNEL_HITL_NEW,
     CHANNEL_HITL_RESOLVED,
     CHANNEL_NOTIFICATION,
+    CHANNEL_ORCH_GOAL,
+    CHANNEL_ORCH_LOG,
+    CHANNEL_ORCH_STATUS,
     CHANNEL_PROJECT_UPDATE,
     ws_handler,
 )
@@ -184,7 +191,7 @@ cors_config = CORSConfig(
 # internal address — IP-based limiting effectively caps ALL users together.
 rate_limit_config = RateLimitConfig(
     rate_limit=("minute", 300),
-    exclude=["/health", "/schema", "/metrics"],
+    exclude=["/health", "/schema", "/swagger", "/redoc", "/metrics"],
 )
 
 # ChannelsPlugin for WebSocket real-time events
@@ -200,16 +207,23 @@ channels_plugin = ChannelsPlugin(
         CHANNEL_HITL_RESOLVED,
         CHANNEL_PROJECT_UPDATE,
         CHANNEL_NOTIFICATION,
+        CHANNEL_ORCH_STATUS,
+        CHANNEL_ORCH_GOAL,
+        CHANNEL_ORCH_LOG,
     ],
     arbitrary_channels_allowed=True,
 )
 
-# OpenAPI
+# OpenAPI with Swagger UI and Redoc
 openapi_config = OpenAPIConfig(
     title="MAS API",
     version="1.0",
     description="Multi-Agent Service REST API for freelance automation and cold outreach.",
     path="/schema",
+    render_plugins=[
+        SwaggerRenderPlugin(),
+        RedocRenderPlugin(),
+    ],
 )
 
 
@@ -226,6 +240,9 @@ app = Litestar(
         AgentController,
         JobController,
         MetricsController,
+        OrchestratorController,
+        PipelineBController,
+        SettingsController,
         UserController,
         ws_handler,
     ],

@@ -107,6 +107,8 @@ def _build_pipeline_graph(
     def route_after_planner(state: dict[str, Any]) -> str:
         if state.get("status") == "failed":
             return END
+        if state.get("requires_hitl"):
+            return "hitl_review_node"
         if state.get("next_agent") == "dev":
             return "dev_node"
         return END
@@ -139,6 +141,8 @@ def _build_pipeline_graph(
             return "hitl_review_node"
         if state.get("next_agent") == "packager":
             return "packager_node"
+        if state.get("next_agent") == "planner":
+            return "planner_node"
         if state.get("next_agent") == "dev":
             return "dev_node"
         return END
@@ -156,14 +160,20 @@ def _build_pipeline_graph(
     graph.add_conditional_edges("scout_node", route_after_scout, {"bid_node": "bid_node", END: END})
     graph.add_conditional_edges("bid_node", route_after_bid, {"hitl_bid_node": "hitl_bid_node", END: END})
     graph.add_conditional_edges("hitl_bid_node", route_after_hitl_bid, {"planner_node": "planner_node", END: END})
-    graph.add_conditional_edges("planner_node", route_after_planner, {"dev_node": "dev_node", END: END})
+    graph.add_conditional_edges(
+        "planner_node", route_after_planner,
+        {"dev_node": "dev_node", "hitl_review_node": "hitl_review_node", END: END},
+    )
     graph.add_conditional_edges("dev_node", route_after_dev, {"content_node": "content_node", END: END})
     graph.add_conditional_edges("content_node", route_after_content, {"design_node": "design_node", END: END})
     graph.add_conditional_edges("design_node", route_after_design, {"critic_node": "critic_node", END: END})
     graph.add_conditional_edges(
         "critic_node",
         route_after_critic,
-        {"packager_node": "packager_node", "hitl_review_node": "hitl_review_node", "dev_node": "dev_node", END: END},
+        {
+            "packager_node": "packager_node", "planner_node": "planner_node",
+            "hitl_review_node": "hitl_review_node", "dev_node": "dev_node", END: END,
+        },
     )
     graph.add_conditional_edges(
         "packager_node", route_after_packager, {"hitl_review_node": "hitl_review_node", END: END},
@@ -601,3 +611,219 @@ async def test_pipeline_artifacts_accumulate_across_agents():
         assert agent_name in result["artifacts"], (
             f"Artifacts from '{agent_name}' missing. Present: {list(result['artifacts'].keys())}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Revision Classification Integration Tests
+# ---------------------------------------------------------------------------
+
+
+async def test_pipeline_critic_major_revision_routes_to_planner():
+    """Critic returns major revision -> Planner re-decomposes -> Dev cycle restarts."""
+
+    call_counts: dict[str, int] = {"planner": 0, "dev": 0, "content": 0, "design": 0, "critic": 0}
+
+    async def mock_scout(state: dict[str, Any]) -> dict[str, Any]:
+        return {**state, "next_agent": "bid", "current_agent": "scout", "status": "active"}
+
+    async def mock_bid(state: dict[str, Any]) -> dict[str, Any]:
+        return {**state, "requires_hitl": True, "status": "paused", "current_agent": "bid", "next_agent": None}
+
+    async def mock_hitl_bid(state: dict[str, Any]) -> dict[str, Any]:
+        return {**state, "requires_hitl": False, "status": "active", "next_agent": "planner", "current_agent": "bid"}
+
+    async def mock_planner(state: dict[str, Any]) -> dict[str, Any]:
+        call_counts["planner"] += 1
+        artifacts = dict(state.get("artifacts") or {})
+        artifacts["planner"] = [json.dumps({"tasks": [{"id": "t1"}]})]
+        return {**state, "next_agent": "dev", "current_agent": "planner", "status": "active", "artifacts": artifacts}
+
+    async def mock_dev(state: dict[str, Any]) -> dict[str, Any]:
+        call_counts["dev"] += 1
+        artifacts = dict(state.get("artifacts") or {})
+        artifacts["dev"] = [json.dumps({"files": []})]
+        return {**state, "next_agent": "content", "current_agent": "dev", "status": "active", "artifacts": artifacts}
+
+    async def mock_content(state: dict[str, Any]) -> dict[str, Any]:
+        call_counts["content"] += 1
+        artifacts = dict(state.get("artifacts") or {})
+        artifacts["content"] = [json.dumps({"deliverables": []})]
+        return {**state, "next_agent": "design", "current_agent": "content", "status": "active", "artifacts": artifacts}
+
+    async def mock_design(state: dict[str, Any]) -> dict[str, Any]:
+        call_counts["design"] += 1
+        artifacts = dict(state.get("artifacts") or {})
+        artifacts["design"] = [json.dumps({"specs": []})]
+        return {**state, "next_agent": "critic", "current_agent": "design", "status": "active", "artifacts": artifacts}
+
+    async def mock_critic(state: dict[str, Any]) -> dict[str, Any]:
+        call_counts["critic"] += 1
+        artifacts = dict(state.get("artifacts") or {})
+        if call_counts["critic"] == 1:
+            # First pass: major revision → route to planner
+            artifacts["critic"] = [json.dumps({"verdict": "REVISE", "score": 0.65, "revision_type": "major"})]
+            return {
+                **state, "next_agent": "planner", "current_agent": "critic",
+                "status": "active", "requires_hitl": False, "artifacts": artifacts,
+            }
+        # Second pass: approve
+        artifacts["critic"] = [json.dumps({"verdict": "APPROVE", "score": 0.91})]
+        return {
+            **state, "next_agent": "packager", "current_agent": "critic",
+            "status": "active", "requires_hitl": False, "artifacts": artifacts,
+        }
+
+    async def mock_packager(state: dict[str, Any]) -> dict[str, Any]:
+        artifacts = dict(state.get("artifacts") or {})
+        artifacts["packager"] = [json.dumps({"archive_url": "https://example.com/delivery.zip"})]
+        return {
+            **state, "requires_hitl": True, "status": "paused",
+            "current_agent": "packager", "next_agent": None, "artifacts": artifacts,
+        }
+
+    graph = _build_pipeline_graph({
+        "scout_node": mock_scout,
+        "bid_node": mock_bid,
+        "hitl_bid_node": mock_hitl_bid,
+        "planner_node": mock_planner,
+        "dev_node": mock_dev,
+        "content_node": mock_content,
+        "design_node": mock_design,
+        "critic_node": mock_critic,
+        "packager_node": mock_packager,
+    })
+    result = await graph.ainvoke(_make_initial_state())
+
+    assert result["status"] == "paused"
+    assert result["requires_hitl"] is True
+    assert result["current_agent"] == "packager"
+
+    # Planner should be called 2x: initial + after major revision
+    assert call_counts["planner"] == 2, f"Planner expected 2x, got {call_counts['planner']}x"
+    # Dev/Content/Design should be called 2x: initial + after re-plan
+    assert call_counts["dev"] == 2, f"Dev expected 2x, got {call_counts['dev']}x"
+    assert call_counts["content"] == 2, f"Content expected 2x, got {call_counts['content']}x"
+    assert call_counts["design"] == 2, f"Design expected 2x, got {call_counts['design']}x"
+    # Critic should be called 2x: first returns major revision, second approves
+    assert call_counts["critic"] == 2, f"Critic expected 2x, got {call_counts['critic']}x"
+
+
+async def test_pipeline_critic_scope_creep_escalates_to_hitl():
+    """Critic detects scope creep -> HITL review, packager NOT called."""
+
+    packager_called = False
+    hitl_review_called = False
+
+    async def mock_scout(state: dict[str, Any]) -> dict[str, Any]:
+        return {**state, "next_agent": "bid", "current_agent": "scout", "status": "active"}
+
+    async def mock_bid(state: dict[str, Any]) -> dict[str, Any]:
+        return {**state, "requires_hitl": True, "status": "paused", "current_agent": "bid", "next_agent": None}
+
+    async def mock_hitl_bid(state: dict[str, Any]) -> dict[str, Any]:
+        return {**state, "requires_hitl": False, "status": "active", "next_agent": "planner", "current_agent": "bid"}
+
+    async def mock_planner(state: dict[str, Any]) -> dict[str, Any]:
+        return {**state, "next_agent": "dev", "current_agent": "planner", "status": "active"}
+
+    async def mock_dev(state: dict[str, Any]) -> dict[str, Any]:
+        return {**state, "next_agent": "content", "current_agent": "dev", "status": "active"}
+
+    async def mock_content(state: dict[str, Any]) -> dict[str, Any]:
+        return {**state, "next_agent": "design", "current_agent": "content", "status": "active"}
+
+    async def mock_design(state: dict[str, Any]) -> dict[str, Any]:
+        return {**state, "next_agent": "critic", "current_agent": "design", "status": "active"}
+
+    async def mock_critic(state: dict[str, Any]) -> dict[str, Any]:
+        artifacts = dict(state.get("artifacts") or {})
+        artifacts["critic"] = [json.dumps({
+            "verdict": "REVISE", "score": 0.70,
+            "revision_type": "scope_creep",
+            "issues": [{"desc": "Client wants admin panel - not in spec"}],
+        })]
+        return {
+            **state, "next_agent": None, "current_agent": "critic", "status": "paused",
+            "requires_hitl": True, "hitl_request_id": "hitl-scope-creep-001", "artifacts": artifacts,
+        }
+
+    async def mock_packager(state: dict[str, Any]) -> dict[str, Any]:
+        nonlocal packager_called
+        packager_called = True
+        return state
+
+    async def mock_hitl_review(state: dict[str, Any]) -> dict[str, Any]:
+        nonlocal hitl_review_called
+        hitl_review_called = True
+        return state
+
+    graph = _build_pipeline_graph({
+        "scout_node": mock_scout,
+        "bid_node": mock_bid,
+        "hitl_bid_node": mock_hitl_bid,
+        "planner_node": mock_planner,
+        "dev_node": mock_dev,
+        "content_node": mock_content,
+        "design_node": mock_design,
+        "critic_node": mock_critic,
+        "packager_node": mock_packager,
+        "hitl_review_node": mock_hitl_review,
+    })
+    result = await graph.ainvoke(_make_initial_state())
+
+    assert packager_called is False, "Packager should NOT be called on scope creep"
+    assert hitl_review_called is True, "HITL review should be called on scope creep"
+    assert result["requires_hitl"] is True
+    assert result["status"] == "paused"
+    assert result["hitl_request_id"] == "hitl-scope-creep-001"
+
+
+async def test_pipeline_planner_hitl_review_for_complex_plan():
+    """Planner sets requires_hitl for complex plan -> routes to HITL review."""
+
+    dev_called = False
+    hitl_review_called = False
+
+    async def mock_scout(state: dict[str, Any]) -> dict[str, Any]:
+        return {**state, "next_agent": "bid", "current_agent": "scout", "status": "active"}
+
+    async def mock_bid(state: dict[str, Any]) -> dict[str, Any]:
+        return {**state, "requires_hitl": True, "status": "paused", "current_agent": "bid", "next_agent": None}
+
+    async def mock_hitl_bid(state: dict[str, Any]) -> dict[str, Any]:
+        return {**state, "requires_hitl": False, "status": "active", "next_agent": "planner", "current_agent": "bid"}
+
+    async def mock_planner(state: dict[str, Any]) -> dict[str, Any]:
+        # Complex plan → triggers HITL plan review
+        artifacts = dict(state.get("artifacts") or {})
+        artifacts["planner"] = [json.dumps({"tasks": [], "total_estimated_hours": 30})]
+        return {
+            **state, "next_agent": "dev", "current_agent": "planner",
+            "status": "paused", "requires_hitl": True,
+            "hitl_request_id": "hitl-plan-review-001", "artifacts": artifacts,
+        }
+
+    async def mock_dev(state: dict[str, Any]) -> dict[str, Any]:
+        nonlocal dev_called
+        dev_called = True
+        return state
+
+    async def mock_hitl_review(state: dict[str, Any]) -> dict[str, Any]:
+        nonlocal hitl_review_called
+        hitl_review_called = True
+        return state
+
+    graph = _build_pipeline_graph({
+        "scout_node": mock_scout,
+        "bid_node": mock_bid,
+        "hitl_bid_node": mock_hitl_bid,
+        "planner_node": mock_planner,
+        "dev_node": mock_dev,
+        "hitl_review_node": mock_hitl_review,
+    })
+    result = await graph.ainvoke(_make_initial_state())
+
+    assert dev_called is False, "Dev should NOT be called when Planner requests HITL review"
+    assert hitl_review_called is True, "HITL review should be called for complex plan"
+    assert result["requires_hitl"] is True
+    assert result["hitl_request_id"] == "hitl-plan-review-001"

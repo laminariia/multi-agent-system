@@ -12,10 +12,36 @@ import {
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
 import { SidebarNav } from "~/components/sidebar-nav";
+import { NotificationCenter } from "~/components/notification-center";
 import { useAuthStore } from "~/stores/auth-store";
+import { useThemeStore } from "~/stores/theme-store";
+import { useNotificationStore } from "~/stores/notification-store";
 import { fetchHITLPending, fetchUsers } from "~/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "~/hooks/use-toast";
+import { cn } from "~/lib/utils";
+
+/** Send a browser desktop notification if the tab is not focused and permission is granted. */
+function sendBrowserNotification(title: string, body: string, onClick?: () => void) {
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (document.hasFocus()) return;
+  if (Notification.permission !== "granted") return;
+
+  const n = new Notification(title, {
+    body,
+    icon: "/favicon.ico",
+    tag: "mas-hitl", // deduplicate rapid notifications
+  });
+  if (onClick) {
+    n.onclick = () => {
+      window.focus();
+      onClick();
+      n.close();
+    };
+  }
+  // Auto-close after 10 seconds
+  setTimeout(() => n.close(), 10_000);
+}
 
 export default function AppLayout() {
   const navigate = useNavigate();
@@ -23,12 +49,27 @@ export default function AppLayout() {
   const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectAttemptsRef = useRef(0);
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
 
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
   const accessToken = useAuthStore((s) => s.accessToken);
   const logout = useAuthStore((s) => s.logout);
+  const theme = useThemeStore((s) => s.theme);
+  const toggleTheme = useThemeStore((s) => s.toggleTheme);
+
+  // Request browser notification permission on first auth
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, [isAuthenticated]);
 
   // Fetch pending count for sidebar badge
   const { data: hitlData } = useQuery({
@@ -53,9 +94,13 @@ export default function AppLayout() {
     }
   }, [isAuthenticated, navigate]);
 
-  // WebSocket connection
+  const addNotification = useNotificationStore((s) => s.addNotification);
+
+  // WebSocket connection with infinite retry and status tracking
   const connectWs = useCallback(() => {
     if (!accessToken) return;
+
+    setWsStatus("connecting");
 
     const apiUrl = window.ENV?.API_URL;
     const wsHost = apiUrl
@@ -69,6 +114,10 @@ export default function AppLayout() {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        reconnectAttemptsRef.current = 0;
+        setWsStatus("connected");
+        // Expose for per-page subscriptions via useWsSubscription hook
+        (window as unknown as Record<string, unknown>).__masWs = ws;
         ws.send(
           JSON.stringify({
             type: "auth",
@@ -81,38 +130,125 @@ export default function AppLayout() {
         try {
           const msg = JSON.parse(event.data);
 
-          if (
-            msg.type === "hitl:new" ||
-            msg.type === "hitl:resolved"
-          ) {
+          if (msg.type === "ping") {
+            ws.send(JSON.stringify({ type: "pong" }));
+            return;
+          }
+
+          // --- HITL events ---
+          if (msg.type === "hitl:new" || msg.type === "hitl:resolved") {
             queryClient.invalidateQueries({ queryKey: ["hitl-pending"] });
-            queryClient.invalidateQueries({
-              queryKey: ["hitl-pending-count"],
-            });
+            queryClient.invalidateQueries({ queryKey: ["hitl-pending-count"] });
             queryClient.invalidateQueries({ queryKey: ["hitl-stats"] });
+            queryClient.invalidateQueries({ queryKey: ["hitl-trends"] });
 
             if (msg.type === "hitl:new") {
-              toast({
+              const title = msg.data?.title ?? "Requires your attention";
+              toast({ title: "New HITL item", description: title });
+              addNotification({
+                type: "hitl",
                 title: "New HITL item",
-                description: msg.data?.title ?? "Requires your attention",
+                description: title,
+                link: "/hitl",
+              });
+              // Desktop notification when tab is not focused
+              sendBrowserNotification(
+                "HITL: Action Required",
+                title,
+                () => navigateRef.current("/hitl")
+              );
+            }
+            if (msg.type === "hitl:resolved") {
+              const desc = msg.data?.title
+                ? `"${msg.data.title}" resolved`
+                : "Item resolved";
+              addNotification({
+                type: "hitl",
+                title: "HITL resolved",
+                description: desc,
+                link: "/hitl",
               });
             }
           }
 
+          // --- Agent events ---
           if (msg.type === "agent:heartbeat") {
-            queryClient.invalidateQueries({
-              queryKey: ["agent-status"],
-            });
+            queryClient.invalidateQueries({ queryKey: ["agent-status"] });
+            queryClient.invalidateQueries({ queryKey: ["agent-logs"] });
+            if (msg.data?.action) {
+              const agentName = msg.data.agent ?? "Unknown";
+              const desc = `${agentName} is now ${msg.data.status ?? msg.data.action}`;
+              const isError = msg.data.status === "error" || msg.data.status === "dead";
+              toast({
+                title: `Agent ${msg.data.action}`,
+                description: desc,
+                variant: isError ? "destructive" : "default",
+              });
+              // Desktop notification for agent errors
+              if (isError) {
+                sendBrowserNotification(
+                  "Agent Error",
+                  desc,
+                  () => navigateRef.current(`/agents/${agentName}`)
+                );
+              }
+              addNotification({
+                type: "agent",
+                title: `Agent ${msg.data.action}`,
+                description: desc,
+                link: `/agents/${agentName}`,
+              });
+            }
           }
 
+          // --- Project events ---
           if (msg.type === "project:update") {
             queryClient.invalidateQueries({ queryKey: ["jobs"] });
+            queryClient.invalidateQueries({ queryKey: ["job"] });
+            queryClient.invalidateQueries({ queryKey: ["job-stats"] });
+            if (msg.data?.status) {
+              const jobTitle = msg.data.title ?? "Job";
+              const desc = `${jobTitle} — ${msg.data.status}`;
+              toast({ title: "Job updated", description: desc });
+              addNotification({
+                type: "project",
+                title: "Job updated",
+                description: desc,
+                link: msg.data.job_id ? `/jobs/${msg.data.job_id}` : "/jobs",
+              });
+            }
           }
 
+          // --- Orchestrator events ---
+          if (msg.type === "orch:status") {
+            queryClient.invalidateQueries({ queryKey: ["orch-status"] });
+            if (msg.data?.action) {
+              toast({ title: "Orchestrator", description: `Runner ${msg.data.action}` });
+              addNotification({
+                type: "orch",
+                title: "Orchestrator",
+                description: `Runner ${msg.data.action}`,
+                link: "/orchestrator",
+              });
+            }
+          }
+          if (msg.type === "orch:goal") {
+            queryClient.invalidateQueries({ queryKey: ["orch-goals"] });
+            queryClient.invalidateQueries({ queryKey: ["orch-status"] });
+          }
+          if (msg.type === "orch:log") {
+            queryClient.invalidateQueries({ queryKey: ["orch-logs"] });
+          }
+
+          // --- Generic notification ---
           if (msg.type === "notification") {
-            toast({
-              title: msg.data?.title ?? "Notification",
-              description: msg.data?.message ?? "",
+            const title = msg.data?.title ?? "Notification";
+            const desc = msg.data?.message ?? "";
+            toast({ title, description: desc });
+            addNotification({
+              type: "system",
+              title,
+              description: desc,
             });
           }
         } catch {
@@ -122,16 +258,37 @@ export default function AppLayout() {
 
       ws.onclose = () => {
         wsRef.current = null;
-        reconnectTimeoutRef.current = setTimeout(connectWs, 3000);
+        (window as unknown as Record<string, unknown>).__masWs = null;
+        setWsStatus("disconnected");
+        // Infinite retry with exponential backoff (max 30s)
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
+        reconnectAttemptsRef.current += 1;
+        reconnectTimeoutRef.current = setTimeout(connectWs, delay);
       };
 
       ws.onerror = () => {
         ws.close();
       };
     } catch {
-      reconnectTimeoutRef.current = setTimeout(connectWs, 5000);
+      setWsStatus("disconnected");
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
+      reconnectAttemptsRef.current += 1;
+      reconnectTimeoutRef.current = setTimeout(connectWs, delay);
     }
-  }, [accessToken, queryClient]);
+  }, [accessToken, queryClient, addNotification]);
+
+  // Reconnect on tab focus
+  useEffect(() => {
+    const onFocus = () => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+        reconnectAttemptsRef.current = 0;
+        connectWs();
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [connectWs]);
 
   useEffect(() => {
     connectWs();
@@ -162,7 +319,12 @@ export default function AppLayout() {
   const pathSegments = location.pathname
     .split("/")
     .filter(Boolean)
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1));
+    .map((s) =>
+      s
+        .split("-")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ")
+    );
 
   const pendingCount = hitlData?.total ?? 0;
   const urgentCount = hitlData?.pending_urgent ?? 0;
@@ -200,6 +362,7 @@ export default function AppLayout() {
             size="icon"
             className="ml-auto h-7 w-7 text-muted-foreground"
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             <svg
               className={`h-4 w-4 transition-transform ${sidebarCollapsed ? "rotate-180" : ""}`}
@@ -332,30 +495,69 @@ export default function AppLayout() {
             ))}
           </nav>
 
-          {/* Notification bell */}
-          {pendingCount > 0 && (
-            <button
-              onClick={() => navigate("/hitl")}
-              className="relative p-2 rounded-md hover:bg-accent transition-colors"
+          <div className="flex items-center gap-1">
+            {/* WebSocket status indicator */}
+            <div
+              className={cn(
+                "flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-medium transition-colors",
+                wsStatus === "connected"
+                  ? "text-emerald-500"
+                  : wsStatus === "connecting"
+                  ? "text-amber-500"
+                  : "text-red-400"
+              )}
+              title={
+                wsStatus === "connected"
+                  ? "Real-time updates active"
+                  : wsStatus === "connecting"
+                  ? "Connecting to server..."
+                  : "Disconnected — retrying..."
+              }
             >
-              <svg
-                className="h-5 w-5 text-muted-foreground"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                <path d="M13.73 21a2 2 0 01-3.46 0" />
-              </svg>
-              <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-                {pendingCount}
-              </span>
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  wsStatus === "connected"
+                    ? "bg-emerald-500"
+                    : wsStatus === "connecting"
+                    ? "bg-amber-500 animate-pulse"
+                    : "bg-red-400 animate-pulse"
+                )}
+              />
+              {wsStatus !== "connected" && (
+                <span>{wsStatus === "connecting" ? "Connecting" : "Offline"}</span>
+              )}
+            </div>
+
+            {/* Theme toggle */}
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-md hover:bg-accent transition-colors"
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {theme === "dark" ? (
+                <svg className="h-5 w-5 text-muted-foreground" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="5" />
+                  <line x1="12" y1="1" x2="12" y2="3" />
+                  <line x1="12" y1="21" x2="12" y2="23" />
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                  <line x1="1" y1="12" x2="3" y2="12" />
+                  <line x1="21" y1="12" x2="23" y2="12" />
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                </svg>
+              ) : (
+                <svg className="h-5 w-5 text-muted-foreground" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                </svg>
+              )}
             </button>
-          )}
+
+            {/* Notification center */}
+            <NotificationCenter pendingHITLCount={pendingCount} />
+          </div>
         </header>
 
         {/* Page content */}

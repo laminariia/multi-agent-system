@@ -28,7 +28,7 @@ from src.core.database import get_db_session
 from src.core.heartbeat import HeartbeatMonitor
 from src.core.llm_client import LLMClient
 from src.core.loop_detector import LoopDetector
-from src.core.models import AgentLog
+from src.core.models import AgentLog, HITLQueue
 from src.core.state import AgentState, update_state
 from src.prompts.critic import CRITIC_SYSTEM_PROMPT
 from src.security.semgrep_gate import SemgrepGate
@@ -178,6 +178,7 @@ class CriticAgent(ConstrainedAgent):
         # 7. Route based on verdict and revision count.
         if revision_count >= _MAX_REVISION_CYCLES:
             # Max revisions exceeded -- escalate to HITL regardless.
+            hitl_id = str(uuid.uuid4())
             self._log.warning(
                 "max_revisions_exceeded",
                 revision_count=revision_count,
@@ -191,13 +192,21 @@ class CriticAgent(ConstrainedAgent):
                 issues_count=len(issues),
                 revision_count=revision_count,
             )
+            await self._create_hitl_escalation(
+                thread_id=state["thread_id"],
+                hitl_id=hitl_id,
+                reason=f"revision_limit_exceeded ({revision_count} cycles)",
+                score=score,
+                revision_count=revision_count,
+                project=state.get("project"),
+            )
             return update_state(
                 state,
                 current_agent="critic",
                 next_agent=None,
                 artifacts=artifacts,
                 requires_hitl=True,
-                hitl_request_id=str(uuid.uuid4()),
+                hitl_request_id=hitl_id,
                 status="paused",
             )
 
@@ -220,12 +229,70 @@ class CriticAgent(ConstrainedAgent):
             )
 
         if verdict == "revise" and score >= _REVISE_THRESHOLD:
-            # Fixable issues -- route back to dev for revision.
+            # Classify the type of revision needed.
+            revision_type = review.get("revision_type", "minor")
             new_revision_count = revision_count + 1
             artifacts["_critic_revision_count"] = [str(new_revision_count)]
+            artifacts["_critic_revision_type"] = [revision_type]
 
+            if revision_type == "scope_creep":
+                # Scope creep -- escalate to HITL immediately.
+                hitl_id = str(uuid.uuid4())
+                self._log.warning(
+                    "critic_scope_creep_detected",
+                    score=score,
+                    revision_count=new_revision_count,
+                )
+                await self._log_review_decision(
+                    thread_id=state["thread_id"],
+                    verdict="revise_scope_creep",
+                    score=score,
+                    issues_count=len(issues),
+                    revision_count=new_revision_count,
+                )
+                await self._create_hitl_escalation(
+                    thread_id=state["thread_id"],
+                    hitl_id=hitl_id,
+                    reason="scope_creep",
+                    score=score,
+                    revision_count=new_revision_count,
+                    project=state.get("project"),
+                )
+                return update_state(
+                    state,
+                    current_agent="critic",
+                    next_agent=None,
+                    artifacts=artifacts,
+                    requires_hitl=True,
+                    hitl_request_id=hitl_id,
+                    status="paused",
+                )
+
+            if revision_type == "major":
+                # Major revision -- route back to planner for re-decomposition.
+                self._log.info(
+                    "critic_major_revision_requested",
+                    score=score,
+                    revision_count=new_revision_count,
+                )
+                await self._log_review_decision(
+                    thread_id=state["thread_id"],
+                    verdict="revise_major",
+                    score=score,
+                    issues_count=len(issues),
+                    revision_count=new_revision_count,
+                )
+                return update_state(
+                    state,
+                    current_agent="critic",
+                    next_agent="planner",
+                    artifacts=artifacts,
+                    status="active",
+                )
+
+            # Minor revision (default) -- route back to dev for auto-fix.
             self._log.info(
-                "critic_revision_requested",
+                "critic_minor_revision_requested",
                 score=score,
                 revision_count=new_revision_count,
             )
@@ -245,6 +312,7 @@ class CriticAgent(ConstrainedAgent):
             )
 
         # REJECT or score below thresholds -- escalate to HITL.
+        hitl_id = str(uuid.uuid4())
         self._log.warning("critic_rejected", verdict=verdict, score=score)
         await self._log_review_decision(
             thread_id=state["thread_id"],
@@ -253,13 +321,21 @@ class CriticAgent(ConstrainedAgent):
             issues_count=len(issues),
             revision_count=revision_count,
         )
+        await self._create_hitl_escalation(
+            thread_id=state["thread_id"],
+            hitl_id=hitl_id,
+            reason=f"rejected (score={score:.2f})",
+            score=score,
+            revision_count=revision_count,
+            project=state.get("project"),
+        )
         return update_state(
             state,
             current_agent="critic",
             next_agent=None,
             artifacts=artifacts,
             requires_hitl=True,
-            hitl_request_id=str(uuid.uuid4()),
+            hitl_request_id=hitl_id,
             status="paused",
         )
 
@@ -406,6 +482,13 @@ class CriticAgent(ConstrainedAgent):
         if not isinstance(parsed.get("revision_instructions"), str):
             parsed["revision_instructions"] = ""
 
+        # Validate and normalise revision_type.
+        revision_type = parsed.get("revision_type", "none")
+        if revision_type not in ("minor", "major", "scope_creep", "none"):
+            parsed["revision_type"] = "minor" if parsed["verdict"] == "revise" else "none"
+        else:
+            parsed["revision_type"] = revision_type
+
         return parsed
 
     # ------------------------------------------------------------------
@@ -422,6 +505,54 @@ class CriticAgent(ConstrainedAgent):
             except (ValueError, TypeError):
                 pass
         return 0
+
+    # ------------------------------------------------------------------
+    # HITL queue entry creation
+    # ------------------------------------------------------------------
+
+    async def _create_hitl_escalation(
+        self,
+        *,
+        thread_id: str,
+        hitl_id: str,
+        reason: str,
+        score: float,
+        revision_count: int,
+        project: dict[str, Any] | None = None,
+    ) -> None:
+        """Persist a HITL queue entry so the dashboard shows the escalation."""
+        project = project or {}
+        title = f"Critic escalation: {reason}"
+        if project.get("title"):
+            title = f"Critic escalation: {project['title'][:150]} — {reason}"
+
+        async with get_db_session() as session:
+            hitl = HITLQueue(
+                id=uuid.UUID(hitl_id),
+                type="code_review",
+                priority="urgent",
+                title=title[:500],
+                description=(
+                    f"Score: {score:.2f} | Revisions: {revision_count} | Reason: {reason}"
+                ),
+                payload={
+                    "thread_id": thread_id,
+                    "score": score,
+                    "revision_count": revision_count,
+                    "reason": reason,
+                    "source_agent": "critic",
+                },
+                available_actions=["approve", "reject", "edit", "skip"],
+                status="pending",
+            )
+            session.add(hitl)
+
+        self._log.info(
+            "hitl_escalation_created",
+            hitl_id=hitl_id,
+            reason=reason,
+            score=score,
+        )
 
     # ------------------------------------------------------------------
     # Audit logging

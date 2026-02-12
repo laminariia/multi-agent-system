@@ -2,15 +2,19 @@
 
 Events flow:
     Server -> Client: agent:heartbeat, agent:log, hitl:new, hitl:resolved,
-                      project:update, notification
-    Client -> Server: auth (token), subscribe:project, subscribe:agent
+                      project:update, notification, ping
+    Client -> Server: auth (token), subscribe:project, subscribe:agent, pong
 
 Authentication is performed via a ``{ "type": "auth", "token": "Bearer ..." }``
 message sent by the client immediately after the WebSocket connection opens.
 Until authenticated, the server will not forward any events.
+
+A server-side heartbeat (``ping``) is sent every 30 seconds to keep the
+connection alive and allow the client to detect stale links.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -21,6 +25,8 @@ from litestar.exceptions import WebSocketDisconnect
 from litestar.security.jwt import Token
 
 from src.core.config import get_settings
+
+_HEARTBEAT_INTERVAL_SECONDS = 30
 
 logger = structlog.get_logger(__name__)
 
@@ -33,6 +39,9 @@ CHANNEL_HITL_NEW = "hitl:new"
 CHANNEL_HITL_RESOLVED = "hitl:resolved"
 CHANNEL_PROJECT_UPDATE = "project:update"
 CHANNEL_NOTIFICATION = "notification"
+CHANNEL_ORCH_STATUS = "orch:status"
+CHANNEL_ORCH_GOAL = "orch:goal"
+CHANNEL_ORCH_LOG = "orch:log"
 
 # All broadcast channels every authenticated client receives by default
 _DEFAULT_CHANNELS = [
@@ -41,6 +50,9 @@ _DEFAULT_CHANNELS = [
     CHANNEL_HITL_NEW,
     CHANNEL_HITL_RESOLVED,
     CHANNEL_NOTIFICATION,
+    CHANNEL_ORCH_STATUS,
+    CHANNEL_ORCH_GOAL,
+    CHANNEL_ORCH_LOG,
 ]
 
 
@@ -60,6 +72,16 @@ async def ws_handler(socket: WebSocket, channels: ChannelsPlugin) -> None:
     authenticated = False
     user_id: str | None = None
     subscribed_channels: set[str] = set()
+    heartbeat_task: asyncio.Task[None] | None = None
+
+    async def _heartbeat_loop() -> None:
+        """Send periodic ping frames to keep the connection alive."""
+        try:
+            while True:
+                await asyncio.sleep(_HEARTBEAT_INTERVAL_SECONDS)
+                await socket.send_json({"type": "ping"})
+        except Exception:
+            logger.debug("ws.heartbeat_stopped")  # socket closed
 
     try:
         while True:
@@ -101,6 +123,10 @@ async def ws_handler(socket: WebSocket, channels: ChannelsPlugin) -> None:
                     })
                     logger.info("ws.authenticated", user_id=user_id)
 
+                    # Start heartbeat once authenticated
+                    if heartbeat_task is None:
+                        heartbeat_task = asyncio.create_task(_heartbeat_loop())
+
                 except Exception as exc:
                     await _send_error(socket, f"Authentication failed: {exc}")
                     logger.warning("ws.auth_failed", error=str(exc))
@@ -141,6 +167,10 @@ async def ws_handler(socket: WebSocket, channels: ChannelsPlugin) -> None:
                     logger.info("ws.subscribed", user_id=user_id, channel=channel_name)
                 continue
 
+            # ── Pong response (heartbeat ack) ───────────────────────
+            if msg_type == "pong":
+                continue
+
             # ── Unrecognised message ────────────────────────────────
             await _send_error(socket, f"Unknown message type: {msg_type}")
 
@@ -149,6 +179,9 @@ async def ws_handler(socket: WebSocket, channels: ChannelsPlugin) -> None:
     except Exception as exc:
         logger.error("ws.error", user_id=user_id, error=str(exc))
     finally:
+        # Cancel heartbeat task
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
         # ChannelsPlugin automatically cleans up subscriptions when the
         # socket disconnects, but we explicitly unsubscribe for clarity.
         for ch in subscribed_channels:

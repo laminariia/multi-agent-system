@@ -242,17 +242,31 @@ class LLMClient:
         max_retries: int = 5,
         base_backoff_seconds: float = 1.0,
         request_timeout: float = 60.0,
+        api_key: str | None = None,
+        base_url: str | None = None,
     ) -> None:
         _load_provider_errors()
         self.cost_tracker = cost_tracker or CostTracker()
         self.max_retries = max_retries
         self.base_backoff_seconds = base_backoff_seconds
         self.request_timeout = request_timeout
+        self._api_key = api_key
+        self._base_url = base_url
         self._chat_model_cache: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Public
     # ------------------------------------------------------------------
+
+    def update_credentials(self, api_key: str, base_url: str | None = None) -> None:
+        """Replace the API key (and optionally base URL) at runtime.
+
+        Clears the model cache so subsequent calls use the new credentials.
+        """
+        self._api_key = api_key
+        if base_url is not None:
+            self._base_url = base_url
+        self._chat_model_cache.clear()
 
     async def call(
         self,
@@ -498,8 +512,14 @@ class LLMClient:
         if max_tokens is not None:
             common_kwargs["max_tokens"] = max_tokens
 
-        api_key = os.environ.get("OPENROUTER_API_KEY", "")
-        base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        api_key = (
+            self._api_key
+            or os.environ.get("OPENROUTER_API_KEY", "")
+        )
+        base_url = (
+            self._base_url
+            or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        )
 
         model = ChatOpenAI(
             model=spec.model_id,

@@ -72,3 +72,9 @@ credentials.json
 
 # Ruff cache
 .ruff_cache/
+
+# Serena MCP artifacts
+.serena/
+
+# Misc
+nul

@@ -84,6 +84,7 @@ def create_initial_state(
     project: ProjectContext,
     first_agent: str = "scout",
     thread_id: str | None = None,
+    user_id: str | None = None,
 ) -> AgentState:
     """Build a fresh ``AgentState`` ready to be fed into the graph.
 
@@ -91,29 +92,34 @@ def create_initial_state(
         project: The project context for this workflow.
         first_agent: Name of the agent that will execute first.
         thread_id: Optional override; a UUID4 is generated when omitted.
+        user_id: Optional user UUID string.  When provided, agents can load
+            user-specific credentials from the database at runtime.
 
     Returns:
         A fully-initialised ``AgentState`` dictionary.
     """
     now = datetime.now(tz=UTC)
     tid = thread_id or uuid.uuid4().hex
-    return AgentState(
-        thread_id=tid,
-        mas_checkpoint_id=uuid.uuid4().hex,
-        project=project,
-        current_agent=first_agent,
-        current_task=None,
-        artifacts={},
-        messages=[],
-        next_agent=None,
-        requires_hitl=False,
-        hitl_request_id=None,
-        retry_count=0,
-        errors=[],
-        created_at=now,
-        updated_at=now,
-        status="active",
-    )
+    state: dict[str, Any] = {
+        "thread_id": tid,
+        "mas_checkpoint_id": uuid.uuid4().hex,
+        "project": project,
+        "current_agent": first_agent,
+        "current_task": None,
+        "artifacts": {},
+        "messages": [],
+        "next_agent": None,
+        "requires_hitl": False,
+        "hitl_request_id": None,
+        "retry_count": 0,
+        "errors": [],
+        "created_at": now,
+        "updated_at": now,
+        "status": "active",
+    }
+    if user_id is not None:
+        state["user_id"] = user_id
+    return state  # type: ignore[return-value]
 
 
 def update_state(

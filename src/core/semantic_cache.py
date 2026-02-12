@@ -36,18 +36,43 @@ logger = structlog.get_logger(__name__)
 # TTL by query type (seconds)
 # ---------------------------------------------------------------------------
 
-TTL_MAP: dict[str, int] = {
-    "proposal": 86_400,      # 24 h
-    "code": 3_600,           # 1 h
-    "content": 43_200,       # 12 h
-    "translation": 604_800,  # 7 d
-    "default": 21_600,       # 6 h
-}
+def _build_ttl_map() -> dict[str, int]:
+    """Build TTL map from application settings (falls back to defaults)."""
+    try:
+        from src.core.config import get_settings
+        s = get_settings()
+        return {
+            "proposal": s.SEMANTIC_CACHE_TTL_PROPOSAL,
+            "code": s.SEMANTIC_CACHE_TTL_CODE,
+            "content": s.SEMANTIC_CACHE_TTL_CONTENT,
+            "translation": s.SEMANTIC_CACHE_TTL_TRANSLATION,
+            "default": s.SEMANTIC_CACHE_TTL_DEFAULT,
+        }
+    except Exception:  # noqa: BLE001
+        return {
+            "proposal": 86_400,
+            "code": 3_600,
+            "content": 43_200,
+            "translation": 604_800,
+            "default": 21_600,
+        }
+
+
+def _get_similarity_threshold() -> float:
+    """Return similarity threshold from application settings."""
+    try:
+        from src.core.config import get_settings
+        return get_settings().SEMANTIC_CACHE_SIMILARITY_THRESHOLD
+    except Exception:  # noqa: BLE001
+        return 0.92
+
+
+TTL_MAP: dict[str, int] = _build_ttl_map()
 
 # Queries that must never be cached
 NEVER_CACHE_TYPES: frozenset[str] = frozenset({"real_time_data", "random_generation", "personalized"})
 
-SIMILARITY_THRESHOLD: float = 0.92
+SIMILARITY_THRESHOLD: float = _get_similarity_threshold()
 EMBEDDING_DIM: int = 768
 VALKEY_INDEX_NAME: str = "semantic_cache"
 VALKEY_PREFIX: str = "sem_cache:"

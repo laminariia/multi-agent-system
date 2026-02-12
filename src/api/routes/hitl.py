@@ -5,32 +5,44 @@ retrieving aggregate statistics.  Mounted at ``/api/v1/hitl``.
 """
 from __future__ import annotations
 
+import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import redis.asyncio as aioredis
 import structlog
 from litestar import Controller, Request, get, post
+from litestar.channels import ChannelsPlugin
 from litestar.exceptions import NotFoundException
 from litestar.params import Parameter
 from litestar.security.jwt import Token
-from sqlalchemy import case, extract, func, select
+from sqlalchemy import Date, case, cast, extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.guards import require_role
 from src.api.schemas import (
+    HITLBulkResolveRequestSchema,
+    HITLBulkResolveResponseSchema,
     HITLItemSchema,
     HITLPendingResponseSchema,
     HITLResolveRequestSchema,
     HITLResolveResponseSchema,
     HITLStatsSchema,
     HITLTodayStatsSchema,
+    HITLTrendDaySchema,
+    HITLTrendsResponseSchema,
+    HITLTrendTotalsSchema,
     HITLTypeStatsSchema,
 )
+from src.api.websocket import CHANNEL_HITL_RESOLVED, publish_event
 from src.core.exceptions import MASException
 from src.core.models import HITLQueue, User
 
 logger = structlog.get_logger(__name__)
+
+# Set to prevent GC of fire-and-forget resume tasks (asyncio.create_task pattern)
+_background_resume_tasks: set[Any] = set()
 
 # Maps HITL types to their expected downstream action after approval
 _NEXT_ACTION_MAP: dict[str, dict[str, str]] = {
@@ -62,11 +74,46 @@ _NEXT_ACTION_MAP: dict[str, dict[str, str]] = {
         "skip": "revision_skipped",
         "later": "revision_deferred",
     },
+    "scope_creep": {
+        "approve": "scope_change_approved_by_client",
+        "reject": "scope_change_declined",
+        "edit": "scope_change_negotiated",
+        "skip": "scope_change_skipped",
+        "later": "scope_change_deferred",
+    },
+    "plan_review": {
+        "approve": "plan_approved_for_execution",
+        "reject": "plan_rejected_for_revision",
+        "edit": "plan_modified_by_human",
+        "skip": "plan_review_skipped",
+        "later": "plan_review_deferred",
+    },
     "alert": {
         "approve": "alert_acknowledged",
         "reject": "alert_dismissed",
         "skip": "alert_skipped",
         "later": "alert_deferred",
+    },
+    "email_approval": {
+        "approve": "emails_will_be_sent",
+        "reject": "emails_discarded",
+        "edit": "emails_revised_and_sent",
+        "skip": "emails_skipped",
+        "later": "emails_deferred",
+    },
+    "final_review": {
+        "approve": "work_delivered_to_client",
+        "reject": "work_rejected_for_rework",
+        "edit": "work_revised_and_delivered",
+        "skip": "delivery_skipped",
+        "later": "delivery_deferred",
+    },
+    "job_review": {
+        "approve": "job_accepted_for_bidding",
+        "reject": "job_rejected",
+        "edit": "job_criteria_modified",
+        "skip": "job_skipped",
+        "later": "job_review_deferred",
     },
 }
 
@@ -89,12 +136,15 @@ class HITLController(Controller):
     @get(
         "/pending",
         summary="List pending HITL items",
-        description="Paginated list of HITL items awaiting resolution, optionally filtered by type.",
+        description="Paginated list of HITL items awaiting resolution, optionally filtered by type and search term.",
     )
     async def list_pending(
         self,
         db_session: AsyncSession,
         type: str | None = Parameter(default=None, description="Filter by type: bid_approval, code_review, etc."),
+        search: str | None = Parameter(
+            default=None, description="Case-insensitive title substring filter",
+        ),
         limit: int = Parameter(default=20, ge=1, le=100, description="Page size"),
         offset: int = Parameter(default=0, ge=0, description="Pagination offset"),
     ) -> HITLPendingResponseSchema:
@@ -103,6 +153,9 @@ class HITLController(Controller):
 
         if type is not None:
             base = base.where(HITLQueue.type == type)
+
+        if search is not None:
+            base = base.where(HITLQueue.title.ilike(f"%{search}%"))
 
         # Count total + urgent
         count_stmt = select(func.count()).select_from(base.subquery())
@@ -160,7 +213,7 @@ class HITLController(Controller):
     @post(
         "/{hitl_id:uuid}/resolve",
         summary="Resolve a HITL item",
-        guards=[require_role("owner")],
+        guards=[require_role("owner", "co_owner")],
     )
     async def resolve(
         self,
@@ -168,6 +221,8 @@ class HITLController(Controller):
         data: HITLResolveRequestSchema,
         request: Request[User, Token, Any],
         db_session: AsyncSession,
+        valkey: aioredis.Redis,
+        channels: ChannelsPlugin,
     ) -> HITLResolveResponseSchema:
         """Approve, reject, edit, skip, or defer a HITL item.
 
@@ -175,7 +230,7 @@ class HITLController(Controller):
             NotFoundException: When the HITL item does not exist.
             MASException: When the item is expired or already resolved.
         """
-        stmt = select(HITLQueue).where(HITLQueue.id == hitl_id)
+        stmt = select(HITLQueue).where(HITLQueue.id == hitl_id).with_for_update()
         result = await db_session.execute(stmt)
         item = result.scalar_one_or_none()
 
@@ -231,11 +286,246 @@ class HITLController(Controller):
             next_action=next_action,
         )
 
+        # Notify Telegram bot via Valkey pub/sub
+        try:
+            await valkey.publish(
+                "hitl:resolved:bot",
+                json.dumps({
+                    "hitl_id": str(hitl_id),
+                    "type": item.type,
+                    "title": item.title,
+                    "action": data.action,
+                    "next_action": next_action,
+                    "resolved_by": request.user.email,
+                }),
+            )
+        except Exception:
+            logger.warning("hitl.bot_notify_failed", hitl_id=str(hitl_id), exc_info=True)
+
+        # Publish real-time event for connected dashboard clients
+        try:
+            await publish_event(channels, CHANNEL_HITL_RESOLVED, {
+                "type": "hitl:resolved",
+                "data": {
+                    "hitl_id": str(hitl_id),
+                    "hitl_type": item.type,
+                    "title": item.title,
+                    "action": data.action,
+                    "next_action": next_action,
+                    "resolved_by": request.user.email,
+                },
+            })
+        except Exception:
+            logger.debug("hitl.ws_publish_failed", hitl_id=str(hitl_id), exc_info=True)
+
+        # Resume the paused pipeline if this HITL type has a graph to resume.
+        # Fire-and-forget: the pipeline runs asynchronously; the HTTP
+        # response returns immediately so the dashboard stays responsive.
+        _RESUMABLE_TYPES = {"bid_approval", "plan_review", "email_approval", "final_review"}
+        thread_id_from_payload = (item.payload or {}).get("thread_id")
+        if item.type in _RESUMABLE_TYPES and thread_id_from_payload and data.action != "later":
+            try:
+                import asyncio  # noqa: PLC0415
+
+                from src.core.graph import resume_from_hitl as _resume  # noqa: PLC0415
+
+                hitl_response = {
+                    "action": data.action,
+                    "note": data.note,
+                }
+                if data.edited_payload:
+                    hitl_response["edits"] = data.edited_payload
+                if item.type == "bid_approval":
+                    hitl_response["bid_ids"] = [
+                        (item.payload or {}).get("bid_id", "")
+                    ]
+
+                task = asyncio.create_task(
+                    _resume(
+                        thread_id_from_payload,
+                        hitl_response,
+                        hitl_type=item.type,
+                        valkey=valkey,
+                    ),
+                )
+                # Prevent GC of fire-and-forget task
+                _background_resume_tasks.add(task)
+                task.add_done_callback(_background_resume_tasks.discard)
+
+                logger.info(
+                    "hitl.resume_dispatched",
+                    hitl_id=str(hitl_id),
+                    thread_id=thread_id_from_payload,
+                    hitl_type=item.type,
+                    action=data.action,
+                )
+            except Exception:
+                logger.warning(
+                    "hitl.resume_dispatch_failed",
+                    hitl_id=str(hitl_id),
+                    exc_info=True,
+                )
+
         return HITLResolveResponseSchema(
             id=item.id,
             status="resolved",
             resolution=data.action,
             next_action=next_action,
+        )
+
+    # -----------------------------------------------------------------
+    # POST /api/v1/hitl/bulk-resolve
+    # -----------------------------------------------------------------
+
+    @post(
+        "/bulk-resolve",
+        summary="Bulk resolve multiple HITL items",
+        guards=[require_role("owner", "co_owner")],
+    )
+    async def bulk_resolve(
+        self,
+        data: HITLBulkResolveRequestSchema,
+        request: Request[User, Token, Any],
+        db_session: AsyncSession,
+        valkey: aioredis.Redis,
+        channels: ChannelsPlugin,
+    ) -> HITLBulkResolveResponseSchema:
+        """Resolve multiple HITL items in one request with the same action.
+
+        Skips items that are already resolved, expired, or do not support
+        the requested action, recording per-item errors.
+        """
+        now = datetime.now(UTC)
+        resolved_count = 0
+        failed_count = 0
+        errors: list[dict[str, Any]] = []
+        resolved_ids: list[str] = []
+
+        # Fetch all items in a single query with row-level lock
+        stmt = select(HITLQueue).where(HITLQueue.id.in_(data.ids)).with_for_update()
+        result = await db_session.execute(stmt)
+        items_by_id = {item.id: item for item in result.scalars().all()}
+
+        for item_id in data.ids:
+            item = items_by_id.get(item_id)
+
+            if item is None:
+                failed_count += 1
+                errors.append({"id": str(item_id), "error": "Not found"})
+                continue
+
+            if item.status == "resolved":
+                failed_count += 1
+                errors.append({"id": str(item_id), "error": "Already resolved"})
+                continue
+
+            if item.expires_at is not None and item.expires_at < now:
+                item.status = "expired"
+                failed_count += 1
+                errors.append({"id": str(item_id), "error": "Expired"})
+                continue
+
+            if data.action not in item.available_actions:
+                failed_count += 1
+                errors.append({
+                    "id": str(item_id),
+                    "error": f"Action '{data.action}' not available",
+                })
+                continue
+
+            # Apply resolution
+            item.status = "resolved"
+            item.resolution = data.action
+            item.resolution_note = data.note
+            item.resolved_by = request.user.id
+            item.resolved_at = now
+            resolved_count += 1
+            resolved_ids.append(str(item_id))
+
+        await db_session.flush()
+
+        logger.info(
+            "hitl.bulk_resolved",
+            resolved=resolved_count,
+            failed=failed_count,
+            action=data.action,
+            resolved_by=str(request.user.id),
+        )
+
+        # Fire-and-forget resume for each resumable item
+        _RESUMABLE_TYPES = {"bid_approval", "plan_review", "email_approval", "final_review"}
+        for item_id_str in resolved_ids:
+            item_id_uuid = uuid.UUID(item_id_str)
+            item = items_by_id.get(item_id_uuid)
+            if item is None:
+                continue
+            thread_id_from_payload = (item.payload or {}).get("thread_id")
+            if item.type in _RESUMABLE_TYPES and thread_id_from_payload and data.action != "later":
+                try:
+                    import asyncio  # noqa: PLC0415
+
+                    from src.core.graph import resume_from_hitl as _resume  # noqa: PLC0415
+
+                    hitl_response: dict[str, Any] = {
+                        "action": data.action,
+                        "note": data.note,
+                    }
+                    if item.type == "bid_approval":
+                        hitl_response["bid_ids"] = [
+                            (item.payload or {}).get("bid_id", "")
+                        ]
+
+                    task = asyncio.create_task(
+                        _resume(
+                            thread_id_from_payload,
+                            hitl_response,
+                            hitl_type=item.type,
+                            valkey=valkey,
+                        ),
+                    )
+                    _background_resume_tasks.add(task)
+                    task.add_done_callback(_background_resume_tasks.discard)
+                except Exception:
+                    logger.warning(
+                        "hitl.bulk_resume_dispatch_failed",
+                        hitl_id=item_id_str,
+                        exc_info=True,
+                    )
+
+        # Single WebSocket publish with all resolved IDs
+        if resolved_ids:
+            try:
+                await publish_event(channels, CHANNEL_HITL_RESOLVED, {
+                    "type": "hitl:bulk_resolved",
+                    "data": {
+                        "hitl_ids": resolved_ids,
+                        "action": data.action,
+                        "resolved_count": resolved_count,
+                        "resolved_by": request.user.email,
+                    },
+                })
+            except Exception:
+                logger.debug("hitl.bulk_ws_publish_failed", exc_info=True)
+
+            # Single Valkey pub/sub notification with summary
+            try:
+                await valkey.publish(
+                    "hitl:resolved:bot",
+                    json.dumps({
+                        "bulk": True,
+                        "hitl_ids": resolved_ids,
+                        "action": data.action,
+                        "resolved_count": resolved_count,
+                        "resolved_by": request.user.email,
+                    }),
+                )
+            except Exception:
+                logger.warning("hitl.bulk_bot_notify_failed", exc_info=True)
+
+        return HITLBulkResolveResponseSchema(
+            resolved=resolved_count,
+            failed=failed_count,
+            errors=errors,
         )
 
     # -----------------------------------------------------------------
@@ -322,4 +612,75 @@ class HITLController(Controller):
             ),
             avg_resolution_time_minutes=avg_resolution_minutes,
             by_type=by_type,
+        )
+
+    # -----------------------------------------------------------------
+    # GET /api/v1/hitl/trends
+    # -----------------------------------------------------------------
+
+    @get(
+        "/trends",
+        summary="HITL resolution trends",
+        description="Daily created/resolved counts over the last N days.",
+    )
+    async def trends(
+        self,
+        db_session: AsyncSession,
+        days: int = Parameter(default=7, ge=1, le=90, description="Number of days to look back"),
+    ) -> HITLTrendsResponseSchema:
+        """Return per-day created and resolved counts for the last *days* days."""
+        now = datetime.now(UTC)
+        window_start = (now - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # -- Created per day ---------------------------------------------------
+        created_stmt = (
+            select(
+                cast(HITLQueue.created_at, Date).label("day"),
+                func.count().label("cnt"),
+            )
+            .where(HITLQueue.created_at >= window_start)
+            .group_by(cast(HITLQueue.created_at, Date))
+        )
+        created_rows = (await db_session.execute(created_stmt)).all()
+        created_map: dict[str, int] = {
+            str(row[0]): row[1] for row in created_rows
+        }
+
+        # -- Resolved per day (by resolved_at) ---------------------------------
+        resolved_stmt = (
+            select(
+                cast(HITLQueue.resolved_at, Date).label("day"),
+                func.count().label("cnt"),
+            )
+            .where(HITLQueue.resolved_at >= window_start)
+            .where(HITLQueue.resolved_at.is_not(None))
+            .group_by(cast(HITLQueue.resolved_at, Date))
+        )
+        resolved_rows = (await db_session.execute(resolved_stmt)).all()
+        resolved_map: dict[str, int] = {
+            str(row[0]): row[1] for row in resolved_rows
+        }
+
+        # -- Build day-by-day list (most recent first) -------------------------
+        trend_days: list[HITLTrendDaySchema] = []
+        total_created = 0
+        total_resolved = 0
+
+        for offset in range(days):
+            day = (now - timedelta(days=offset)).date()
+            day_str = str(day)
+            c = created_map.get(day_str, 0)
+            r = resolved_map.get(day_str, 0)
+            total_created += c
+            total_resolved += r
+            trend_days.append(HITLTrendDaySchema(date=day_str, created=c, resolved=r))
+
+        return HITLTrendsResponseSchema(
+            days=days,
+            trends=trend_days,
+            totals=HITLTrendTotalsSchema(
+                created=total_created,
+                resolved=total_resolved,
+                pending=max(total_created - total_resolved, 0),
+            ),
         )

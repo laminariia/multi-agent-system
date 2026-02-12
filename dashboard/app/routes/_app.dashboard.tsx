@@ -1,36 +1,89 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Skeleton } from "~/components/ui/skeleton";
+import { Button } from "~/components/ui/button";
 import { MetricCard } from "~/components/metric-card";
 import { AgentCard } from "~/components/agent-card";
 import { PipelineFlow } from "~/components/pipeline-flow";
 import { ActivityFeed, type ActivityEvent } from "~/components/activity-feed";
-import { fetchAgentStatus, fetchHITLStats, fetchJobs } from "~/lib/api";
+import { JobsByPlatformChart, HITLByTypeChart, AgentStatusChart, HITLTrendsChart } from "~/components/charts";
+import { fetchAgentStatus, fetchHITLStats, fetchJobs, fetchJobStats, fetchHITLTrends, fetchPipelineBStats } from "~/lib/api";
+import { OrchStatusWidget } from "~/components/orch-status-widget";
 
 export default function DashboardPage() {
-  const { data: agentData, isLoading: agentsLoading } = useQuery({
+  const queryClient = useQueryClient();
+
+  const { data: agentData, isLoading: agentsLoading, error: agentError } = useQuery({
     queryKey: ["agent-status"],
     queryFn: fetchAgentStatus,
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
   });
 
   const { data: hitlStats } = useQuery({
     queryKey: ["hitl-stats"],
     queryFn: fetchHITLStats,
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
 
   const { data: jobsData } = useQuery({
     queryKey: ["jobs", "active"],
     queryFn: () => fetchJobs({ limit: 50 }),
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
+  });
+
+  const { data: jobStats } = useQuery({
+    queryKey: ["job-stats"],
+    queryFn: fetchJobStats,
+    refetchInterval: 60_000,
+  });
+
+  const { data: hitlTrends } = useQuery({
+    queryKey: ["hitl-trends"],
+    queryFn: () => fetchHITLTrends(7),
+    refetchInterval: 120_000,
+  });
+
+  const { data: pipelineBStats } = useQuery({
+    queryKey: ["pipeline-b-stats"],
+    queryFn: fetchPipelineBStats,
+    refetchInterval: 120_000,
   });
 
   const agents = agentData?.agents ?? [];
   const workingAgents = agents.filter((a) => a.status === "working" || a.status === "idle").length;
-  const activeJobs = jobsData?.jobs?.filter((j) => j.status === "in_progress" || j.status === "qualified" || j.status === "bid_sent").length ?? 0;
+  const activeJobs = useMemo(() => {
+    const byStatus = jobStats?.by_status ?? {};
+    return (byStatus["in_progress"] ?? 0) + (byStatus["qualified"] ?? 0) + (byStatus["bid_sent"] ?? 0);
+  }, [jobStats]);
   const pendingHitl = hitlStats?.today?.pending ?? 0;
+
+  // Chart data: jobs by platform (from stats endpoint)
+  const jobsByPlatform = useMemo(() => {
+    return (jobStats?.by_platform ?? []).map((item) => ({
+      platform: item.platform.replace("_", "."),
+      count: item.count,
+    }));
+  }, [jobStats]);
+
+  // Chart data: HITL by type
+  const hitlByType = useMemo(() => {
+    if (!hitlStats?.by_type) return [];
+    return Object.entries(hitlStats.by_type).map(([type, data]) => ({
+      type: type.replace("_", " "),
+      pending: data.pending,
+      resolved: data.resolved,
+    }));
+  }, [hitlStats]);
+
+  // Chart data: agent status distribution
+  const agentStatusDist = useMemo(() => {
+    const counts: Record<string, number> = {};
+    agents.forEach((a) => {
+      counts[a.status] = (counts[a.status] ?? 0) + 1;
+    });
+    return Object.entries(counts).map(([status, count]) => ({ status, count }));
+  }, [agents]);
 
   // Mock activity feed from agent data
   const recentActivity: ActivityEvent[] = useMemo(() => {
@@ -58,14 +111,33 @@ export default function DashboardPage() {
     return events.slice(0, 20);
   }, [agents]);
 
+  const hasError = !!agentError;
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
 
+      {/* Error banner */}
+      {hasError && (
+        <div className="flex items-center justify-between rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+          <p className="text-sm text-destructive">
+            Failed to load dashboard data. The API may be unavailable.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => queryClient.invalidateQueries()}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Metric cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {agentsLoading ? (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {agentsLoading && !agentData ? (
           <>
+            <Skeleton className="h-[120px]" />
             <Skeleton className="h-[120px]" />
             <Skeleton className="h-[120px]" />
             <Skeleton className="h-[120px]" />
@@ -111,6 +183,7 @@ export default function DashboardPage() {
               label="Resolved Today"
               value={hitlStats?.today?.resolved ?? 0}
             />
+            <OrchStatusWidget />
           </>
         )}
       </div>
@@ -121,7 +194,7 @@ export default function DashboardPage() {
           <CardTitle className="text-base font-medium">Pipeline Status</CardTitle>
         </CardHeader>
         <CardContent>
-          {agentsLoading ? (
+          {agentsLoading && !agentData ? (
             <Skeleton className="h-[80px]" />
           ) : (
             <PipelineFlow agents={agents} />
@@ -129,12 +202,57 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
+      {/* Charts row */}
+      {(jobsByPlatform.length > 0 || hitlByType.length > 0 || agentStatusDist.length > 0) && (
+        <div className="grid gap-4 md:grid-cols-3">
+          <JobsByPlatformChart data={jobsByPlatform} />
+          <HITLByTypeChart data={hitlByType} />
+          <AgentStatusChart data={agentStatusDist} />
+        </div>
+      )}
+
+      {/* HITL Trends chart */}
+      {hitlTrends && hitlTrends.trends.length > 0 && (
+        <HITLTrendsChart data={[...hitlTrends.trends].reverse()} />
+      )}
+
+      {/* Pipeline B Summary */}
+      {pipelineBStats && pipelineBStats.total_leads > 0 && (
+        <Card className="border-border/50">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-medium">Pipeline B — Leads</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg border border-border/50 p-3">
+                <p className="text-xs text-muted-foreground">Total Leads</p>
+                <p className="text-2xl font-semibold">{pipelineBStats.total_leads}</p>
+              </div>
+              <div className="rounded-lg border border-border/50 p-3">
+                <p className="text-xs text-muted-foreground">Enriched</p>
+                <p className="text-2xl font-semibold">{pipelineBStats.by_status?.["enriched"] ?? 0}</p>
+              </div>
+              <div className="rounded-lg border border-border/50 p-3">
+                <p className="text-xs text-muted-foreground">Contacted</p>
+                <p className="text-2xl font-semibold">{pipelineBStats.by_status?.["contacted"] ?? 0}</p>
+              </div>
+              <div className="rounded-lg border border-border/50 p-3">
+                <p className="text-xs text-muted-foreground">Top Cities</p>
+                <p className="text-sm font-medium truncate">
+                  {pipelineBStats.top_cities?.slice(0, 3).map((c) => c.city).join(", ") || "—"}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Two-column layout: Agent Grid + Activity */}
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Agent Status Grid */}
         <div className="lg:col-span-2">
           <h2 className="text-base font-medium mb-4">Agent Status</h2>
-          {agentsLoading ? (
+          {agentsLoading && !agentData ? (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {Array.from({ length: 6 }).map((_, i) => (
                 <Skeleton key={i} className="h-[140px]" />

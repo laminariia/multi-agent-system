@@ -33,7 +33,7 @@ export interface RegisterRequest {
 
 export interface HITLItem {
   id: string;
-  type: "bid_approval" | "code_review" | "delivery" | "revision" | "alert";
+  type: "bid_approval" | "code_review" | "delivery" | "revision" | "scope_creep" | "plan_review" | "alert" | "email_approval" | "final_review" | "job_review";
   priority: "urgent" | "normal" | "low";
   title: string;
   description: string | null;
@@ -56,6 +56,12 @@ export interface HITLResolveResponse {
   next_action: string;
 }
 
+export interface HITLBulkResolveResponse {
+  resolved: number;
+  failed: number;
+  errors: { id: string; error: string }[];
+}
+
 export interface HITLStats {
   today: {
     pending: number;
@@ -63,7 +69,13 @@ export interface HITLStats {
     expired: number;
   };
   avg_resolution_time_minutes: number;
-  by_type: Record<string, number>;
+  by_type: Record<string, { pending: number; resolved: number }>;
+}
+
+export interface HITLTrends {
+  days: number;
+  trends: { date: string; created: number; resolved: number }[];
+  totals: { created: number; resolved: number; pending: number };
 }
 
 export interface AgentStatus {
@@ -129,4 +141,174 @@ export interface Job {
 export interface JobListResponse {
   jobs: Job[];
   total: number;
+}
+
+export interface JobStats {
+  total: number;
+  by_platform: { platform: string; count: number }[];
+  by_status: Record<string, number>;
+}
+
+// --- Pipeline B ---
+
+export interface Lead {
+  id: string;
+  name: string;
+  category: string | null;
+  city: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  status: string;
+  enrichment_source: string | null;
+  discovered_at: string | null;
+}
+
+export interface LeadDetail extends Lead {
+  country: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  h3_index: string | null;
+  website: string | null;
+  social_links: Record<string, string> | null;
+  enrichment_cost: number | null;
+  enrichment_data: Record<string, any> | null;
+  osm_id: string | null;
+}
+
+export interface LeadListResponse {
+  leads: Lead[];
+  total: number;
+}
+
+export interface PipelineBStats {
+  total_leads: number;
+  by_status: Record<string, number>;
+  top_cities: { city: string; count: number }[];
+}
+
+export interface ScanResponse {
+  status: string;
+  thread_id: string;
+  city: string;
+  message: string;
+}
+
+export interface JobScanResponse {
+  status: string;
+  platform: string;
+  message: string;
+}
+
+export interface RunPipelineResponse {
+  status: string;
+  job_id: string;
+  thread_id: string;
+  message: string;
+}
+
+// --- Orchestrator ---
+
+export interface OrchestratorStatus {
+  alive: boolean;
+  pid: number | null;
+  uptime_seconds: number | null;
+  mode: string | null;
+  goals_pending: number;
+  goals_completed: number;
+  goals_failed: number;
+  health_grade: string | null;
+  health_score: number | null;
+}
+
+export interface Goal {
+  id: string;
+  title: string;
+  priority: string;
+  category: string;
+  status: string;
+  completed_at: string | null;
+  result: string | null;
+}
+
+export interface GoalListResponse {
+  goals: Goal[];
+  total: number;
+  pending: number;
+  completed: number;
+  failed: number;
+}
+
+export interface HealthDimension {
+  grade: string;
+  notes: string | null;
+}
+
+export interface HealthProblem {
+  severity: string;
+  description: string;
+}
+
+export interface HealthReport {
+  overall_grade: string;
+  score: number;
+  dimensions: Record<string, HealthDimension>;
+  problems: HealthProblem[];
+}
+
+export interface Phase {
+  number: number;
+  title: string;
+  is_future: boolean;
+  milestones: Milestone[];
+}
+
+export interface Milestone {
+  text: string;
+  done: boolean;
+}
+
+export interface LogLine {
+  line: string;
+  level: "INFO" | "WARN" | "ERROR" | string;
+  timestamp: string | null;
+}
+
+export interface LogResponse {
+  lines: LogLine[];
+  total: number;
+  log_file: string | null;
+}
+
+// --- Settings ---
+
+export interface PlatformAccount {
+  id: string;
+  platform: string;
+  username: string | null;
+  status: string;
+  profile_url: string | null;
+  stats: Record<string, any>;
+  last_health_check: string | null;
+  credentials_masked: Record<string, string>;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface APIKeyStatus {
+  configured: boolean;
+  source: string | null;
+  masked: string | null;
+}
+
+export interface CredentialTestResult {
+  key_name: string;
+  success: boolean;
+  message: string;
+  latency_ms: number | null;
+}
+
+export interface CredentialsSummary {
+  api_keys: Record<string, APIKeyStatus>;
+  platform_accounts: PlatformAccount[];
 }

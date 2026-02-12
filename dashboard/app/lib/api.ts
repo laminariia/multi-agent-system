@@ -3,13 +3,30 @@ import type {
   RegisterPendingResponse,
   HITLPendingResponse,
   HITLResolveResponse,
+  HITLBulkResolveResponse,
   HITLStats,
   AgentStatusList,
   AgentLogList,
   Job,
   JobListResponse,
+  JobStats,
+  JobScanResponse,
+  RunPipelineResponse,
   UserListResponse,
   User,
+  LeadDetail,
+  LeadListResponse,
+  PipelineBStats,
+  ScanResponse,
+  HITLTrends,
+  OrchestratorStatus,
+  GoalListResponse,
+  HealthReport,
+  Phase,
+  LogResponse,
+  CredentialsSummary,
+  CredentialTestResult,
+  PlatformAccount,
 } from "./types";
 
 declare global {
@@ -95,6 +112,8 @@ async function apiFetch<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const token = getAccessToken();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -105,34 +124,45 @@ async function apiFetch<T>(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  let res = await fetch(`${getApiBase()}${path}`, {
-    ...options,
-    headers,
-  });
+  try {
+    let res = await fetch(`${getApiBase()}${path}`, {
+      ...options,
+      headers,
+      signal: options.signal ?? controller.signal,
+    });
 
-  // On 401, try to refresh and retry once
-  if (res.status === 401 && token) {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
-      headers["Authorization"] = `Bearer ${newToken}`;
-      res = await fetch(`${getApiBase()}${path}`, {
-        ...options,
-        headers,
-      });
-    } else {
-      clearAuth();
-      throw new Error("Session expired");
+    // On 401, try to refresh and retry once
+    if (res.status === 401 && token) {
+      const newToken = await refreshAccessToken();
+      if (newToken) {
+        headers["Authorization"] = `Bearer ${newToken}`;
+        res = await fetch(`${getApiBase()}${path}`, {
+          ...options,
+          headers,
+          signal: options.signal ?? controller.signal,
+        });
+      } else {
+        clearAuth();
+        throw new Error("Session expired");
+      }
     }
-  }
 
-  if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(
-      `API Error ${res.status}: ${errorBody || res.statusText}`
-    );
-  }
+    if (!res.ok) {
+      const errorBody = await res.text();
+      throw new Error(
+        `API Error ${res.status}: ${errorBody || res.statusText}`
+      );
+    }
 
-  return res.json();
+    return res.json();
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Request timed out");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // --- Auth ---
@@ -182,11 +212,13 @@ export async function register(
 
 export async function fetchHITLPending(params?: {
   type?: string;
+  search?: string;
   limit?: number;
   offset?: number;
 }): Promise<HITLPendingResponse> {
   const searchParams = new URLSearchParams();
   if (params?.type) searchParams.set("type", params.type);
+  if (params?.search) searchParams.set("search", params.search);
   if (params?.limit) searchParams.set("limit", String(params.limit));
   if (params?.offset) searchParams.set("offset", String(params.offset));
 
@@ -199,16 +231,31 @@ export async function fetchHITLPending(params?: {
 export async function resolveHITL(
   id: string,
   action: string,
-  notes?: string
+  note?: string
 ): Promise<HITLResolveResponse> {
   return apiFetch<HITLResolveResponse>(`/hitl/${id}/resolve`, {
     method: "POST",
-    body: JSON.stringify({ action, notes }),
+    body: JSON.stringify({ action, note }),
+  });
+}
+
+export async function bulkResolveHITL(
+  ids: string[],
+  action: string,
+  note?: string
+): Promise<HITLBulkResolveResponse> {
+  return apiFetch<HITLBulkResolveResponse>("/hitl/bulk-resolve", {
+    method: "POST",
+    body: JSON.stringify({ ids, action, note }),
   });
 }
 
 export async function fetchHITLStats(): Promise<HITLStats> {
   return apiFetch<HITLStats>("/hitl/stats");
+}
+
+export async function fetchHITLTrends(days: number = 7): Promise<HITLTrends> {
+  return apiFetch<HITLTrends>(`/hitl/trends?days=${days}`);
 }
 
 // --- Agents ---
@@ -259,6 +306,8 @@ export async function fetchJobs(params?: {
   status?: string;
   platform?: string;
   min_score?: number;
+  search?: string;
+  sort?: string;
   limit?: number;
   offset?: number;
 }): Promise<JobListResponse> {
@@ -266,6 +315,8 @@ export async function fetchJobs(params?: {
   if (params?.status) searchParams.set("status", params.status);
   if (params?.platform) searchParams.set("platform", params.platform);
   if (params?.min_score != null) searchParams.set("min_score", String(params.min_score));
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.sort) searchParams.set("sort", params.sort);
   if (params?.limit) searchParams.set("limit", String(params.limit));
   if (params?.offset) searchParams.set("offset", String(params.offset));
 
@@ -279,6 +330,10 @@ export async function fetchJob(id: string): Promise<Job> {
   return apiFetch<Job>(`/jobs/${id}`);
 }
 
+export async function fetchJobStats(): Promise<JobStats> {
+  return apiFetch<JobStats>("/jobs/stats");
+}
+
 export async function disqualifyJob(id: string, reason: string) {
   return apiFetch<{ id: string; status: string; disqualify_reason: string }>(
     `/jobs/${id}/disqualify`,
@@ -287,6 +342,19 @@ export async function disqualifyJob(id: string, reason: string) {
       body: JSON.stringify({ reason }),
     }
   );
+}
+
+export async function startJobScan(platform?: string): Promise<JobScanResponse> {
+  return apiFetch<JobScanResponse>("/jobs/scan", {
+    method: "POST",
+    body: JSON.stringify({ platform: platform ?? "all" }),
+  });
+}
+
+export async function runPipeline(jobId: string): Promise<RunPipelineResponse> {
+  return apiFetch<RunPipelineResponse>(`/jobs/${jobId}/run-pipeline`, {
+    method: "POST",
+  });
 }
 
 // --- Users (owner-only) ---
@@ -343,5 +411,155 @@ export async function deleteUser(id: string): Promise<{ message: string }> {
 export async function transferOwnership(userId: string): Promise<{ message: string }> {
   return apiFetch<{ message: string }>(`/users/${userId}/transfer-ownership`, {
     method: "POST",
+  });
+}
+
+// --- Pipeline B ---
+
+export async function fetchLeads(params?: {
+  city?: string;
+  status?: string;
+  search?: string;
+  sort?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<LeadListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.city) searchParams.set("city", params.city);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.sort) searchParams.set("sort", params.sort);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+
+  const query = searchParams.toString();
+  return apiFetch<LeadListResponse>(
+    `/pipeline-b/leads${query ? `?${query}` : ""}`
+  );
+}
+
+export async function fetchLead(id: string): Promise<LeadDetail> {
+  return apiFetch<LeadDetail>(`/pipeline-b/leads/${id}`);
+}
+
+export async function fetchPipelineBStats(): Promise<PipelineBStats> {
+  return apiFetch<PipelineBStats>("/pipeline-b/stats");
+}
+
+export async function startScan(city: string): Promise<ScanResponse> {
+  return apiFetch<ScanResponse>("/pipeline-b/scan", {
+    method: "POST",
+    body: JSON.stringify({ city }),
+  });
+}
+
+// --- Orchestrator ---
+
+export async function fetchOrchestratorStatus(): Promise<OrchestratorStatus> {
+  return apiFetch<OrchestratorStatus>("/orchestrator/status");
+}
+
+export async function startOrchestrator(): Promise<{ status: string; pid: number; message: string }> {
+  return apiFetch("/orchestrator/start", {
+    method: "POST",
+  });
+}
+
+export async function stopOrchestrator(): Promise<{ status: string; message: string }> {
+  return apiFetch("/orchestrator/stop", { method: "POST" });
+}
+
+export async function fetchGoals(params?: {
+  status?: string;
+}): Promise<GoalListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.set("status", params.status);
+  const query = searchParams.toString();
+  return apiFetch<GoalListResponse>(`/orchestrator/goals${query ? `?${query}` : ""}`);
+}
+
+export async function addGoal(
+  title: string,
+  priority?: string,
+  category?: string
+): Promise<{ id: string; title: string; message: string }> {
+  return apiFetch("/orchestrator/goals", {
+    method: "POST",
+    body: JSON.stringify({ title, priority: priority ?? "medium", category: category ?? "feature" }),
+  });
+}
+
+export async function deleteGoal(
+  goalId: string
+): Promise<{ goal_id: string; message: string }> {
+  return apiFetch(`/orchestrator/goals/${goalId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchHealth(): Promise<HealthReport> {
+  return apiFetch<HealthReport>("/orchestrator/health");
+}
+
+export async function fetchMilestones(): Promise<Phase[]> {
+  return apiFetch<Phase[]>("/orchestrator/milestones");
+}
+
+export async function fetchOrchestratorLogs(params?: { n?: number }): Promise<LogResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.n) searchParams.set("n", String(params.n));
+  const query = searchParams.toString();
+  return apiFetch<LogResponse>(`/orchestrator/logs${query ? `?${query}` : ""}`);
+}
+
+// --- Settings ---
+
+export async function fetchCredentials(): Promise<CredentialsSummary> {
+  return apiFetch<CredentialsSummary>("/settings/credentials");
+}
+
+export async function fetchPlatformAccounts(): Promise<{ accounts: PlatformAccount[]; total: number }> {
+  return apiFetch<{ accounts: PlatformAccount[]; total: number }>("/settings/platform-accounts");
+}
+
+export async function createPlatformAccount(data: {
+  platform: string;
+  username?: string;
+  credentials: Record<string, string>;
+  profile_url?: string;
+}): Promise<PlatformAccount> {
+  return apiFetch<PlatformAccount>("/settings/platform-accounts", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updatePlatformAccount(
+  id: string,
+  data: Record<string, any>
+): Promise<PlatformAccount> {
+  return apiFetch<PlatformAccount>(`/settings/platform-accounts/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deletePlatformAccount(id: string): Promise<{ message: string }> {
+  return apiFetch<{ message: string }>(`/settings/platform-accounts/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function saveAPIKeys(keys: Record<string, string>): Promise<{ api_keys: Record<string, any>; message: string }> {
+  return apiFetch<{ api_keys: Record<string, any>; message: string }>("/settings/api-keys", {
+    method: "PUT",
+    body: JSON.stringify(keys),
+  });
+}
+
+export async function testCredential(keyName: string): Promise<CredentialTestResult> {
+  return apiFetch<CredentialTestResult>("/settings/test-credential", {
+    method: "POST",
+    body: JSON.stringify({ key_name: keyName }),
   });
 }

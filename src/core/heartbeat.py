@@ -29,6 +29,19 @@ _HEARTBEAT_KEY_PREFIX = "heartbeat:"
 _HEARTBEAT_CHANNEL = "agent:heartbeat"
 
 
+def _default_heartbeat_config() -> HeartbeatConfig:
+    """Create a :class:`HeartbeatConfig` using values from application settings."""
+    from src.core.config import get_settings
+
+    s = get_settings()
+    return HeartbeatConfig(
+        interval_seconds=s.HEARTBEAT_INTERVAL_SECONDS,
+        timeout_seconds=s.HEARTBEAT_TIMEOUT_SECONDS,
+        max_restarts=s.HEARTBEAT_MAX_RESTARTS,
+        monitor_poll_seconds=s.HEARTBEAT_MONITOR_POLL_SECONDS,
+    )
+
+
 @dataclass(frozen=True)
 class HeartbeatConfig:
     """Tuning knobs for the heartbeat system."""
@@ -74,7 +87,7 @@ class HeartbeatMonitor:
     ) -> None:
         self.valkey = valkey
         self.db_pool = db_pool
-        self.config = config or HeartbeatConfig()
+        self.config = config or _default_heartbeat_config()
         self._restart_callback = restart_callback
         self._hitl_callback = hitl_callback
 

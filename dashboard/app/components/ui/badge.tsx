@@ -23,6 +23,8 @@ const badgeVariants = cva(
         delivery: "border-transparent bg-green-500/20 text-green-400",
         alert: "border-transparent bg-red-500/20 text-red-400",
         revision: "border-transparent bg-purple-500/20 text-purple-400",
+        scope: "border-transparent bg-amber-500/20 text-amber-400",
+        plan: "border-transparent bg-cyan-500/20 text-cyan-400",
       },
     },
     defaultVariants: {

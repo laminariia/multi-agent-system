@@ -7,7 +7,10 @@ from src.bot.handler import create_bot_application
 
 def main() -> None:
     app = create_bot_application()
-    app.run_polling(allowed_updates=["message", "callback_query"])
+    app.run_polling(
+        allowed_updates=["message", "callback_query"],
+        bootstrap_retries=3,
+    )
 
 
 if __name__ == "__main__":

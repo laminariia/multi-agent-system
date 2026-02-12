@@ -12,13 +12,18 @@ import { relativeTime, formatCountdown } from "~/lib/utils";
 
 const typeConfig: Record<
   HITLItem["type"],
-  { label: string; variant: "bid" | "review" | "delivery" | "alert" | "revision" }
+  { label: string; variant: "bid" | "review" | "delivery" | "alert" | "revision" | "scope" | "plan" }
 > = {
   bid_approval: { label: "Bid", variant: "bid" },
   code_review: { label: "Review", variant: "review" },
   delivery: { label: "Delivery", variant: "delivery" },
+  scope_creep: { label: "Scope", variant: "scope" },
+  plan_review: { label: "Plan", variant: "plan" },
   alert: { label: "Alert", variant: "alert" },
   revision: { label: "Revision", variant: "revision" },
+  email_approval: { label: "Email", variant: "bid" },
+  final_review: { label: "Final", variant: "delivery" },
+  job_review: { label: "Job", variant: "review" },
 };
 
 const actionVariants: Record<string, "default" | "success" | "warning" | "destructive" | "outline"> = {
@@ -37,11 +42,15 @@ const actionVariants: Record<string, "default" | "success" | "warning" | "destru
 interface HITLCardProps {
   item: HITLItem;
   onResolve: (id: string, action: string) => Promise<void>;
+  userRole?: string;
+  selected?: boolean;
+  onSelect?: (id: string, selected: boolean) => void;
 }
 
-export function HITLCard({ item, onResolve }: HITLCardProps) {
+export function HITLCard({ item, onResolve, userRole, selected, onSelect }: HITLCardProps) {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const config = typeConfig[item.type] ?? typeConfig.alert;
+  const canResolve = !userRole || userRole === "owner" || userRole === "co_owner";
 
   const handleAction = async (action: string) => {
     setLoadingAction(action);
@@ -53,7 +62,7 @@ export function HITLCard({ item, onResolve }: HITLCardProps) {
   };
 
   return (
-    <Card className="relative overflow-hidden border-border/50 hover:border-primary/30 transition-colors animate-fade-in">
+    <Card className={`relative overflow-hidden border-border/50 hover:border-primary/30 transition-colors animate-fade-in ${selected ? "ring-2 ring-primary border-primary/50" : ""}`}>
       {/* Priority indicator stripe */}
       {item.priority === "urgent" && (
         <div className="absolute top-0 left-0 right-0 h-0.5 bg-red-500" />
@@ -62,6 +71,15 @@ export function HITLCard({ item, onResolve }: HITLCardProps) {
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
+            {onSelect && (
+              <input
+                type="checkbox"
+                checked={selected ?? false}
+                onChange={(e) => onSelect(item.id, e.target.checked)}
+                className="h-4 w-4 rounded border-border accent-primary flex-shrink-0 cursor-pointer"
+                aria-label={`Select ${item.title}`}
+              />
+            )}
             {item.priority === "urgent" && (
               <span className="flex-shrink-0 h-2 w-2 rounded-full bg-red-500 animate-pulse-dot" />
             )}
@@ -110,44 +128,50 @@ export function HITLCard({ item, onResolve }: HITLCardProps) {
       </CardContent>
 
       <CardFooter className="gap-2 flex-wrap">
-        {item.available_actions.map((action) => (
-          <Button
-            key={action}
-            variant={actionVariants[action] ?? "outline"}
-            size="sm"
-            disabled={loadingAction !== null}
-            onClick={() => handleAction(action)}
-            className="text-xs capitalize"
-          >
-            {loadingAction === action ? (
-              <span className="flex items-center gap-1.5">
-                <svg
-                  className="h-3 w-3 animate-spin"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
-                </svg>
-                {action}
-              </span>
-            ) : (
-              action
-            )}
-          </Button>
-        ))}
+        {canResolve ? (
+          item.available_actions.map((action) => (
+            <Button
+              key={action}
+              variant={actionVariants[action] ?? "outline"}
+              size="sm"
+              disabled={loadingAction !== null}
+              onClick={() => handleAction(action)}
+              className="text-xs capitalize"
+            >
+              {loadingAction === action ? (
+                <span className="flex items-center gap-1.5">
+                  <svg
+                    className="h-3 w-3 animate-spin"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
+                  </svg>
+                  {action}
+                </span>
+              ) : (
+                action
+              )}
+            </Button>
+          ))
+        ) : (
+          <Badge variant="secondary" className="text-xs">
+            Awaiting owner approval
+          </Badge>
+        )}
       </CardFooter>
     </Card>
   );

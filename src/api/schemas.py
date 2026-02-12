@@ -255,6 +255,46 @@ class HITLStatsSchema(_BaseSchema):
     by_type: dict[str, HITLTypeStatsSchema] = Field(default_factory=dict)
 
 
+class HITLBulkResolveRequestSchema(_BaseSchema):
+    """Bulk resolve multiple HITL items with the same action."""
+
+    ids: list[uuid.UUID] = Field(..., min_length=1, max_length=50, description="HITL item IDs to resolve")
+    action: str = Field(..., examples=["approve"], description="Resolution action applied to all items")
+    note: str | None = Field(default=None, max_length=2000, description="Optional note")
+
+
+class HITLBulkResolveResponseSchema(_BaseSchema):
+    """Result of bulk resolution."""
+
+    resolved: int = Field(default=0, ge=0, description="Successfully resolved count")
+    failed: int = Field(default=0, ge=0, description="Failed count (already resolved, expired, etc)")
+    errors: list[dict[str, Any]] = Field(default_factory=list, description="Per-item errors")
+
+
+class HITLTrendDaySchema(_BaseSchema):
+    """Single day in the HITL trends response."""
+
+    date: str = Field(..., examples=["2026-02-12"], description="Date in YYYY-MM-DD format")
+    created: int = Field(default=0, ge=0, description="Items created on this day")
+    resolved: int = Field(default=0, ge=0, description="Items resolved on this day")
+
+
+class HITLTrendTotalsSchema(_BaseSchema):
+    """Totals across the entire trends window."""
+
+    created: int = Field(default=0, ge=0)
+    resolved: int = Field(default=0, ge=0)
+    pending: int = Field(default=0, ge=0, description="Created minus resolved")
+
+
+class HITLTrendsResponseSchema(_BaseSchema):
+    """HITL resolution trends over a configurable window."""
+
+    days: int = Field(..., ge=1, description="Number of days in the window")
+    trends: list[HITLTrendDaySchema] = Field(default_factory=list)
+    totals: HITLTrendTotalsSchema
+
+
 # =============================================================================
 # Agent schemas
 # =============================================================================
@@ -416,3 +456,285 @@ class TelegramLinkSchema(_BaseSchema):
         max_length=6,
         description="6-character link code obtained from the Telegram bot via /start",
     )
+
+
+# =============================================================================
+# Orchestrator schemas
+# =============================================================================
+
+
+class OrchestratorStatusSchema(_BaseSchema):
+    """Current state of the autonomous orchestrator runner."""
+
+    alive: bool = Field(..., description="Whether the runner process is alive")
+    pid: int | None = Field(default=None, description="Runner process ID")
+    uptime_seconds: int | None = Field(default=None, description="Runner uptime in seconds")
+    mode: str | None = Field(default=None, examples=["self-direct"])
+    goals_pending: int = Field(default=0, ge=0)
+    goals_completed: int = Field(default=0, ge=0)
+    goals_failed: int = Field(default=0, ge=0)
+    health_grade: str | None = Field(default=None, examples=["A"])
+    health_score: int | None = Field(default=None, examples=[93])
+
+
+class OrchestratorStartRequestSchema(_BaseSchema):
+    """Start request — no time parameters.
+
+    Sessions are agent-driven: the agent decides when to finish based on
+    work completion (code review clean, goals done, etc.).
+    """
+
+
+class OrchestratorStartResponseSchema(_BaseSchema):
+    """Response after starting the runner."""
+
+    status: str = Field(default="started", examples=["started"])
+    pid: int = Field(..., description="New runner PID")
+    message: str = Field(..., examples=["Orchestrator started in self-direct mode"])
+
+
+class OrchestratorStopResponseSchema(_BaseSchema):
+    """Response after stopping the runner."""
+
+    status: str = Field(default="stopped", examples=["stopped"])
+    message: str = Field(..., examples=["Orchestrator stopped"])
+
+
+class GoalSchema(_BaseSchema):
+    """A single orchestrator goal."""
+
+    id: str = Field(..., examples=["g_001"])
+    title: str = Field(..., examples=["Fix login page CSS bug"])
+    priority: str = Field(default="medium", examples=["high"])
+    category: str = Field(default="feature", examples=["bugfix"])
+    status: str = Field(default="pending", examples=["pending"])
+    completed_at: str | None = Field(default=None)
+    result: str | None = Field(default=None)
+    created_at: str | None = Field(default=None)
+
+
+class GoalListResponseSchema(_BaseSchema):
+    """List of orchestrator goals with summary counts."""
+
+    goals: list[GoalSchema]
+    total: int = Field(default=0, ge=0)
+    pending: int = Field(default=0, ge=0)
+    completed: int = Field(default=0, ge=0)
+    failed: int = Field(default=0, ge=0)
+
+
+class GoalAddRequestSchema(_BaseSchema):
+    """Request body for adding a new goal."""
+
+    title: str = Field(..., min_length=3, max_length=500, examples=["Fix login page CSS bug"])
+    priority: str = Field(
+        default="medium",
+        pattern=r"^(critical|high|medium|low)$",
+        description="Goal priority",
+    )
+    category: str = Field(
+        default="feature",
+        pattern=r"^(feature|bugfix|docs|testing|infra|refactor)$",
+        description="Goal category",
+    )
+
+
+class GoalAddResponseSchema(_BaseSchema):
+    """Response after adding a new goal."""
+
+    id: str = Field(..., examples=["g_005"])
+    title: str = Field(..., examples=["Fix login page CSS bug"])
+    message: str = Field(default="Goal added successfully")
+
+
+class GoalDeleteResponseSchema(_BaseSchema):
+    """Response after deleting a goal."""
+
+    goal_id: str = Field(..., examples=["g_005"])
+    message: str = Field(default="Goal deleted successfully")
+
+
+class HealthDimensionSchema(_BaseSchema):
+    """A single health dimension."""
+
+    grade: str = Field(..., examples=["A+"])
+    notes: str | None = Field(default=None)
+
+
+class HealthProblemSchema(_BaseSchema):
+    """A detected health problem."""
+
+    severity: str = Field(..., examples=["medium"])
+    description: str = Field(default="", examples=["Missing integration tests"])
+
+
+class HealthReportSchema(_BaseSchema):
+    """Full health report with dimensions and problems."""
+
+    overall_grade: str = Field(..., examples=["A"])
+    score: int = Field(..., ge=0, le=100, examples=[93])
+    dimensions: dict[str, HealthDimensionSchema] = Field(default_factory=dict)
+    problems: list[HealthProblemSchema] = Field(default_factory=list)
+
+
+class MilestoneSchema(_BaseSchema):
+    """A single milestone within a phase."""
+
+    text: str = Field(..., examples=["Implement Scout Agent"])
+    done: bool = Field(default=False)
+
+
+class PhaseSchema(_BaseSchema):
+    """A project phase from vision.md."""
+
+    number: int = Field(..., examples=[1])
+    title: str = Field(..., examples=["Foundation"])
+    is_future: bool = Field(default=False)
+    milestones: list[MilestoneSchema] = Field(default_factory=list)
+
+
+class LogLineSchema(_BaseSchema):
+    """A single runner log line."""
+
+    line: str = Field(...)
+    level: str = Field(default="INFO", examples=["INFO"])
+    timestamp: str | None = Field(default=None)
+
+
+class LogResponseSchema(_BaseSchema):
+    """Runner log tail response."""
+
+    lines: list[LogLineSchema] = Field(default_factory=list)
+    total: int = Field(default=0, ge=0)
+    log_file: str | None = Field(default=None)
+
+
+# =============================================================================
+# Settings / Credentials schemas
+# =============================================================================
+
+
+class JobScanRequestSchema(_BaseSchema):
+    """Request body for triggering a manual Scout scan."""
+
+    platform: str = Field(
+        default="all",
+        pattern=r"^(freelancer|upwork|fl_ru|kwork|all)$",
+        description="Platform to scan (default: all)",
+    )
+
+
+class PipelineBScanRequestSchema(_BaseSchema):
+    """Request body for triggering a Pipeline B geo scan."""
+
+    city: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        examples=["Berlin"],
+        description="City name to scan for offline businesses",
+    )
+
+
+class CredentialTestRequestSchema(_BaseSchema):
+    """Request to test a credential/API key."""
+
+    key_name: str = Field(
+        ...,
+        examples=["gemini_api_key"],
+        description="Name of the API key or platform to test",
+    )
+
+
+class CredentialTestResponseSchema(_BaseSchema):
+    """Result of credential test."""
+
+    key_name: str = Field(..., examples=["gemini_api_key"])
+    success: bool = Field(..., description="Whether the credential is valid")
+    message: str = Field(
+        ...,
+        examples=["API key is valid"],
+        description="Human-readable result",
+    )
+    latency_ms: int | None = Field(
+        default=None, description="Response time in milliseconds",
+    )
+
+
+class PlatformAccountCreateSchema(_BaseSchema):
+    """Create a new platform account with encrypted credentials."""
+    platform: str = Field(
+        ...,
+        pattern=r"^(freelancer|upwork|fl_ru|kwork)$",
+        examples=["freelancer"],
+        description="Platform identifier",
+    )
+    username: str | None = Field(default=None, max_length=255, examples=["myuser"])
+    credentials: dict[str, Any] = Field(
+        ...,
+        description="Platform-specific credentials (will be encrypted at rest)",
+        examples=[{"client_id": "abc", "client_secret": "xyz"}],
+    )
+    profile_url: str | None = Field(default=None, max_length=1000)
+
+
+class PlatformAccountUpdateSchema(_BaseSchema):
+    """Update an existing platform account."""
+    username: str | None = Field(default=None, max_length=255)
+    credentials: dict[str, Any] | None = Field(
+        default=None,
+        description="New credentials (will be encrypted); omit to keep existing",
+    )
+    profile_url: str | None = Field(default=None, max_length=1000)
+    status: str | None = Field(
+        default=None,
+        pattern=r"^(active|suspended|rate_limited)$",
+    )
+
+
+class PlatformAccountResponseSchema(_BaseSchema):
+    """Platform account with masked credentials."""
+    id: uuid.UUID
+    platform: str = Field(..., examples=["freelancer"])
+    username: str | None = None
+    status: str = Field(default="active", examples=["active"])
+    profile_url: str | None = None
+    stats: dict[str, Any] = Field(default_factory=dict)
+    last_health_check: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PlatformAccountListResponseSchema(_BaseSchema):
+    """List of platform accounts."""
+    accounts: list[PlatformAccountResponseSchema]
+    total: int = Field(default=0, ge=0)
+
+
+class APIKeyStatusSchema(_BaseSchema):
+    """Status of a single API key (never exposes the actual key)."""
+    key_name: str = Field(..., examples=["gemini_api_key"])
+    display_name: str = Field(..., examples=["Gemini API"])
+    configured: bool = Field(default=False)
+    masked: str | None = Field(default=None, examples=["***abc123"])
+
+
+class APIKeySaveSchema(_BaseSchema):
+    """Save/update API keys. Only non-null fields are updated."""
+    openrouter_api_key: str | None = Field(default=None, max_length=500)
+    gemini_api_key: str | None = Field(default=None, max_length=500)
+    anthropic_api_key: str | None = Field(default=None, max_length=500)
+    openai_api_key: str | None = Field(default=None, max_length=500)
+    e2b_api_key: str | None = Field(default=None, max_length=500)
+    hunter_api_key: str | None = Field(default=None, max_length=500)
+    apollo_api_key: str | None = Field(default=None, max_length=500)
+    freelancer_client_id: str | None = Field(default=None, max_length=500)
+    freelancer_client_secret: str | None = Field(default=None, max_length=500)
+    brightdata_username: str | None = Field(default=None, max_length=500)
+    brightdata_password: str | None = Field(default=None, max_length=500)
+
+
+class CredentialsSummarySchema(_BaseSchema):
+    """Overall credentials status for the settings page."""
+    api_keys: list[APIKeyStatusSchema] = Field(default_factory=list)
+    platform_accounts: list[PlatformAccountResponseSchema] = Field(default_factory=list)

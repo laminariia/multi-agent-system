@@ -42,6 +42,11 @@ export function SidebarNav({ pendingCount, urgentCount, collapsed, pendingUsersC
 
   const pipelineBItems: NavItem[] = [
     {
+      to: "/leads",
+      label: "Leads",
+      icon: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 7a4 4 0 100-8 4 4 0 000 8zM23 11h-6M20 8v6",
+    },
+    {
       to: "/outreach",
       label: "Outreach",
       icon: "M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
@@ -54,6 +59,11 @@ export function SidebarNav({ pendingCount, urgentCount, collapsed, pendingUsersC
   ];
 
   const systemItems: NavItem[] = [
+    {
+      to: "/orchestrator",
+      label: "Orchestrator",
+      icon: "M13 10V3L4 14h7v7l9-11h-7z",
+    },
     {
       to: "/agents",
       label: "Agents",

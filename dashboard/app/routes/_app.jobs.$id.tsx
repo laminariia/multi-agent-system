@@ -7,9 +7,12 @@ import { Button } from "~/components/ui/button";
 import { Separator } from "~/components/ui/separator";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Textarea } from "~/components/ui/textarea";
-import { fetchJob, disqualifyJob } from "~/lib/api";
+import { fetchJob, disqualifyJob, runPipeline } from "~/lib/api";
 import { relativeTime } from "~/lib/utils";
 import { toast } from "~/hooks/use-toast";
+import { useWsSubscription } from "~/hooks/use-ws-subscription";
+
+const PIPELINE_ELIGIBLE_STATUSES = new Set(["qualified", "bid_sent", "won"]);
 
 export default function JobDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -17,6 +20,10 @@ export default function JobDetailPage() {
   const [showDisqualify, setShowDisqualify] = useState(false);
   const [disqualifyReason, setDisqualifyReason] = useState("");
   const [disqualifying, setDisqualifying] = useState(false);
+  const [runningPipeline, setRunningPipeline] = useState(false);
+
+  // Subscribe to project-specific WebSocket channel for real-time updates
+  useWsSubscription("subscribe:project", id);
 
   const { data: job, isLoading, error } = useQuery({
     queryKey: ["job", id],
@@ -44,11 +51,47 @@ export default function JobDetailPage() {
     }
   };
 
+  const handleRunPipeline = async () => {
+    if (!id) return;
+    setRunningPipeline(true);
+    try {
+      const res = await runPipeline(id);
+      toast({
+        title: "Pipeline started",
+        description: `Full pipeline running for this job. Thread: ${res.thread_id}`,
+        variant: "success",
+      });
+      queryClient.invalidateQueries({ queryKey: ["job", id] });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    } catch (err) {
+      toast({
+        title: "Failed to start pipeline",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setRunningPipeline(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-[300px]" />
+        <Skeleton className="h-5 w-24" />
+        <div className="flex items-start justify-between gap-4">
+          <Skeleton className="h-8 w-72" />
+          <Skeleton className="h-9 w-28" />
+        </div>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2 space-y-4">
+            <Skeleton className="h-[200px]" />
+            <Skeleton className="h-[120px]" />
+          </div>
+          <div className="space-y-4">
+            <Skeleton className="h-[180px]" />
+            <Skeleton className="h-[120px]" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -75,6 +118,8 @@ export default function JobDetailPage() {
       ? `Up to $${job.budget_max}`
       : "Not specified";
 
+  const canRunPipeline = PIPELINE_ELIGIBLE_STATUSES.has(job.status);
+
   return (
     <div className="space-y-6">
       {/* Back link */}
@@ -96,6 +141,31 @@ export default function JobDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {canRunPipeline && (
+            <Button
+              variant="default"
+              size="sm"
+              disabled={runningPipeline}
+              onClick={handleRunPipeline}
+            >
+              {runningPipeline ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <svg className="mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="5 3 19 12 5 21 5 3" />
+                  </svg>
+                  Run Pipeline
+                </>
+              )}
+            </Button>
+          )}
           {job.url && (
             <Button variant="outline" size="sm" asChild>
               <a href={job.url} target="_blank" rel="noopener noreferrer">
@@ -103,7 +173,7 @@ export default function JobDetailPage() {
               </a>
             </Button>
           )}
-          {job.status !== "disqualified" && (
+          {job.status !== "disqualified" && job.status !== "in_progress" && job.status !== "completed" && (
             <Button
               variant="destructive"
               size="sm"
@@ -114,6 +184,22 @@ export default function JobDetailPage() {
           )}
         </div>
       </div>
+
+      {/* In progress banner */}
+      {job.status === "in_progress" && (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 flex items-center gap-3">
+          <div className="h-3 w-3 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+              Pipeline A is running
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Planner, Dev, Content, Design, and Critic agents are processing this job.
+              Check HITL queue for any pending approvals.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Disqualify form */}
       {showDisqualify && (
@@ -212,6 +298,25 @@ export default function JobDetailPage() {
         </CardContent>
       </Card>
 
+      {/* Client info */}
+      {job.client_info && Object.keys(job.client_info).length > 0 && (
+        <Card className="border-border/50">
+          <CardHeader>
+            <CardTitle className="text-base">Client Info</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              {Object.entries(job.client_info).map(([key, value]) => (
+                <div key={key}>
+                  <p className="text-muted-foreground capitalize">{key.replace(/_/g, " ")}</p>
+                  <p className="font-medium">{String(value)}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Bids */}
       {job.bids.length > 0 && (
         <Card className="border-border/50">
@@ -223,23 +328,108 @@ export default function JobDetailPage() {
               {job.bids.map((bid) => (
                 <div
                   key={bid.id}
-                  className="flex items-center justify-between rounded-md border border-border/50 p-3"
+                  className="rounded-md border border-border/50 p-4 space-y-2"
                 >
-                  <div>
-                    <p className="text-sm font-medium">${bid.bid_amount}</p>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <p className="text-sm font-semibold">${bid.bid_amount}</p>
+                      <Badge
+                        variant={
+                          bid.status === "approved" ? "success" :
+                          bid.status === "rejected" ? "destructive" :
+                          bid.status === "submitted" ? "default" :
+                          "outline"
+                        }
+                        className="capitalize text-xs"
+                      >
+                        {bid.status}
+                      </Badge>
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       {relativeTime(bid.created_at)}
                     </p>
                   </div>
-                  <Badge variant="outline" className="capitalize text-xs">
-                    {bid.status}
-                  </Badge>
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
       )}
+
+      {/* Timeline */}
+      <Card className="border-border/50">
+        <CardHeader>
+          <CardTitle className="text-base">Timeline</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <TimelineEntry
+              label="Discovered"
+              time={job.discovered_at}
+              icon={
+                <div className="h-2.5 w-2.5 rounded-full bg-blue-500" />
+              }
+            />
+            {job.bids.length > 0 && (
+              <TimelineEntry
+                label={`Bid submitted ($${job.bids[0].bid_amount})`}
+                time={job.bids[0].created_at}
+                icon={
+                  <div className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+                }
+              />
+            )}
+            {job.status === "in_progress" && (
+              <TimelineEntry
+                label="Pipeline A running"
+                icon={
+                  <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                }
+              />
+            )}
+            {job.status === "completed" && (
+              <TimelineEntry
+                label="Completed"
+                icon={
+                  <div className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                }
+              />
+            )}
+            {job.status === "disqualified" && (
+              <TimelineEntry
+                label={`Disqualified: ${job.disqualify_reason ?? ""}`}
+                icon={
+                  <div className="h-2.5 w-2.5 rounded-full bg-rose-500" />
+                }
+              />
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function TimelineEntry({
+  label,
+  time,
+  icon,
+}: {
+  label: string;
+  time?: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="mt-1.5 flex-shrink-0">{icon}</div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-foreground">{label}</p>
+        {time && (
+          <p className="text-xs text-muted-foreground">
+            {new Date(time).toLocaleString()}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

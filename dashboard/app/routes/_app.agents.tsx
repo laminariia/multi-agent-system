@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "~/components/ui/card";
 import { Skeleton } from "~/components/ui/skeleton";
+import { Button } from "~/components/ui/button";
 import { AgentCard } from "~/components/agent-card";
 import { fetchAgentStatus } from "~/lib/api";
 import { relativeTime, cn } from "~/lib/utils";
@@ -27,10 +28,11 @@ const healthConfig: Record<string, { bg: string; border: string; text: string; l
 };
 
 export default function AgentsPage() {
+  const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: ["agent-status"],
     queryFn: fetchAgentStatus,
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
   });
 
   const health = data?.system_health
@@ -84,7 +86,7 @@ export default function AgentsPage() {
       )}
 
       {/* Loading */}
-      {isLoading && (
+      {isLoading && !data && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <Skeleton key={i} className="h-[160px]" />
@@ -94,9 +96,18 @@ export default function AgentsPage() {
 
       {/* Error */}
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-          Failed to load agent status:{" "}
-          {error instanceof Error ? error.message : "Unknown error"}
+        <div className="flex items-center justify-between rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+          <p className="text-sm text-destructive">
+            Failed to load agent status:{" "}
+            {error instanceof Error ? error.message : "Unknown error"}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => queryClient.invalidateQueries({ queryKey: ["agent-status"] })}
+          >
+            Retry
+          </Button>
         </div>
       )}
 

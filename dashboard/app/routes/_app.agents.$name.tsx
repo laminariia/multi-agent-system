@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import { Separator } from "~/components/ui/separator";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { StatusBadge } from "~/components/status-badge";
@@ -11,6 +12,7 @@ import { LogViewer } from "~/components/log-viewer";
 import { fetchAgentStatus, fetchAgentLogs, restartAgent, pauseAgent, resumeAgent } from "~/lib/api";
 import { relativeTime } from "~/lib/utils";
 import { toast } from "~/hooks/use-toast";
+import { useWsSubscription } from "~/hooks/use-ws-subscription";
 
 export default function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -18,10 +20,13 @@ export default function AgentDetailPage() {
   const [logLevel, setLogLevel] = useState("all");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
+  // Subscribe to agent-specific WebSocket channel for real-time log updates
+  useWsSubscription("subscribe:agent", name);
+
   const { data: statusData } = useQuery({
     queryKey: ["agent-status"],
     queryFn: fetchAgentStatus,
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
   });
 
   const agent = statusData?.agents.find((a) => a.name === name);
@@ -34,7 +39,7 @@ export default function AgentDetailPage() {
         limit: 100,
       }),
     enabled: !!name,
-    refetchInterval: 15_000,
+    refetchInterval: 30_000,
   });
 
   const handleAction = async (action: "restart" | "pause" | "resume") => {
@@ -129,8 +134,76 @@ export default function AgentDetailPage() {
             )}
           </div>
         </div>
+      ) : statusData ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="rounded-full bg-muted p-4 mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </div>
+          <p className="text-foreground text-lg font-medium">Agent not found</p>
+          <p className="text-muted-foreground text-sm mt-1">
+            No agent named &ldquo;{name}&rdquo; is registered
+          </p>
+        </div>
       ) : (
         <Skeleton className="h-[100px]" />
+      )}
+
+      {/* Metrics cards */}
+      {agent && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card className="border-border/50">
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Status</p>
+              <div className="mt-1">
+                <StatusBadge status={agent.status} />
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-border/50">
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Restarts</p>
+              <p className="text-2xl font-bold mt-1">{agent.restart_count}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-border/50">
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Last Heartbeat</p>
+              <p className="text-sm font-medium mt-1">
+                {agent.last_heartbeat ? relativeTime(agent.last_heartbeat) : "Never"}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="border-border/50">
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Log Entries</p>
+              <p className="text-2xl font-bold mt-1">{logsData?.total ?? 0}</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Current task */}
+      {agent?.current_task && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground mb-1">Current Task</p>
+            <p className="text-sm font-medium">{agent.current_task}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Error message */}
+      {agent?.error_message && (
+        <Card className="border-destructive/30 bg-destructive/5">
+          <CardContent className="p-4">
+            <p className="text-xs text-destructive mb-1">Last Error</p>
+            <p className="text-sm">{agent.error_message}</p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Logs */}

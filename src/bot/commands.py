@@ -7,6 +7,7 @@ helpers so the bot shares connection pools with the rest of the system.
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import string
 import uuid
@@ -16,7 +17,7 @@ from typing import Any
 
 import structlog
 from sqlalchemy import case, func, select
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
@@ -25,6 +26,50 @@ from src.core.database import get_db_session, get_valkey
 from src.core.models import AgentHeartbeat, HITLQueue, User
 
 logger = structlog.get_logger(__name__)
+
+# Strong references to background scan tasks so they aren't garbage-collected.
+_scan_tasks: set[asyncio.Task[object]] = set()
+
+# ---------------------------------------------------------------------------
+# Start message: commands help + inline keyboard
+# ---------------------------------------------------------------------------
+
+_COMMANDS_HELP = (
+    "<b>Orchestrator</b>\n"
+    "/orch — Control panel (inline keyboard)\n"
+    "/run — Start orchestrator session\n"
+    "/stop — Stop orchestrator\n"
+    "/goals — View goal queue\n"
+    "/add_goal — Add a new goal\n"
+    "/health — System health check\n"
+    "/milestones — Project milestones\n"
+    "/logs — Recent session logs\n"
+    "\n"
+    "<b>HITL (Human-in-the-Loop)</b>\n"
+    "/status — Agent health overview\n"
+    "/pending — Pending items for review\n"
+    "/stats — Today's statistics\n"
+    "/approve &lt;id&gt; — Approve an item\n"
+    "/skip &lt;id&gt; — Skip an item\n"
+    "\n"
+    "<b>Pipeline B</b>\n"
+    "/scan &lt;city&gt; — Geo scan for leads\n"
+)
+
+_START_KEYBOARD = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("\U0001f3ae Orchestrator", callback_data="orch:menu"),
+        InlineKeyboardButton("\U0001f4cb Goals", callback_data="orch:goals"),
+    ],
+    [
+        InlineKeyboardButton("\U0001f4e5 Pending HITL", callback_data="start:pending"),
+        InlineKeyboardButton("\U0001f4ca Stats", callback_data="start:stats"),
+    ],
+    [
+        InlineKeyboardButton("\U0001f49a Health", callback_data="orch:health"),
+        InlineKeyboardButton("\U0001f680 Run Session", callback_data="orch:run"),
+    ],
+])
 
 # ---------------------------------------------------------------------------
 # Decorator: require a linked MAS account
@@ -82,9 +127,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         name = existing_user.name or existing_user.email
         await update.effective_message.reply_text(  # type: ignore[union-attr]
             f"Welcome back, <b>{_esc(name)}</b>!\n\n"
-            "Your Telegram account is already linked.\n"
-            "Use /status to see agent health, /pending for HITL items.",
+            + _COMMANDS_HELP,
             parse_mode=ParseMode.HTML,
+            reply_markup=_START_KEYBOARD,
         )
         return
 
@@ -107,9 +152,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
         logger.info("telegram.auto_linked", tg_user_id=tg_user_id, user_id=str(owner.id))
         await update.effective_message.reply_text(  # type: ignore[union-attr]
-            f"Auto-linked to account <b>{_esc(owner.name or owner.email)}</b>.\n"
-            "Use /status to get started.",
+            f"Auto-linked to account <b>{_esc(owner.name or owner.email)}</b>.\n\n"
+            + _COMMANDS_HELP,
             parse_mode=ParseMode.HTML,
+            reply_markup=_START_KEYBOARD,
         )
         return
 
@@ -122,10 +168,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     await update.effective_message.reply_text(  # type: ignore[union-attr]
         f"Welcome to the <b>Multi-Agent Service</b> bot!\n\n"
-        f"Your link code is: <code>{code}</code>\n\n"
+        f"Your link code is: <code>{code}</code>\n"
         "Enter this code in <b>Dashboard Settings</b> to link your account.\n"
-        "The code expires in 10 minutes.",
+        "The code expires in 10 minutes.\n\n"
+        + _COMMANDS_HELP,
         parse_mode=ParseMode.HTML,
+        reply_markup=_START_KEYBOARD,
     )
 
 
@@ -387,6 +435,47 @@ async def _resolve_command(
         f"{emoji} Item <code>{hitl_id}</code> — <b>{resolution}d</b>.",
         parse_mode=ParseMode.HTML,
     )
+
+
+# ---------------------------------------------------------------------------
+# /scan <city> -- Trigger Pipeline B geo scan
+# ---------------------------------------------------------------------------
+
+
+@require_linked_account
+async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /scan <city> -- trigger Pipeline B geo scan."""
+    args = context.args or []
+    if not args:
+        await update.effective_message.reply_text(  # type: ignore[union-attr]
+            "Usage: /scan <city>\nExample: /scan Berlin"
+        )
+        return
+
+    city = " ".join(args)
+
+    from src.core.graph import run_pipeline_b  # noqa: PLC0415
+
+    thread_id = uuid.uuid4().hex
+    try:
+        await update.effective_message.reply_text(  # type: ignore[union-attr]
+            f"Starting geo scan for <b>{_esc(city)}</b>...\n"
+            f"Thread: <code>{thread_id[:8]}</code>\n\n"
+            "This may take a few minutes. I'll notify you when results are ready.",
+            parse_mode=ParseMode.HTML,
+        )
+
+        # Run pipeline in background (stored to prevent GC)
+        task = asyncio.create_task(run_pipeline_b(city, thread_id=thread_id))
+        _scan_tasks.add(task)
+        task.add_done_callback(_scan_tasks.discard)
+
+    except Exception as exc:
+        logger.exception("scan_command_error", city=city, error=str(exc))
+        await update.effective_message.reply_text(  # type: ignore[union-attr]
+            f"Failed to start scan: {_esc(str(exc))}",
+            parse_mode=ParseMode.HTML,
+        )
 
 
 # ---------------------------------------------------------------------------

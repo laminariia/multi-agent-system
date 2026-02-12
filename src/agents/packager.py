@@ -129,7 +129,7 @@ class PackagerAgent(ConstrainedAgent):
         artifacts["packager"] = existing
 
         # 4. Create HITL queue entry for final review.
-        hitl_id = await self._create_hitl_entry(project, delivery_info)
+        hitl_id = await self._create_hitl_entry(project, delivery_info, state["thread_id"])
 
         # 5. Log the packaging action.
         await self._log_packaging_action(
@@ -290,6 +290,7 @@ class PackagerAgent(ConstrainedAgent):
         self,
         project: dict[str, Any],
         delivery_info: dict[str, Any],
+        thread_id: str = "",
     ) -> str:
         """Create an HITL queue entry for final delivery review.
 
@@ -314,6 +315,7 @@ class PackagerAgent(ConstrainedAgent):
                     "project": project,
                     "delivery_info": delivery_info,
                     "source_agent": "packager",
+                    "thread_id": thread_id,
                 },
                 available_actions=["approve_delivery", "request_changes", "reject"],
                 status="pending",
