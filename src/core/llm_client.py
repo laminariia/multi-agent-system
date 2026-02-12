@@ -137,6 +137,7 @@ class CallMetrics:
     latency_ms: float = 0.0
     was_fallback: bool = False
     attempt: int = 1
+    cache_hit: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -149,6 +150,7 @@ class CallMetrics:
             "latency_ms": round(self.latency_ms, 2),
             "was_fallback": self.was_fallback,
             "attempt": self.attempt,
+            "cache_hit": self.cache_hit,
         }
 
 
@@ -225,6 +227,34 @@ def _load_provider_errors() -> None:
     _PROVIDER_ERRORS_LOADED = True
 
 
+# ---------------------------------------------------------------------------
+# Semantic cache configuration per agent
+# ---------------------------------------------------------------------------
+
+# Agent -> cache TTL in seconds.  Agents NOT in this map are never cached.
+_AGENT_CACHE_TTL: dict[str, int] = {
+    "scout": 6 * 3600,       # 6 hours
+    "planner": 1 * 3600,     # 1 hour
+    "dev": 1 * 3600,         # 1 hour
+    "content": 12 * 3600,    # 12 hours
+    "design": 12 * 3600,     # 12 hours
+    "geoscout": 6 * 3600,    # 6 hours (geo queries are stable)
+    "outreach": 6 * 3600,    # 6 hours
+}
+
+# These agents are NEVER cached because their outputs must be unique per invocation.
+_NEVER_CACHE_AGENTS: frozenset[str] = frozenset({"bid", "critic", "packager"})
+
+
+def _agent_cache_query_type(agent_name: str) -> str | None:
+    """Map an agent name to a semantic cache query_type, or None if not cacheable."""
+    if agent_name in _NEVER_CACHE_AGENTS:
+        return None
+    if agent_name in _AGENT_CACHE_TTL:
+        return f"agent_{agent_name}"
+    return None
+
+
 class LLMClient:
     """Unified interface for calling LLMs with automatic fallback.
 
@@ -233,6 +263,7 @@ class LLMClient:
         max_retries: Number of retries *per provider* on rate-limit errors.
         base_backoff_seconds: Initial back-off delay that doubles on each retry.
         request_timeout: Per-request timeout in seconds passed to chat model constructors.
+        semantic_cache: Optional ``SemanticCache`` instance for LLM response caching.
     """
 
     def __init__(
@@ -244,6 +275,7 @@ class LLMClient:
         request_timeout: float = 60.0,
         api_key: str | None = None,
         base_url: str | None = None,
+        semantic_cache: Any | None = None,
     ) -> None:
         _load_provider_errors()
         self.cost_tracker = cost_tracker or CostTracker()
@@ -253,6 +285,7 @@ class LLMClient:
         self._api_key = api_key
         self._base_url = base_url
         self._chat_model_cache: dict[str, Any] = {}
+        self._semantic_cache = semantic_cache
 
     # ------------------------------------------------------------------
     # Public
@@ -279,6 +312,10 @@ class LLMClient:
     ) -> tuple[BaseMessage, CallMetrics]:
         """Invoke the LLM assigned to *agent_name* with automatic fallback.
 
+        When a :class:`SemanticCache` is configured and the agent is cacheable,
+        the cache is checked **before** calling the LLM and populated **after**
+        a successful call.
+
         Args:
             agent_name: Canonical agent name (e.g. ``"scout"``, ``"dev"``).
             messages: List of LangChain ``BaseMessage`` objects.
@@ -293,6 +330,44 @@ class LLMClient:
             LLMException: When all providers (including fallbacks) have been
                 exhausted.
         """
+        # --- Semantic cache: check before LLM ---
+        cache_query_type = _agent_cache_query_type(agent_name)
+        cache_key_text: str | None = None
+
+        if self._semantic_cache is not None and cache_query_type is not None:
+            cache_key_text = self._build_cache_key(messages)
+            try:
+                cached_response = await self._semantic_cache.get(cache_key_text, cache_query_type)
+                if cached_response is not None:
+                    from langchain_core.messages import AIMessage  # noqa: PLC0415
+
+                    t0 = time.perf_counter()
+                    latency_ms = (time.perf_counter() - t0) * 1000
+                    primary_key = AGENT_MODEL_REGISTRY.get(agent_name, ("gemini-3-flash", None))[0]
+                    spec = MODELS.get(primary_key)
+                    metrics = CallMetrics(
+                        agent_name=agent_name,
+                        model_id=spec.model_id if spec else primary_key,
+                        provider=spec.provider if spec else "cache",
+                        tokens_input=0,
+                        tokens_output=0,
+                        cost_usd=0.0,
+                        latency_ms=latency_ms,
+                        was_fallback=False,
+                        attempt=0,
+                        cache_hit=True,
+                    )
+                    self.cost_tracker.record(metrics)
+                    logger.info(
+                        "llm_cache_hit",
+                        agent=agent_name,
+                        query_type=cache_query_type,
+                    )
+                    return AIMessage(content=cached_response), metrics
+            except Exception:  # noqa: BLE001
+                logger.debug("semantic_cache_lookup_failed", agent=agent_name, exc_info=True)
+
+        # --- Normal LLM call path ---
         if force_model:
             model_chain = [force_model]
         else:
@@ -318,6 +393,21 @@ class LLMClient:
                     max_tokens=max_tokens,
                     is_fallback=is_fallback,
                 )
+
+                # --- Semantic cache: store after successful LLM call ---
+                if (
+                    self._semantic_cache is not None
+                    and cache_query_type is not None
+                    and cache_key_text is not None
+                ):
+                    try:
+                        response_text = str(result.content)
+                        await self._semantic_cache.set(
+                            cache_key_text, response_text, cache_query_type,
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.debug("semantic_cache_store_failed", agent=agent_name, exc_info=True)
+
                 return result, metrics
             except (LLMRateLimitError, LLMTimeoutError) as exc:
                 last_error = exc
@@ -343,6 +433,15 @@ class LLMClient:
             agent_name=agent_name,
             details={"last_error": str(last_error)},
         )
+
+    @staticmethod
+    def _build_cache_key(messages: list[BaseMessage]) -> str:
+        """Build a cache lookup key from the message list content."""
+        parts: list[str] = []
+        for msg in messages:
+            content = str(msg.content) if msg.content else ""
+            parts.append(f"{msg.type}:{content[:2000]}")
+        return "\n".join(parts)
 
     # ------------------------------------------------------------------
     # Internals

@@ -162,6 +162,8 @@ export interface Lead {
   status: string;
   enrichment_source: string | null;
   discovered_at: string | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface LeadDetail extends Lead {
@@ -311,4 +313,50 @@ export interface CredentialTestResult {
 export interface CredentialsSummary {
   api_keys: Record<string, APIKeyStatus>;
   platform_accounts: PlatformAccount[];
+}
+
+// --- Campaigns ---
+
+export interface EmailCampaign {
+  id: number;
+  name: string;
+  status: string;
+  subject: string;
+  body: string;
+  city_filter: string | null;
+  category_filter: string | null;
+  leads_count: number;
+  sent_count: number;
+  opened_count: number;
+  replied_count: number;
+  bounced_count: number;
+  created_at: string;
+}
+
+export interface CampaignLead {
+  id: number;
+  lead_id: number;
+  business_name: string;
+  email: string;
+  status: string;
+  sent_at: string | null;
+  opened_at: string | null;
+}
+
+export interface CampaignListResponse {
+  campaigns: EmailCampaign[];
+  total: number;
+}
+
+export interface CampaignLeadListResponse {
+  leads: CampaignLead[];
+  total: number;
+}
+
+export interface CreateCampaignPayload {
+  name: string;
+  subject: string;
+  body: string;
+  city_filter?: string;
+  category_filter?: string;
 }

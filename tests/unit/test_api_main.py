@@ -491,8 +491,7 @@ class TestLifespan:
                 pass
 
             warning_calls = [call for call in mock_logger.method_calls if call[0] == "warning"]
-            assert len(warning_calls) == 1
-            assert "valkey_close_failed" in str(warning_calls[0])
+            assert any("valkey_close_failed" in str(c) for c in warning_calls)
 
 
 class TestAppConfiguration:

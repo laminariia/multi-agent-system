@@ -711,6 +711,81 @@ class PlatformAccountListResponseSchema(_BaseSchema):
     total: int = Field(default=0, ge=0)
 
 
+# =============================================================================
+# Campaign schemas (Pipeline B)
+# =============================================================================
+
+
+class CampaignCreateSchema(_BaseSchema):
+    """Create a new outreach campaign."""
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        examples=["Berlin Restaurants Q1"],
+        description="Campaign display name",
+    )
+    subject_template: str = Field(
+        ...,
+        min_length=1,
+        examples=["Website for {{business_name}}"],
+        description="Email subject template (supports {{var}} placeholders)",
+    )
+    body_template: str = Field(
+        ...,
+        min_length=1,
+        examples=["Hello {{contact_name}}, I noticed..."],
+        description="Email body template (supports {{var}} placeholders)",
+    )
+    target_cities: list[str] | None = Field(
+        default=None, examples=[["Berlin", "Munich"]],
+    )
+    target_categories: list[str] | None = Field(
+        default=None, examples=[["restaurant", "cafe"]],
+    )
+
+
+class CampaignUpdateSchema(_BaseSchema):
+    """Update an existing campaign."""
+
+    name: str | None = Field(default=None, max_length=255)
+    subject_template: str | None = Field(default=None)
+    body_template: str | None = Field(default=None)
+    target_cities: list[str] | None = Field(default=None)
+    target_categories: list[str] | None = Field(default=None)
+    status: str | None = Field(
+        default=None,
+        pattern=r"^(draft|active|paused|completed)$",
+    )
+
+
+class CampaignResponseSchema(_BaseSchema):
+    """Single campaign response."""
+
+    id: uuid.UUID
+    name: str
+    subject_template: str
+    body_template: str
+    target_cities: list[str] | None = None
+    target_categories: list[str] | None = None
+    status: str
+    total_leads: int = 0
+    sent_count: int = 0
+    open_count: int = 0
+    reply_count: int = 0
+    bounce_count: int = 0
+    created_at: datetime
+    started_at: datetime | None = None
+
+
+class CampaignListResponseSchema(_BaseSchema):
+    """Paginated list of campaigns."""
+
+    campaigns: list[CampaignResponseSchema]
+    total: int = Field(default=0, ge=0)
+
+
 class APIKeyStatusSchema(_BaseSchema):
     """Status of a single API key (never exposes the actual key)."""
     key_name: str = Field(..., examples=["gemini_api_key"])

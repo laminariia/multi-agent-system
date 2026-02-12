@@ -27,6 +27,10 @@ import type {
   CredentialsSummary,
   CredentialTestResult,
   PlatformAccount,
+  EmailCampaign,
+  CampaignListResponse,
+  CampaignLeadListResponse,
+  CreateCampaignPayload,
 } from "./types";
 
 declare global {
@@ -418,6 +422,7 @@ export async function transferOwnership(userId: string): Promise<{ message: stri
 
 export async function fetchLeads(params?: {
   city?: string;
+  category?: string;
   status?: string;
   search?: string;
   sort?: string;
@@ -426,6 +431,7 @@ export async function fetchLeads(params?: {
 }): Promise<LeadListResponse> {
   const searchParams = new URLSearchParams();
   if (params?.city) searchParams.set("city", params.city);
+  if (params?.category) searchParams.set("category", params.category);
   if (params?.status) searchParams.set("status", params.status);
   if (params?.search) searchParams.set("search", params.search);
   if (params?.sort) searchParams.set("sort", params.sort);
@@ -561,5 +567,74 @@ export async function testCredential(keyName: string): Promise<CredentialTestRes
   return apiFetch<CredentialTestResult>("/settings/test-credential", {
     method: "POST",
     body: JSON.stringify({ key_name: keyName }),
+  });
+}
+
+// --- Campaigns ---
+
+export async function fetchCampaigns(params?: {
+  status?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<CampaignListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+  const query = searchParams.toString();
+  return apiFetch<CampaignListResponse>(`/campaigns${query ? `?${query}` : ""}`);
+}
+
+export async function fetchCampaign(id: number): Promise<EmailCampaign> {
+  return apiFetch<EmailCampaign>(`/campaigns/${id}`);
+}
+
+export async function createCampaign(data: CreateCampaignPayload): Promise<EmailCampaign> {
+  return apiFetch<EmailCampaign>("/campaigns", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateCampaign(id: number, data: Partial<CreateCampaignPayload>): Promise<EmailCampaign> {
+  return apiFetch<EmailCampaign>(`/campaigns/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteCampaign(id: number): Promise<{ message: string }> {
+  return apiFetch<{ message: string }>(`/campaigns/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function startCampaign(id: number): Promise<EmailCampaign> {
+  return apiFetch<EmailCampaign>(`/campaigns/${id}/start`, {
+    method: "POST",
+  });
+}
+
+export async function getCampaignLeads(id: number, params?: {
+  limit?: number;
+  offset?: number;
+}): Promise<CampaignLeadListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+  const query = searchParams.toString();
+  return apiFetch<CampaignLeadListResponse>(`/campaigns/${id}/leads${query ? `?${query}` : ""}`);
+}
+
+export async function addLeadsToCampaign(id: number, leadIds: number[]): Promise<{ added: number; message: string }> {
+  return apiFetch<{ added: number; message: string }>(`/campaigns/${id}/leads`, {
+    method: "POST",
+    body: JSON.stringify({ lead_ids: leadIds }),
+  });
+}
+
+export async function enrichLead(id: string): Promise<LeadDetail> {
+  return apiFetch<LeadDetail>(`/pipeline-b/leads/${id}/enrich`, {
+    method: "POST",
   });
 }

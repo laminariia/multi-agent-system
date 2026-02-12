@@ -1,28 +1,61 @@
-FROM python:3.12-slim
+# ============================================================
+# Stage 1: Builder — install Python dependencies
+# ============================================================
+FROM python:3.12-slim AS builder
 
-# Prevent Python from writing .pyc files and enable unbuffered output
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-WORKDIR /app
+WORKDIR /build
 
-# Install system dependencies required by asyncpg and cryptography
+# System deps for building wheels (asyncpg, cryptography)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gcc libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies from pyproject.toml
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir .
+    && pip install --no-cache-dir --prefix=/install .
+
+
+# ============================================================
+# Stage 2: Runtime — minimal production image
+# ============================================================
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Install only runtime libraries (no gcc)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpq5 curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd --gid 1000 appuser \
+    && useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser
+
+WORKDIR /app
+
+# Copy installed Python packages from builder
+COPY --from=builder /install /usr/local
 
 # Copy application source
-COPY src/ ./src/
+COPY --chown=appuser:appuser src/ ./src/
 
 # Copy Alembic migration files
-COPY alembic.ini ./
-COPY alembic/ ./alembic/
+COPY --chown=appuser:appuser alembic.ini ./
+COPY --chown=appuser:appuser alembic/ ./alembic/
+
+# Set proper file permissions
+RUN chmod -R 555 /app/src && chmod -R 755 /app/alembic
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -sf http://localhost:${PORT:-8000}/health || exit 1
+
+# Switch to non-root user
+USER appuser
 
 # Run migrations then start the server
-# Retry alembic up to 5 times (PostgreSQL may not be ready immediately)
 CMD ["sh", "-c", "for i in 1 2 3 4 5; do python -m alembic upgrade head && break || echo \"Alembic attempt $i failed, retrying in 5s...\" && sleep 5; done && litestar --app src.api.main:app run --host 0.0.0.0 --port ${PORT:-8000}"]

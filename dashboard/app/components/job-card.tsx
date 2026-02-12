@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Link } from "@remix-run/react";
 import { Badge } from "~/components/ui/badge";
 import { Progress } from "~/components/ui/progress";
@@ -57,7 +58,7 @@ interface JobCardProps {
   compact?: boolean;
 }
 
-export function JobCard({ job, compact }: JobCardProps) {
+export const JobCard = memo(function JobCard({ job, compact }: JobCardProps) {
   const status = statusConfig[job.status] ?? statusConfig.discovered;
   const scorePercent = job.score != null ? Math.round(job.score * 100) : null;
   const budgetText = formatBudget(job.budget_min, job.budget_max, job.currency);
@@ -151,4 +152,4 @@ export function JobCard({ job, compact }: JobCardProps) {
       </div>
     </Link>
   );
-}
+});

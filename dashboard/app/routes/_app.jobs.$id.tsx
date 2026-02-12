@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useParams, Link } from "@remix-run/react";
+export { RouteErrorBoundary as ErrorBoundary } from "~/components/route-error-boundary";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
@@ -7,6 +8,7 @@ import { Button } from "~/components/ui/button";
 import { Separator } from "~/components/ui/separator";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Textarea } from "~/components/ui/textarea";
+import { PipelineStatusTracker } from "~/components/pipeline-status-tracker";
 import { fetchJob, disqualifyJob, runPipeline } from "~/lib/api";
 import { relativeTime } from "~/lib/utils";
 import { toast } from "~/hooks/use-toast";
@@ -21,6 +23,7 @@ export default function JobDetailPage() {
   const [disqualifyReason, setDisqualifyReason] = useState("");
   const [disqualifying, setDisqualifying] = useState(false);
   const [runningPipeline, setRunningPipeline] = useState(false);
+  const [expandedBids, setExpandedBids] = useState<Set<string>>(new Set());
 
   // Subscribe to project-specific WebSocket channel for real-time updates
   useWsSubscription("subscribe:project", id);
@@ -74,6 +77,18 @@ export default function JobDetailPage() {
     }
   };
 
+  const toggleBidExpanded = (bidId: string) => {
+    setExpandedBids((prev) => {
+      const next = new Set(prev);
+      if (next.has(bidId)) {
+        next.delete(bidId);
+      } else {
+        next.add(bidId);
+      }
+      return next;
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -82,6 +97,7 @@ export default function JobDetailPage() {
           <Skeleton className="h-8 w-72" />
           <Skeleton className="h-9 w-28" />
         </div>
+        <Skeleton className="h-16" />
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-4">
             <Skeleton className="h-[200px]" />
@@ -184,6 +200,13 @@ export default function JobDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Pipeline Status Tracker */}
+      <Card className="border-border/50">
+        <CardContent className="py-4 px-6">
+          <PipelineStatusTracker status={job.status} />
+        </CardContent>
+      </Card>
 
       {/* In progress banner */}
       {job.status === "in_progress" && (
@@ -325,32 +348,74 @@ export default function JobDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {job.bids.map((bid) => (
-                <div
-                  key={bid.id}
-                  className="rounded-md border border-border/50 p-4 space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <p className="text-sm font-semibold">${bid.bid_amount}</p>
-                      <Badge
-                        variant={
-                          bid.status === "approved" ? "success" :
-                          bid.status === "rejected" ? "destructive" :
-                          bid.status === "submitted" ? "default" :
-                          "outline"
-                        }
-                        className="capitalize text-xs"
-                      >
-                        {bid.status}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {relativeTime(bid.created_at)}
-                    </p>
+              {job.bids.map((bid) => {
+                const isExpanded = expandedBids.has(bid.id);
+                return (
+                  <div
+                    key={bid.id}
+                    className="rounded-md border border-border/50 overflow-hidden"
+                  >
+                    <button
+                      type="button"
+                      className="w-full p-4 flex items-center justify-between hover:bg-accent/30 transition-colors text-left"
+                      onClick={() => toggleBidExpanded(bid.id)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <p className="text-sm font-semibold">${bid.bid_amount}</p>
+                        <Badge
+                          variant={
+                            bid.status === "approved" ? "success" :
+                            bid.status === "rejected" ? "destructive" :
+                            bid.status === "submitted" ? "default" :
+                            "outline"
+                          }
+                          className="capitalize text-xs"
+                        >
+                          {bid.status}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-muted-foreground">
+                          {relativeTime(bid.created_at)}
+                        </p>
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className={`h-4 w-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </div>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="border-t border-border/50 p-4 bg-muted/20 space-y-3 animate-in slide-in-from-top-1">
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          <div>
+                            <p className="text-muted-foreground text-xs">Amount</p>
+                            <p className="font-medium">${bid.bid_amount}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground text-xs">Status</p>
+                            <p className="font-medium capitalize">{bid.status}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground text-xs">Submitted</p>
+                            <p className="font-medium">
+                              {new Date(bid.created_at).toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>

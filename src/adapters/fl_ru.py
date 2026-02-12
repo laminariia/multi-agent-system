@@ -8,6 +8,7 @@ FL.ru is a primary platform for the MAS system.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -16,6 +17,7 @@ from typing import Any
 import httpx
 import structlog
 
+from src.adapters.rate_limiter import AdaptiveRateLimiter
 from src.core.exceptions import (
     PlatformAPIError,
     PlatformRateLimitError,
@@ -60,10 +62,12 @@ class FlRuClient:
     def __init__(
         self,
         base_url: str = "https://www.fl.ru/rss/all.xml",
+        rate_limiter: AdaptiveRateLimiter | None = None,
     ) -> None:
         self.base_url = base_url
         self._http: httpx.AsyncClient | None = None
         self._log = logger.bind(platform="fl_ru")
+        self._rate_limiter = rate_limiter
         # Sliding-window rate limiter: list of monotonic timestamps.
         self._request_timestamps: list[float] = []
 
@@ -216,6 +220,9 @@ class FlRuClient:
         """
         self._check_rate_limit()
 
+        if self._rate_limiter:
+            await self._rate_limiter.acquire("fl_ru")
+
         url = self.base_url
         if category:
             # FL.ru supports category-specific RSS feeds.
@@ -226,8 +233,8 @@ class FlRuClient:
 
         start = time.monotonic()
         try:
-            response = await http.get(url)
-        except httpx.TimeoutException as exc:
+            response = await asyncio.wait_for(http.get(url), timeout=_DEFAULT_TIMEOUT)
+        except TimeoutError as exc:
             raise PlatformAPIError(
                 f"FL.ru RSS fetch timed out: {exc}",
                 platform="fl_ru",

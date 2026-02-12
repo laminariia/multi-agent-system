@@ -1,0 +1,56 @@
+# Pre-commit hooks for Multi-Agent Service
+# Install: pip install pre-commit && pre-commit install
+# Run all: pre-commit run --all-files
+
+repos:
+  # Ruff — linting + formatting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.6
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+        types_or: [python, pyi]
+      - id: ruff-format
+        types_or: [python, pyi]
+
+  # Gitleaks — secret detection
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.23.3
+    hooks:
+      - id: gitleaks
+
+  # Standard pre-commit hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(dashboard/|\.github/)
+      - id: end-of-file-fixer
+        exclude: ^(dashboard/|\.github/)
+      - id: check-yaml
+        args: [--unsafe]
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: no-commit-to-branch
+        args: [--branch, main]
+
+  # TypeScript/Dashboard checks
+  - repo: local
+    hooks:
+      - id: dashboard-typecheck
+        name: Dashboard TypeScript check
+        entry: bash -c 'cd dashboard && npx tsc --noEmit'
+        language: system
+        files: ^dashboard/.*\.(ts|tsx)$
+        pass_filenames: false
+
+      # Unit test smoke — runs a subset on pre-push
+      - id: unit-test-smoke
+        name: Unit test smoke (critical modules)
+        entry: bash -c 'pytest tests/unit/test_core_config.py tests/unit/test_api_main.py tests/unit/test_api_health.py -x --timeout=30 -q'
+        language: system
+        stages: [pre-push]
+        pass_filenames: false

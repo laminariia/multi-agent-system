@@ -1,0 +1,70 @@
+title = "Gitleaks config for Multi-Agent Service"
+
+[allowlist]
+  description = "Global allowlist"
+  paths = [
+    '''\.env\.example$''',
+    '''tests/golden_set/''',
+    '''tests/fixtures/''',
+    '''knowledge/''',
+  ]
+
+[[rules]]
+  id = "anthropic-api-key"
+  description = "Anthropic API Key"
+  regex = '''sk-ant-[a-zA-Z0-9\-_]{20,}'''
+  tags = ["api-key", "anthropic"]
+
+[[rules]]
+  id = "openai-api-key"
+  description = "OpenAI API Key"
+  regex = '''sk-[a-zA-Z0-9]{20,}'''
+  tags = ["api-key", "openai"]
+
+  [rules.allowlist]
+    regexTarget = "match"
+    regexes = [
+      '''sk-ant-''',
+    ]
+
+[[rules]]
+  id = "openrouter-api-key"
+  description = "OpenRouter API Key"
+  regex = '''sk-or-[a-zA-Z0-9\-_]{20,}'''
+  tags = ["api-key", "openrouter"]
+
+[[rules]]
+  id = "gemini-api-key"
+  description = "Google Gemini API Key"
+  regex = '''AIza[a-zA-Z0-9\-_]{30,}'''
+  tags = ["api-key", "google"]
+
+[[rules]]
+  id = "telegram-bot-token"
+  description = "Telegram Bot Token"
+  regex = '''\d{8,10}:[a-zA-Z0-9_-]{35}'''
+  tags = ["api-key", "telegram"]
+
+[[rules]]
+  id = "hunter-api-key"
+  description = "Hunter.io API Key"
+  regex = '''[a-f0-9]{40}'''
+  tags = ["api-key", "hunter"]
+
+  [rules.allowlist]
+    paths = [
+      '''tests/''',
+      '''\.env\.example$''',
+    ]
+
+[[rules]]
+  id = "fernet-key"
+  description = "Fernet encryption key"
+  regex = '''[A-Za-z0-9+/=]{44}'''
+  tags = ["secret", "fernet"]
+
+  [rules.allowlist]
+    paths = [
+      '''tests/''',
+      '''\.env\.example$''',
+    ]

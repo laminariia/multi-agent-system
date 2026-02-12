@@ -122,6 +122,8 @@ class PipelineBController(Controller):
                     "category": lead.category,
                     "city": lead.city,
                     "address": lead.address,
+                    "latitude": float(lead.latitude) if lead.latitude is not None else None,
+                    "longitude": float(lead.longitude) if lead.longitude is not None else None,
                     "phone": lead.phone,
                     "email": lead.email,
                     "status": lead.status,
@@ -179,6 +181,73 @@ class PipelineBController(Controller):
                 lead.discovered_at.isoformat() if lead.discovered_at else None
             ),
         }
+
+    @post(
+        "/leads/{lead_id:str}/enrich",
+        guards=[require_role("owner", "co_owner", "moderator")],
+    )
+    async def enrich_lead(
+        self,
+        db_session: AsyncSession,
+        lead_id: str,
+        request: Request[User, Token, Any],
+    ) -> dict[str, Any]:
+        """Trigger enrichment waterfall for a single lead.
+
+        The waterfall order is: OSINT (free) -> Hunter.io -> Apollo.io.
+        Enrichment runs synchronously for a single lead so the caller
+        gets the result immediately.
+        """
+        try:
+            lead_uuid = uuid.UUID(lead_id)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid lead ID format: {lead_id}"
+            ) from exc
+
+        result = await db_session.execute(select(Lead).where(Lead.id == lead_uuid))
+        lead = result.scalar_one_or_none()
+
+        if lead is None:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        # Run enrichment waterfall
+        try:
+            from src.enrichment.waterfall import EnrichmentWaterfall  # noqa: PLC0415
+
+            waterfall = EnrichmentWaterfall()
+            enrichment = await waterfall.enrich(
+                name=lead.name,
+                address=lead.address or "",
+                city=lead.city or "",
+                phone=lead.phone or "",
+            )
+
+            lead.email = enrichment.get("email") or lead.email
+            lead.phone = enrichment.get("phone") or lead.phone
+            lead.website = enrichment.get("website") or lead.website
+            lead.social_links = enrichment.get("social_links") or lead.social_links
+            lead.enrichment_source = enrichment.get("source", "osint")
+            lead.enrichment_data = enrichment
+            lead.status = "enriched"
+
+            await db_session.flush()
+            await waterfall.close()
+
+            logger.info("lead.enriched", lead_id=lead_id, source=lead.enrichment_source)
+            return {
+                "status": "enriched",
+                "lead_id": lead_id,
+                "source": lead.enrichment_source,
+                "email": lead.email,
+            }
+        except Exception as exc:
+            logger.warning("lead.enrichment_failed", lead_id=lead_id, error=str(exc))
+            return {
+                "status": "failed",
+                "lead_id": lead_id,
+                "error": str(exc),
+            }
 
     @get("/stats")
     async def scan_stats(

@@ -3,12 +3,13 @@
 Uses StealthBrowser + Playwright to scrape job listings from Upwork.
 **DOES NOT** submit bids — this is intentional to comply with Upwork ToS.
 
-⚠️ CRITICAL: Upwork PROHIBITS automated bid submission.  Any attempt to add
+CRITICAL: Upwork PROHIBITS automated bid submission.  Any attempt to add
 a ``submit_bid`` method to this class is a ToS violation that will result
 in account suspension.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from typing import Any
@@ -16,6 +17,7 @@ from urllib.parse import urlencode
 
 import structlog
 
+from src.adapters.rate_limiter import AdaptiveRateLimiter
 from src.core.exceptions import (
     CaptchaDetectedError,
     CloudflareBlockError,
@@ -60,10 +62,12 @@ class UpworkClient:
         self,
         browser_pool: Any,
         base_url: str = "https://www.upwork.com/nx/search/jobs",
+        rate_limiter: AdaptiveRateLimiter | None = None,
     ) -> None:
         self.browser_pool = browser_pool
         self.base_url = base_url
         self._log = logger.bind(platform="upwork")
+        self._rate_limiter = rate_limiter
 
     # ------------------------------------------------------------------
     # Public API
@@ -87,13 +91,19 @@ class UpworkClient:
         -------
         A list of normalised job dicts.
         """
+        if self._rate_limiter:
+            await self._rate_limiter.acquire("upwork")
+
         page = await self.browser_pool.acquire("upwork")
         try:
             url = self._build_search_url(category)
             self._log.info("fetch_jobs_start", url=url, max_results=max_results)
 
             start = time.monotonic()
-            await page.goto(url, wait_until="domcontentloaded", timeout=_PAGE_TIMEOUT_MS)
+            await asyncio.wait_for(
+                page.goto(url, wait_until="domcontentloaded", timeout=_PAGE_TIMEOUT_MS),
+                timeout=_PAGE_TIMEOUT_MS / 1000 + 5,
+            )
             await page.wait_random()
 
             # Detect blocking conditions.
@@ -120,10 +130,16 @@ class UpworkClient:
         -------
         A normalised job dict with extended details.
         """
+        if self._rate_limiter:
+            await self._rate_limiter.acquire("upwork")
+
         page = await self.browser_pool.acquire("upwork")
         try:
             self._log.info("get_job_details_start", url=job_url)
-            await page.goto(job_url, wait_until="domcontentloaded", timeout=_PAGE_TIMEOUT_MS)
+            await asyncio.wait_for(
+                page.goto(job_url, wait_until="domcontentloaded", timeout=_PAGE_TIMEOUT_MS),
+                timeout=_PAGE_TIMEOUT_MS / 1000 + 5,
+            )
             await page.wait_random()
 
             await self._detect_blocks(page)

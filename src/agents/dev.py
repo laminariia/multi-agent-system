@@ -24,6 +24,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from src.agents.base import ConstrainedAgent
 from src.core.database import get_db_session
 from src.core.heartbeat import HeartbeatMonitor
+from src.core.json_repair import extract_json
 from src.core.llm_client import LLMClient
 from src.core.loop_detector import LoopDetector
 from src.core.models import AgentLog
@@ -96,8 +97,14 @@ class DevAgent(ConstrainedAgent):
             self._log.warning("no_task_context_found")
             return update_state(state, current_agent="dev", next_agent=None, status="active")
 
+        # 1b. Check if this is a revision cycle (critic feedback present).
+        critic_feedback = self._extract_critic_feedback(state)
+
         # 2. Build the LLM prompt with full project context.
-        user_content = self._build_user_prompt(state, task_context)
+        if critic_feedback:
+            user_content = self._build_revision_prompt(state, task_context, critic_feedback)
+        else:
+            user_content = self._build_user_prompt(state, task_context)
 
         messages = [
             SystemMessage(content=DEV_SYSTEM_PROMPT),
@@ -178,6 +185,109 @@ class DevAgent(ConstrainedAgent):
             artifacts=artifacts,
             status="active",
         )
+
+    # ------------------------------------------------------------------
+    # Critic revision feedback
+    # ------------------------------------------------------------------
+
+    def _extract_critic_feedback(self, state: AgentState) -> dict[str, Any] | None:
+        """Extract the most recent critic review from state artifacts.
+
+        Returns the parsed review dict if present, or ``None`` for a fresh run.
+        """
+        artifacts = state.get("artifacts") or {}
+        critic_data = artifacts.get("critic")
+        if not critic_data:
+            return None
+
+        for item in reversed(critic_data):
+            try:
+                parsed = json.loads(item)
+                if isinstance(parsed, dict) and "verdict" in parsed:
+                    return parsed
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return None
+
+    def _build_revision_prompt(
+        self,
+        state: AgentState,
+        task_context: dict[str, Any],
+        critic_feedback: dict[str, Any],
+    ) -> str:
+        """Build a revision-aware prompt incorporating Critic Agent feedback.
+
+        This prompt instructs the LLM to fix specific issues reported by the
+        Critic rather than regenerating from scratch.
+        """
+        project = state.get("project") or {}
+        parts: list[str] = []
+
+        # Project overview.
+        parts.append("## Project Requirements")
+        parts.append(f"Title/Description: {project.get('requirements', 'No requirements provided')}")
+        parts.append(f"Budget: ${project.get('budget', 'N/A')}")
+
+        # Task details.
+        parts.append("\n## Current Task")
+        parts.append(json.dumps(task_context, indent=2, default=str, ensure_ascii=False))
+
+        # Previous code (if available).
+        artifacts = state.get("artifacts") or {}
+        dev_data = artifacts.get("dev")
+        if dev_data:
+            parts.append("\n## Your Previous Code (needs revision)")
+            for item in dev_data:
+                try:
+                    parsed = json.loads(item)
+                    if isinstance(parsed, dict) and "files" in parsed:
+                        parts.append(json.dumps(parsed, indent=2, default=str, ensure_ascii=False)[:4000])
+                except (json.JSONDecodeError, TypeError):
+                    continue
+
+        # Critic feedback.
+        parts.append("\n## Critic Agent Review Feedback")
+        parts.append(f"Verdict: {critic_feedback.get('verdict', 'N/A')}")
+        parts.append(f"Score: {critic_feedback.get('score', 'N/A')}")
+        parts.append(f"Revision Type: {critic_feedback.get('revision_type', 'N/A')}")
+
+        issues = critic_feedback.get("issues", [])
+        if issues:
+            parts.append("\n### Issues to Fix:")
+            for idx, issue in enumerate(issues, 1):
+                desc = issue.get("description", str(issue))
+                severity = issue.get("severity", "unknown")
+                location = issue.get("location", "")
+                suggestion = issue.get("suggestion", "")
+                parts.append(f"{idx}. [{severity}] {desc}")
+                if location:
+                    parts.append(f"   Location: {location}")
+                if suggestion:
+                    parts.append(f"   Suggestion: {suggestion}")
+
+        revision_instructions = critic_feedback.get("revision_instructions", "")
+        if revision_instructions:
+            parts.append(f"\n### Revision Instructions:\n{revision_instructions}")
+
+        failed_checks = critic_feedback.get("failed_checks", [])
+        if failed_checks:
+            parts.append(f"\n### Failed Checks: {', '.join(failed_checks)}")
+
+        # Revision count context.
+        revision_count_data = artifacts.get("_critic_revision_count", [])
+        if revision_count_data:
+            try:
+                rev_count = int(revision_count_data[0])
+                parts.append(f"\n**This is revision #{rev_count}. Please fix ALL reported issues this time.**")
+            except (ValueError, TypeError):
+                pass
+
+        parts.append(
+            "\n\nFix the issues above in your code. Keep working code unchanged. "
+            "Return a single JSON object matching the output format specified in your instructions."
+        )
+
+        return "\n".join(parts)
 
     # ------------------------------------------------------------------
     # Task context extraction
@@ -286,22 +396,14 @@ class DevAgent(ConstrainedAgent):
     # ------------------------------------------------------------------
 
     def _parse_code_response(self, raw: str) -> dict[str, Any] | None:
-        """Parse the LLM's code generation JSON response.
+        """Parse the LLM's code generation JSON response using extract_json.
 
         Returns ``None`` on parse failure so the caller can handle gracefully.
         """
-        text = raw.strip()
-        # Strip markdown code fences if present.
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text = "\n".join(lines[1:])
-            if text.endswith("```"):
-                text = text[:-3].strip()
-
         try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError as exc:
-            self._log.error("dev_json_parse_error", raw_preview=text[:300], error=str(exc))
+            parsed = extract_json(raw, expected_type=dict)
+        except ValueError as exc:
+            self._log.error("dev_json_parse_error", raw_preview=raw[:300], error=str(exc))
             return None
 
         if not isinstance(parsed, dict):
@@ -413,23 +515,13 @@ async def dev_node(state: AgentState) -> AgentState:
 
     This is the entry-point wired into the ``StateGraph``.
     """
-    llm_client = LLMClient()
-    heartbeat = HeartbeatMonitor(
-        valkey=_get_valkey_client(),
-        db_pool=None,  # DB pool injected at app startup in production
-    )
-    loop_detector = LoopDetector(max_iterations=50, max_identical_steps=3)
+    from src.core.container import get_container  # noqa: PLC0415
 
+    container = get_container()
     agent = DevAgent(
-        llm_client=llm_client,
-        heartbeat=heartbeat,
-        loop_detector=loop_detector,
+        llm_client=container.llm_client,
+        heartbeat=container.heartbeat,
+        loop_detector=container.loop_detector,
     )
 
     return await agent.invoke(state)
-
-
-def _get_valkey_client() -> Any:
-    """Return the shared Valkey (redis-py) async client."""
-    from src.core.database import get_valkey  # noqa: PLC0415
-    return get_valkey()

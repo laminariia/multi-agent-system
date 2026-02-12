@@ -29,6 +29,7 @@ from src.agents.base import ConstrainedAgent
 from src.core.database import get_db_session
 from src.core.exceptions import LLMInvalidResponseError, PlatformException
 from src.core.heartbeat import HeartbeatMonitor
+from src.core.json_repair import extract_json
 from src.core.llm_client import LLMClient
 from src.core.loop_detector import LoopDetector
 from src.core.models import AgentLog, HITLQueue, Job
@@ -248,23 +249,20 @@ class ScoutAgent(ConstrainedAgent):
         raw: str,
         expected_count: int,
     ) -> list[dict[str, Any]]:
-        """Best-effort parse of the LLM JSON output."""
-        text = raw.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text = "\n".join(lines[1:])
-            if text.endswith("```"):
-                text = text[:-3].strip()
-
+        """Best-effort parse of the LLM JSON output using extract_json."""
         try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError as exc:
-            self._log.error("llm_json_parse_error", raw_preview=text[:300], error=str(exc))
-            raise LLMInvalidResponseError(
-                message="Scout LLM returned non-JSON response",
-                agent_name="scout",
-                raw_response=text[:500],
-            ) from exc
+            parsed = extract_json(raw, expected_type=list)
+        except ValueError:
+            # Fallback: try as dict
+            try:
+                parsed = extract_json(raw, expected_type=dict)
+            except ValueError as exc:
+                self._log.error("llm_json_parse_error", raw_preview=raw[:300], error=str(exc))
+                raise LLMInvalidResponseError(
+                    message="Scout LLM returned non-JSON response",
+                    agent_name="scout",
+                    raw_response=raw[:500],
+                ) from exc
 
         if isinstance(parsed, dict):
             parsed = [parsed]
@@ -272,7 +270,7 @@ class ScoutAgent(ConstrainedAgent):
             raise LLMInvalidResponseError(
                 message="Scout LLM returned unexpected type",
                 agent_name="scout",
-                raw_response=text[:500],
+                raw_response=raw[:500],
             )
 
         validated: list[dict[str, Any]] = []
@@ -416,16 +414,17 @@ async def scout_node(state: AgentState) -> AgentState:
 
     This is the entry-point wired into the ``StateGraph``.  It pulls
     configuration from the environment/settings to construct adapter
-    clients, an LLM client, heartbeat, and loop detector, then
-    delegates to :class:`ScoutAgent`.
+    clients, then delegates to :class:`ScoutAgent`.
 
-    In production the adapters and infrastructure objects are assembled
-    from the DI container.  Here we construct lightweight defaults.
+    Infrastructure (LLM client, heartbeat, loop detector, browser pool)
+    is obtained from the shared DI container.
     """
     from src.adapters.fl_ru import FlRuClient  # noqa: PLC0415
     from src.core.config import get_settings  # noqa: PLC0415
+    from src.core.container import get_container  # noqa: PLC0415
 
     settings = get_settings()
+    container = get_container()
 
     # -- Build adapters (only those with configured credentials) ----------
     adapters: dict[str, Any] = {}
@@ -454,50 +453,32 @@ async def scout_node(state: AgentState) -> AgentState:
     # FL.ru is always available (public RSS, no auth required).
     adapters["flru"] = FlRuClient()
 
-    # Browser-based adapters (conditionally enabled when proxy is configured).
-    pool = None
-    if settings.BRIGHTDATA_USERNAME:
+    # Browser-based adapters (use shared pool from container).
+    pool = container.browser_pool
+    if pool is not None:
         from src.adapters.kwork import KworkClient  # noqa: PLC0415
         from src.adapters.upwork import UpworkClient  # noqa: PLC0415
-        from src.browser.pool import BrowserPool, PoolConfig  # noqa: PLC0415
 
-        pool = BrowserPool(config=PoolConfig(
-            max_browsers=settings.BROWSER_POOL_MAX,
-            proxy_rotation_minutes=settings.BROWSER_PROXY_ROTATION_MINUTES,
-        ))
         adapters["upwork"] = UpworkClient(browser_pool=pool)
         adapters["kwork"] = KworkClient(browser_pool=pool)
 
-    # -- Infrastructure: LLM client, heartbeat, loop detector -------------
-    llm_client = LLMClient()
-    heartbeat = HeartbeatMonitor(
-        valkey=_get_valkey_client(),
-        db_pool=None,  # DB pool injected at app startup in production
-    )
-    loop_detector = LoopDetector(max_iterations=50, max_identical_steps=3)
-
+    # -- Invoke agent with try/finally for adapter cleanup ----------------
     agent = ScoutAgent(
-        llm_client=llm_client,
-        heartbeat=heartbeat,
-        loop_detector=loop_detector,
+        llm_client=container.llm_client,
+        heartbeat=container.heartbeat,
+        loop_detector=container.loop_detector,
         adapters=adapters,
     )
 
-    result = await agent.invoke(state)
-
-    # Clean up adapter HTTP clients.
-    for adapter in adapters.values():
-        if hasattr(adapter, "close"):
-            await adapter.close()
-
-    # Shut down browser pool if it was created.
-    if pool is not None:
-        await pool.shutdown()
+    try:
+        result = await agent.invoke(state)
+    finally:
+        # Clean up adapter HTTP clients (pool is owned by container).
+        for adapter in adapters.values():
+            if hasattr(adapter, "close"):
+                try:
+                    await adapter.close()
+                except Exception:  # noqa: BLE001
+                    logger.debug("scout_adapter_close_error", exc_info=True)
 
     return result
-
-
-def _get_valkey_client() -> Any:
-    """Return the shared Valkey (redis-py) async client."""
-    from src.core.database import get_valkey  # noqa: PLC0415
-    return get_valkey()

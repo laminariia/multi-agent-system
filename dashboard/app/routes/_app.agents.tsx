@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+export { RouteErrorBoundary as ErrorBoundary } from "~/components/route-error-boundary";
 import { Card, CardContent } from "~/components/ui/card";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Button } from "~/components/ui/button";
@@ -32,6 +33,7 @@ export default function AgentsPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["agent-status"],
     queryFn: fetchAgentStatus,
+    staleTime: 10_000,
     refetchInterval: 30_000,
   });
 

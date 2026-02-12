@@ -95,6 +95,7 @@ export default function App() {
         defaultOptions: {
           queries: {
             staleTime: 60_000,
+            gcTime: 5 * 60_000,
             retry: 3,
             retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 15000),
             refetchOnWindowFocus: false,

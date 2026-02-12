@@ -19,6 +19,7 @@ import { useNotificationStore } from "~/stores/notification-store";
 import { fetchHITLPending, fetchUsers } from "~/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "~/hooks/use-toast";
+import { useKeyboardShortcuts } from "~/hooks/use-keyboard-shortcuts";
 import { cn } from "~/lib/utils";
 
 /** Send a browser desktop notification if the tab is not focused and permission is granted. */
@@ -53,6 +54,7 @@ export default function AppLayout() {
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
 
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -61,6 +63,13 @@ export default function AppLayout() {
   const logout = useAuthStore((s) => s.logout);
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
+
+  useKeyboardShortcuts();
+
+  // Close mobile menu on navigation
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
   // Request browser notification permission on first auth
   useEffect(() => {
@@ -75,6 +84,7 @@ export default function AppLayout() {
   const { data: hitlData } = useQuery({
     queryKey: ["hitl-pending-count"],
     queryFn: () => fetchHITLPending({ limit: 1 }),
+    staleTime: 10_000,
     refetchInterval: 30_000,
     enabled: isAuthenticated,
   });
@@ -83,6 +93,7 @@ export default function AppLayout() {
   const { data: pendingUsersData } = useQuery({
     queryKey: ["pending-users-count"],
     queryFn: () => fetchUsers({ status: "pending_approval", limit: 1 }),
+    staleTime: 30_000,
     refetchInterval: 60_000,
     enabled: isAuthenticated && (user?.role === "owner" || user?.role === "co_owner"),
   });
@@ -341,11 +352,22 @@ export default function AppLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      {/* Mobile overlay */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm lg:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
       <aside
-        className={`flex flex-col border-r border-border/50 bg-card/30 transition-all ${
+        className={cn(
+          "flex flex-col border-r border-border/50 bg-card/30 transition-all",
+          "fixed inset-y-0 left-0 z-50 lg:static",
+          mobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
           sidebarCollapsed ? "w-16" : "w-64"
-        }`}
+        )}
       >
         {/* Logo */}
         <div className="flex h-14 items-center border-b border-border/50 px-4">
@@ -465,8 +487,41 @@ export default function AppLayout() {
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Top bar */}
-        <header className="flex h-14 items-center justify-between border-b border-border/50 px-6">
-          <nav className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <header className="flex h-14 items-center justify-between border-b border-border/50 px-4 lg:px-6">
+          <div className="flex items-center gap-2">
+            {/* Mobile hamburger */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 lg:hidden"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label="Toggle menu"
+            >
+              <svg
+                className="h-5 w-5"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                {mobileMenuOpen ? (
+                  <>
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </>
+                ) : (
+                  <>
+                    <line x1="3" y1="6" x2="21" y2="6" />
+                    <line x1="3" y1="12" x2="21" y2="12" />
+                    <line x1="3" y1="18" x2="21" y2="18" />
+                  </>
+                )}
+              </svg>
+            </Button>
+            <nav className="hidden sm:flex items-center gap-1.5 text-sm text-muted-foreground">
             <span className="text-foreground">Dashboard</span>
             {pathSegments.map((segment, i) => (
               <span key={i} className="flex items-center gap-1.5">
@@ -493,7 +548,8 @@ export default function AppLayout() {
                 </span>
               </span>
             ))}
-          </nav>
+            </nav>
+          </div>
 
           <div className="flex items-center gap-1">
             {/* WebSocket status indicator */}

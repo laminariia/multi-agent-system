@@ -7,12 +7,14 @@ Kwork is a Russian-language platform — budgets are in rubles (RUB).
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from typing import Any
 
 import structlog
 
+from src.adapters.rate_limiter import AdaptiveRateLimiter
 from src.core.exceptions import (
     CaptchaDetectedError,
     CloudflareBlockError,
@@ -77,10 +79,12 @@ class KworkClient:
         self,
         browser_pool: Any,
         base_url: str = "https://kwork.ru/projects",
+        rate_limiter: AdaptiveRateLimiter | None = None,
     ) -> None:
         self.browser_pool = browser_pool
         self.base_url = base_url
         self._log = logger.bind(platform="kwork")
+        self._rate_limiter = rate_limiter
 
     # ------------------------------------------------------------------
     # Public API
@@ -104,13 +108,19 @@ class KworkClient:
         -------
         A list of normalised job dicts.
         """
+        if self._rate_limiter:
+            await self._rate_limiter.acquire("kwork")
+
         page = await self.browser_pool.acquire("kwork")
         try:
             url = self._build_search_url(category)
             self._log.info("fetch_jobs_start", url=url, max_results=max_results)
 
             start = time.monotonic()
-            await page.goto(url, wait_until="domcontentloaded", timeout=_PAGE_TIMEOUT_MS)
+            await asyncio.wait_for(
+                page.goto(url, wait_until="domcontentloaded", timeout=_PAGE_TIMEOUT_MS),
+                timeout=_PAGE_TIMEOUT_MS / 1000 + 5,
+            )
             # Extra-long initial delay for Kwork.
             await page.wait_random(min_s=_MIN_DELAY, max_s=_MAX_DELAY)
 

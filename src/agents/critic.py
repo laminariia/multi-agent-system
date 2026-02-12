@@ -26,6 +26,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from src.agents.base import ConstrainedAgent
 from src.core.database import get_db_session
 from src.core.heartbeat import HeartbeatMonitor
+from src.core.json_repair import extract_json
 from src.core.llm_client import LLMClient
 from src.core.loop_detector import LoopDetector
 from src.core.models import AgentLog, HITLQueue
@@ -49,6 +50,10 @@ _REVISE_THRESHOLD = 0.60
 
 # Maximum revision cycles before HITL escalation.
 _MAX_REVISION_CYCLES = 3
+
+# Semgrep score penalties (per finding).
+_SEMGREP_CRITICAL_PENALTY = 0.3
+_SEMGREP_WARNING_PENALTY = 0.1
 
 
 class CriticAgent(ConstrainedAgent):
@@ -104,37 +109,44 @@ class CriticAgent(ConstrainedAgent):
 
         # 1b. Run Semgrep security scan on dev artifacts (pre-LLM gate).
         semgrep_result = await self._run_semgrep_scan(review_context)
-        if semgrep_result is not None and semgrep_result.blocked:
-            self._log.warning(
-                "semgrep_blocked",
-                critical_count=semgrep_result.critical_count,
-                findings=[f.rule_id for f in semgrep_result.findings],
-            )
-            artifacts = dict(state.get("artifacts") or {})
-            semgrep_detail = json.dumps({
-                "verdict": "reject",
-                "score": 0.0,
-                "source": "semgrep_gate",
-                "issues": [
-                    {"rule_id": f.rule_id, "severity": f.severity, "message": f.message, "path": f.path, "line": f.line}
-                    for f in semgrep_result.findings
-                ],
-            }, default=str, ensure_ascii=False)
-            artifacts["critic"] = [semgrep_detail]
-            await self._log_review_decision(
-                thread_id=state["thread_id"],
-                verdict="reject",
-                score=0.0,
-                issues_count=len(semgrep_result.findings),
-                revision_count=self._get_revision_count(state),
-            )
-            return update_state(
-                state,
-                current_agent="critic",
-                next_agent="dev",
-                artifacts=artifacts,
-                status="active",
-            )
+        semgrep_score_penalty = 0.0
+        if semgrep_result is not None:
+            semgrep_score_penalty = self._compute_semgrep_penalty(semgrep_result)
+
+            if semgrep_result.blocked:
+                self._log.warning(
+                    "semgrep_blocked",
+                    critical_count=semgrep_result.critical_count,
+                    findings=[f.rule_id for f in semgrep_result.findings],
+                )
+                artifacts = dict(state.get("artifacts") or {})
+                semgrep_detail = json.dumps({
+                    "verdict": "reject",
+                    "score": 0.0,
+                    "source": "semgrep_gate",
+                    "issues": [
+                        {
+                            "rule_id": f.rule_id, "severity": f.severity,
+                            "message": f.message, "path": f.path, "line": f.line,
+                        }
+                        for f in semgrep_result.findings
+                    ],
+                }, default=str, ensure_ascii=False)
+                artifacts["critic"] = [semgrep_detail]
+                await self._log_review_decision(
+                    thread_id=state["thread_id"],
+                    verdict="reject",
+                    score=0.0,
+                    issues_count=len(semgrep_result.findings),
+                    revision_count=self._get_revision_count(state),
+                )
+                return update_state(
+                    state,
+                    current_agent="critic",
+                    next_agent="dev",
+                    artifacts=artifacts,
+                    status="active",
+                )
 
         # 2. Build LLM prompt.
         user_content = self._build_review_prompt(state, review_context)
@@ -163,6 +175,18 @@ class CriticAgent(ConstrainedAgent):
         verdict = review.get("verdict", "reject")
         score = review.get("score", 0.0)
         issues = review.get("issues", [])
+
+        # Apply Semgrep score penalty (CRITICAL→-0.3, WARNING→-0.1 each).
+        if semgrep_score_penalty > 0:
+            original_score = score
+            score = max(0.0, score - semgrep_score_penalty)
+            review["score"] = score
+            self._log.info(
+                "semgrep_score_adjusted",
+                original=original_score,
+                penalty=semgrep_score_penalty,
+                adjusted=score,
+            )
 
         # 5. Determine revision count from artifacts.
         revision_count = self._get_revision_count(state)
@@ -340,6 +364,21 @@ class CriticAgent(ConstrainedAgent):
         )
 
     # ------------------------------------------------------------------
+    # Semgrep score penalties
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _compute_semgrep_penalty(result: Any) -> float:
+        """Compute score penalty from Semgrep findings.
+
+        CRITICAL (severity=ERROR) findings subtract 0.3 each.
+        WARNING findings subtract 0.1 each.
+        """
+        penalty = result.critical_count * _SEMGREP_CRITICAL_PENALTY
+        penalty += result.warning_count * _SEMGREP_WARNING_PENALTY
+        return penalty
+
+    # ------------------------------------------------------------------
     # Semgrep security scan
     # ------------------------------------------------------------------
 
@@ -435,22 +474,14 @@ class CriticAgent(ConstrainedAgent):
     # ------------------------------------------------------------------
 
     def _parse_review_response(self, raw: str) -> dict[str, Any] | None:
-        """Parse the LLM's review JSON response.
+        """Parse the LLM's review JSON response using extract_json.
 
         Returns ``None`` on parse failure.
         """
-        text = raw.strip()
-        # Strip markdown code fences if present.
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text = "\n".join(lines[1:])
-            if text.endswith("```"):
-                text = text[:-3].strip()
-
         try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError as exc:
-            self._log.error("critic_json_parse_error", raw_preview=text[:300], error=str(exc))
+            parsed = extract_json(raw, expected_type=dict)
+        except ValueError as exc:
+            self._log.error("critic_json_parse_error", raw_preview=raw[:300], error=str(exc))
             return None
 
         if not isinstance(parsed, dict):
@@ -606,23 +637,13 @@ async def critic_node(state: AgentState) -> AgentState:
 
     This is the entry-point wired into the ``StateGraph``.
     """
-    llm_client = LLMClient()
-    heartbeat = HeartbeatMonitor(
-        valkey=_get_valkey_client(),
-        db_pool=None,  # DB pool injected at app startup in production
-    )
-    loop_detector = LoopDetector(max_iterations=50, max_identical_steps=3)
+    from src.core.container import get_container  # noqa: PLC0415
 
+    container = get_container()
     agent = CriticAgent(
-        llm_client=llm_client,
-        heartbeat=heartbeat,
-        loop_detector=loop_detector,
+        llm_client=container.llm_client,
+        heartbeat=container.heartbeat,
+        loop_detector=container.loop_detector,
     )
 
     return await agent.invoke(state)
-
-
-def _get_valkey_client() -> Any:
-    """Return the shared Valkey (redis-py) async client."""
-    from src.core.database import get_valkey  # noqa: PLC0415
-    return get_valkey()

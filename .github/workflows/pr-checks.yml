@@ -1,0 +1,73 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: PR Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate-pr:
+    name: PR Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Validate conventional commit format in PR title
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          # Conventional commits: type(scope)?: description
+          PATTERN="^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_-]+\))?(!)?: .{3,}"
+          if ! echo "$TITLE" | grep -qE "$PATTERN"; then
+            echo "::error::PR title does not follow conventional commits format."
+            echo ""
+            echo "Expected: type(scope)?: description"
+            echo "  Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+            echo "  Example: feat(dashboard): add dark mode toggle"
+            echo ""
+            echo "Got: $TITLE"
+            exit 1
+          fi
+          echo "PR title is valid: $TITLE"
+
+      - name: Check branch is up to date with main
+        run: |
+          git fetch origin main
+          # Check if main is an ancestor of the current PR HEAD
+          if ! git merge-base --is-ancestor origin/main HEAD; then
+            echo "::warning::Branch is not up to date with main. Consider rebasing."
+          else
+            echo "Branch is up to date with main."
+          fi
+
+      - name: Detect large files (>5MB)
+        run: |
+          LARGE_FILES=$(find . -not -path './.git/*' -not -path './node_modules/*' -not -path './venv/*' -not -path './__pycache__/*' -type f -size +5M 2>/dev/null || true)
+          if [ -n "$LARGE_FILES" ]; then
+            echo "::warning::Large files detected (>5MB):"
+            echo "$LARGE_FILES"
+            echo ""
+            echo "Consider using Git LFS for these files."
+          else
+            echo "No large files detected."
+          fi
+
+      - name: Check for debug/temp markers in diff
+        run: |
+          # Look for common debug markers that shouldn't be committed
+          MARKERS="TODO_REMOVE\|FIXME_BEFORE_MERGE\|debugger;\|console\.log\|breakpoint()\|import pdb"
+          FOUND=$(git diff origin/main...HEAD -- '*.py' '*.ts' '*.tsx' '*.js' '*.jsx' | grep -n "^+" | grep -iE "$MARKERS" || true)
+          if [ -n "$FOUND" ]; then
+            echo "::warning::Possible debug markers found in diff:"
+            echo "$FOUND"
+          else
+            echo "No debug markers found."
+          fi

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+export { RouteErrorBoundary as ErrorBoundary } from "~/components/route-error-boundary";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
