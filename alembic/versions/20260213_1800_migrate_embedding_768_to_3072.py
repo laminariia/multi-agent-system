@@ -36,18 +36,18 @@ def upgrade() -> None:
     op.execute("ALTER TABLE knowledge_base ALTER COLUMN embedding TYPE vector(3072)")
     op.execute("ALTER TABLE semantic_cache ALTER COLUMN embedding TYPE vector(3072)")
 
-    # 4. Recreate vector index (HNSW — compatible with pgvector 0.7+)
-    #    DiskANN requires pgvectorscale extension; use HNSW as safe default.
+    # 4. Recreate vector index using DiskANN (pgvectorscale).
+    #    HNSW has a 2000-dim limit; DiskANN supports 3072+ dims and is
+    #    11x faster at scale per project convention (TECH_STACK.md).
     op.execute(
-        "CREATE INDEX idx_knowledge_embedding_hnsw ON knowledge_base "
-        "USING hnsw (embedding vector_cosine_ops) "
-        "WITH (m = 16, ef_construction = 64)"
+        "CREATE INDEX idx_knowledge_embedding_diskann ON knowledge_base "
+        "USING diskann (embedding vector_cosine_ops)"
     )
 
 
 def downgrade() -> None:
-    # 1. Drop index
-    op.execute("DROP INDEX IF EXISTS idx_knowledge_embedding_hnsw")
+    # 1. Drop DiskANN index
+    op.execute("DROP INDEX IF EXISTS idx_knowledge_embedding_diskann")
 
     # 2. Nullify 3072-dim embeddings (incompatible with 768-dim)
     op.execute("UPDATE knowledge_base SET embedding = NULL WHERE embedding IS NOT NULL")
@@ -57,7 +57,7 @@ def downgrade() -> None:
     op.execute("ALTER TABLE knowledge_base ALTER COLUMN embedding TYPE vector(768)")
     op.execute("ALTER TABLE semantic_cache ALTER COLUMN embedding TYPE vector(768)")
 
-    # 4. Recreate index with original dimension
+    # 4. Recreate HNSW index (768 dim fits within HNSW 2000-dim limit)
     op.execute(
         "CREATE INDEX idx_knowledge_embedding_hnsw ON knowledge_base "
         "USING hnsw (embedding vector_cosine_ops) "
