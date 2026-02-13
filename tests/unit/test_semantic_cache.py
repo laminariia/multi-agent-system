@@ -32,7 +32,7 @@ def _mock_embedding(dim: int = EMBEDDING_DIM) -> np.ndarray:
 @pytest.fixture()
 def cache(mock_valkey: AsyncMock, mock_db_pool: AsyncMock) -> SemanticCache:
     """SemanticCache wired to mock infrastructure with patched embeddings."""
-    with patch("src.core.semantic_cache.GoogleGenerativeAIEmbeddings"):
+    with patch("src.core.semantic_cache.OpenAIEmbeddings"):
         c = SemanticCache(mock_valkey, mock_db_pool, similarity_threshold=0.92)
     # Replace the internal embeddings model with an async mock that returns a vector.
     c._embeddings = AsyncMock()
@@ -121,7 +121,7 @@ async def test_invalidate_by_type(cache: SemanticCache, mock_db_pool: AsyncMock)
 def test_constants_have_correct_values():
     """Verify that module-level constants match the documented specification."""
     assert SIMILARITY_THRESHOLD == 0.92
-    assert EMBEDDING_DIM == 768
+    assert EMBEDDING_DIM == 3072
     assert "real_time_data" in NEVER_CACHE_TYPES
     assert "random_generation" in NEVER_CACHE_TYPES
     assert "personalized" in NEVER_CACHE_TYPES

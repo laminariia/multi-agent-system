@@ -54,7 +54,7 @@ def _make_valkey_search_result(
 @pytest.fixture()
 def cache(mock_valkey: AsyncMock, mock_db_pool: AsyncMock) -> SemanticCache:
     """SemanticCache wired to mock infrastructure with patched embeddings."""
-    with patch("src.core.semantic_cache.GoogleGenerativeAIEmbeddings"):
+    with patch("src.core.semantic_cache.OpenAIEmbeddings"):
         c = SemanticCache(mock_valkey, mock_db_pool, similarity_threshold=0.92)
     c._embeddings = AsyncMock()
     c._embeddings.aembed_query = AsyncMock(return_value=_mock_embedding().tolist())
@@ -209,7 +209,7 @@ async def test_pg_hit_warms_valkey(cache: SemanticCache, mock_valkey: AsyncMock,
 
 async def test_pg_none_pool_skips_cold_layer(mock_valkey: AsyncMock):
     """If db_pool is None, PG layer is skipped entirely."""
-    with patch("src.core.semantic_cache.GoogleGenerativeAIEmbeddings"):
+    with patch("src.core.semantic_cache.OpenAIEmbeddings"):
         c = SemanticCache(mock_valkey, None, similarity_threshold=0.92)  # type: ignore[arg-type]
     c._embeddings = AsyncMock()
     c._embeddings.aembed_query = AsyncMock(return_value=_mock_embedding().tolist())
@@ -403,7 +403,7 @@ async def test_ttl_map_code_is_1h():
 
 async def test_custom_threshold(mock_valkey: AsyncMock, mock_db_pool: AsyncMock):
     """Cache with lower threshold should accept lower-similarity results."""
-    with patch("src.core.semantic_cache.GoogleGenerativeAIEmbeddings"):
+    with patch("src.core.semantic_cache.OpenAIEmbeddings"):
         c = SemanticCache(mock_valkey, mock_db_pool, similarity_threshold=0.80)
     c._embeddings = AsyncMock()
     c._embeddings.aembed_query = AsyncMock(return_value=_mock_embedding().tolist())

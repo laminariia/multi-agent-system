@@ -351,11 +351,11 @@ class TestKnowledgeBaseModel:
         assert col.nullable is False
 
     def test_has_embedding_column(self):
-        """KnowledgeBase has embedding column (Vector(768))."""
+        """KnowledgeBase has embedding column (Vector(3072))."""
         assert "embedding" in KnowledgeBase.__table__.columns
         col = KnowledgeBase.__table__.columns["embedding"]
         assert isinstance(col.type, Vector)
-        assert col.type.dim == 768
+        assert col.type.dim == 3072
 
     def test_has_usage_count_column(self):
         """KnowledgeBase has usage_count column (Integer)."""
@@ -498,11 +498,11 @@ class TestSemanticCacheModel:
         assert col.nullable is False
 
     def test_has_embedding_column(self):
-        """SemanticCache has embedding column (Vector(768))."""
+        """SemanticCache has embedding column (Vector(3072))."""
         assert "embedding" in SemanticCache.__table__.columns
         col = SemanticCache.__table__.columns["embedding"]
         assert isinstance(col.type, Vector)
-        assert col.type.dim == 768
+        assert col.type.dim == 3072
 
     def test_has_expires_at_column(self):
         """SemanticCache has expires_at column (DateTime, not null)."""

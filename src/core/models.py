@@ -5,7 +5,7 @@ modern ``Mapped`` / ``mapped_column`` annotation style.
 
 Key conventions:
 - UUIDs as primary keys (``gen_random_uuid()`` server-side default)
-- ``Vector(768)`` for Google text-embedding-004 embedding columns
+- ``Vector(3072)`` for OpenAI text-embedding-3-large embedding columns
 - DiskANN indexes for vector columns (NOT HNSW)
 - ``datetime.now(timezone.utc)`` for Python-side timestamp defaults
 - Async Alembic with asyncpg for migrations
@@ -684,8 +684,8 @@ class KnowledgeBase(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # Embedding for RAG — Google text-embedding-004 (768 dim)
-    embedding = mapped_column(Vector(768))
+    # Embedding for RAG — OpenAI text-embedding-3-large (3072 dim)
+    embedding = mapped_column(Vector(3072))
 
     # Stats
     usage_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
@@ -717,8 +717,8 @@ class SemanticCache(Base):
     response: Mapped[str] = mapped_column(Text, nullable=False)
     query_type: Mapped[str] = mapped_column(Text, default="default", server_default="default")
 
-    # Embedding — Google text-embedding-004 (768 dim)
-    embedding = mapped_column(Vector(768))
+    # Embedding — OpenAI text-embedding-3-large (3072 dim)
+    embedding = mapped_column(Vector(3072))
 
     hit_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

@@ -1,9 +1,9 @@
-"""Embedding service wrapping Google text-embedding-004 with rate limiting.
+"""Embedding service wrapping OpenAI text-embedding-3-large with rate limiting.
 
 Provides both single-text and batch embedding methods.  A simple token-bucket
-rate limiter enforces Google's 1 500 requests/min limit to avoid 429 errors.
+rate limiter enforces OpenAI's RPM limit to avoid 429 errors.
 
-Embeddings are 768-dimensional float vectors (``list[float]``).  No numpy
+Embeddings are 3072-dimensional float vectors (``list[float]``).  No numpy
 dependency is used in this module.
 """
 
@@ -14,14 +14,14 @@ import os
 import time
 
 import structlog
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 
 logger = structlog.get_logger(__name__)
 
-# Google API default: 1 500 requests per minute.
-_DEFAULT_MAX_REQUESTS_PER_MINUTE: int = 1500
-_EMBEDDING_MODEL: str = "models/text-embedding-004"
-_EMBEDDING_DIM: int = 768
+# OpenAI default: 3 000 requests per minute (Tier 2+).
+_DEFAULT_MAX_REQUESTS_PER_MINUTE: int = 3000
+_EMBEDDING_MODEL: str = "text-embedding-3-large"
+_EMBEDDING_DIM: int = 3072
 
 
 class _TokenBucket:
@@ -61,14 +61,14 @@ class _TokenBucket:
 
 
 class EmbeddingService:
-    """Thin wrapper around GoogleGenerativeAIEmbeddings with rate limiting.
+    """Thin wrapper around OpenAIEmbeddings with rate limiting.
 
     Parameters
     ----------
     api_key:
-        Google API key.  Falls back to the ``GEMINI_API_KEY`` env var.
+        OpenAI API key.  Falls back to the ``OPENAI_API_KEY`` env var.
     max_rpm:
-        Maximum embedding requests per minute (Google default: 1 500).
+        Maximum embedding requests per minute (OpenAI Tier 2+: 3 000).
     """
 
     def __init__(
@@ -77,10 +77,10 @@ class EmbeddingService:
         *,
         max_rpm: int = _DEFAULT_MAX_REQUESTS_PER_MINUTE,
     ) -> None:
-        resolved_key = api_key or os.environ.get("GEMINI_API_KEY", "")
-        self._embeddings = GoogleGenerativeAIEmbeddings(
+        resolved_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+        self._embeddings = OpenAIEmbeddings(
             model=_EMBEDDING_MODEL,
-            google_api_key=resolved_key,
+            openai_api_key=resolved_key,
         )
         self._bucket = _TokenBucket(capacity=max_rpm, refill_period=60.0)
         self._dim = _EMBEDDING_DIM
@@ -93,7 +93,7 @@ class EmbeddingService:
 
     @property
     def dimension(self) -> int:
-        """Return the embedding vector dimensionality (768)."""
+        """Return the embedding vector dimensionality (3072)."""
         return self._dim
 
     # ------------------------------------------------------------------
@@ -103,7 +103,7 @@ class EmbeddingService:
     async def embed_text(self, text: str) -> list[float]:
         """Embed a single text string.
 
-        Returns a 768-dimensional float vector.
+        Returns a 3072-dimensional float vector.
         """
         await self._bucket.acquire()
         try:
@@ -132,7 +132,7 @@ class EmbeddingService:
         Returns
         -------
         list[list[float]]
-            One 768-dim vector per input text, in the same order.
+            One 3072-dim vector per input text, in the same order.
         """
         if not texts:
             return []

@@ -73,18 +73,19 @@ knowledge/
 
 | Provider | Model | Dimensions | Cost | Speed |
 |----------|-------|------------|------|-------|
-| Google | text-embedding-004 | 768 | $0.006/1M tokens | Fast |
+| OpenAI | text-embedding-3-large | 3072 | $0.13/1M tokens | Fast |
 | OpenAI | text-embedding-3-small | 1536 | $0.02/1M tokens | Fast |
 | Cohere | embed-multilingual-v3 | 1024 | $0.10/1M tokens | Fast |
 | Local | nomic-embed-text | 768 | Free | Variable |
 
 ### Recommendation
 ```
-Primary: Google text-embedding-004
-- Best quality/cost ratio for our use case
-- Very cost-effective ($0.006/1M tokens)
-- 768 dimensions — good balance of quality and performance
+Primary: OpenAI text-embedding-3-large
+- Best quality for our use case (highest MTEB scores)
+- Reasonable cost ($0.13/1M tokens)
+- 3072 dimensions — excellent quality for RAG retrieval
 - Fast enough for real-time
+- Note: Embeddings use OpenAI API directly (OPENAI_API_KEY), not via OpenRouter
 
 Fallback: nomic-embed-text (local)
 - For offline/development
@@ -94,14 +95,14 @@ Fallback: nomic-embed-text (local)
 ### Configuration
 
 ```python
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_community.embeddings import OllamaEmbeddings
 
 EMBEDDING_CONFIG = {
     "primary": {
-        "provider": "google",
-        "model": "models/text-embedding-004",
-        "dimensions": 768,
+        "provider": "openai",
+        "model": "text-embedding-3-large",
+        "dimensions": 3072,
     },
     "fallback": {
         "provider": "ollama",
@@ -114,7 +115,7 @@ EMBEDDING_CONFIG = {
 
 def get_embeddings():
     try:
-        return GoogleGenerativeAIEmbeddings(
+        return OpenAIEmbeddings(
             model=EMBEDDING_CONFIG["primary"]["model"]
         )
     except Exception:
@@ -149,7 +150,7 @@ CREATE TABLE knowledge_embeddings (
     chunk_index INTEGER NOT NULL,
     
     -- Embedding
-    embedding vector(768),                     -- Google text-embedding-004 (768 dim)
+    embedding vector(3072),                    -- OpenAI text-embedding-3-large (3072 dim)
     
     -- Metadata for filtering
     metadata JSONB DEFAULT '{}',
@@ -415,8 +416,8 @@ async def log_retrieval_usage(
 ```python
 KNOWLEDGE_BASE_CONFIG = {
     "embedding": {
-        "model": "models/text-embedding-004",  # Google text-embedding-004
-        "dimensions": 768,
+        "model": "text-embedding-3-large",  # OpenAI text-embedding-3-large
+        "dimensions": 3072,
     },
     "chunking": {
         "chunk_size": 1000,

@@ -3,14 +3,14 @@
 Reduces LLM API costs by returning cached responses for semantically similar
 queries.  The similarity threshold is 0.92 (cosine).
 
-**Hot layer (Valkey):** RediSearch vector index (HNSW, FLOAT32, DIM=768,
+**Hot layer (Valkey):** RediSearch vector index (HNSW, FLOAT32, DIM=3072,
 COSINE).  Provides sub-millisecond lookup for active queries.
 
 **Cold layer (PostgreSQL):** pgvector with DiskANN index (``<=>`` operator).
 Acts as persistent fallback and long-term audit store.
 
-Embeddings are produced by Google ``text-embedding-004`` (768 dimensions) via
-``langchain_google_genai.GoogleGenerativeAIEmbeddings``.
+Embeddings are produced by OpenAI ``text-embedding-3-large`` (3072 dimensions)
+via ``langchain_openai.OpenAIEmbeddings``.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from typing import Any
 import asyncpg
 import numpy as np
 import structlog
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from redis.asyncio import Redis as AsyncRedis
 from redis.commands.search.field import NumericField, TextField, VectorField
 from redis.commands.search.index_definition import IndexDefinition, IndexType
@@ -73,7 +73,7 @@ TTL_MAP: dict[str, int] = _build_ttl_map()
 NEVER_CACHE_TYPES: frozenset[str] = frozenset({"real_time_data", "random_generation", "personalized"})
 
 SIMILARITY_THRESHOLD: float = _get_similarity_threshold()
-EMBEDDING_DIM: int = 768
+EMBEDDING_DIM: int = 3072
 VALKEY_INDEX_NAME: str = "semantic_cache"
 VALKEY_PREFIX: str = "sem_cache:"
 
@@ -97,9 +97,9 @@ class SemanticCache:
         self.valkey = valkey
         self.db_pool = db_pool
         self.similarity_threshold = similarity_threshold
-        self._embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/text-embedding-004",
-            google_api_key=os.environ.get("GEMINI_API_KEY"),
+        self._embeddings = OpenAIEmbeddings(
+            model="text-embedding-3-large",
+            openai_api_key=os.environ.get("OPENAI_API_KEY"),
         )
         self._index_created = False
 
@@ -367,7 +367,7 @@ class SemanticCache:
     # ------------------------------------------------------------------
 
     async def _embed(self, text: str) -> np.ndarray:
-        """Compute the 768-dim embedding for *text*."""
+        """Compute the 3072-dim embedding for *text*."""
         raw = await self._embeddings.aembed_query(text)
         return np.array(raw, dtype=np.float32)
 

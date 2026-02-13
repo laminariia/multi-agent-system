@@ -476,8 +476,8 @@ CREATE TABLE knowledge_base (
     content         TEXT NOT NULL,
     
     -- Embeddings for RAG
-    embedding       vector(768),                     -- Google text-embedding-004 (768 dim)
-    
+    embedding       vector(3072),                    -- OpenAI text-embedding-3-large (3072 dim)
+
     -- Stats
     usage_count     INTEGER DEFAULT 0,
     success_rate    DECIMAL(3,2),                    -- win rate if used
@@ -505,7 +505,7 @@ CREATE TABLE semantic_cache (
     query           TEXT NOT NULL,
     response        TEXT NOT NULL,
     query_type      TEXT DEFAULT 'default',
-    embedding       vector(768),                     -- Google text-embedding-004 (768 dim)
+    embedding       vector(3072),                    -- OpenAI text-embedding-3-large (3072 dim)
     hit_count       INTEGER DEFAULT 0,
     created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     expires_at      TIMESTAMP WITH TIME ZONE NOT NULL
@@ -720,7 +720,7 @@ class KnowledgeBase(Base):
     type = Column(String(30), nullable=False)
     title = Column(String(255), nullable=False)
     content = Column(Text, nullable=False)
-    embedding = Column(Vector(768))  # Google text-embedding-004
+    embedding = Column(Vector(3072))  # OpenAI text-embedding-3-large
 ```
 
 #### Connection Pool Configuration

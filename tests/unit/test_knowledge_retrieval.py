@@ -15,7 +15,7 @@ from src.knowledge.retrieval import KnowledgeResult, KnowledgeRetriever
 # Helpers
 # ---------------------------------------------------------------------------
 
-FAKE_VECTOR = [0.1] * 768
+FAKE_VECTOR = [0.1] * 3072
 
 
 def _make_row(
@@ -51,7 +51,7 @@ def embedding_service() -> AsyncMock:
     svc = AsyncMock()
     svc.embed_text = AsyncMock(return_value=FAKE_VECTOR)
     svc.embed_batch = AsyncMock(return_value=[FAKE_VECTOR, FAKE_VECTOR])
-    svc.dimension = 768
+    svc.dimension = 3072
     return svc
 
 
@@ -67,11 +67,11 @@ def retriever(embedding_service: AsyncMock, mock_db_pool: AsyncMock) -> Knowledg
 
 
 class TestEmbeddingService:
-    """Tests for the EmbeddingService wrapper (mocked GoogleGenerativeAIEmbeddings)."""
+    """Tests for the EmbeddingService wrapper (mocked OpenAIEmbeddings)."""
 
     async def test_embed_text_returns_vector(self) -> None:
         """embed_text should return a list of floats from the underlying model."""
-        with patch("src.knowledge.embedding_service.GoogleGenerativeAIEmbeddings") as mock_cls:
+        with patch("src.knowledge.embedding_service.OpenAIEmbeddings") as mock_cls:
             mock_model = AsyncMock()
             mock_model.aembed_query = AsyncMock(return_value=FAKE_VECTOR)
             mock_cls.return_value = mock_model
@@ -82,13 +82,13 @@ class TestEmbeddingService:
             result = await svc.embed_text("hello world")
 
             assert isinstance(result, list)
-            assert len(result) == 768
+            assert len(result) == 3072
             assert all(isinstance(v, float) for v in result)
             mock_model.aembed_query.assert_awaited_once_with("hello world")
 
     async def test_embed_batch_returns_list_of_vectors(self) -> None:
         """embed_batch should return one vector per input text."""
-        with patch("src.knowledge.embedding_service.GoogleGenerativeAIEmbeddings") as mock_cls:
+        with patch("src.knowledge.embedding_service.OpenAIEmbeddings") as mock_cls:
             mock_model = AsyncMock()
             mock_model.aembed_documents = AsyncMock(return_value=[FAKE_VECTOR, FAKE_VECTOR])
             mock_cls.return_value = mock_model
@@ -100,11 +100,11 @@ class TestEmbeddingService:
 
             assert isinstance(result, list)
             assert len(result) == 2
-            assert all(len(vec) == 768 for vec in result)
+            assert all(len(vec) == 3072 for vec in result)
 
     async def test_embed_text_rate_limiting(self) -> None:
         """Under normal rate the rate limiter should not block."""
-        with patch("src.knowledge.embedding_service.GoogleGenerativeAIEmbeddings") as mock_cls:
+        with patch("src.knowledge.embedding_service.OpenAIEmbeddings") as mock_cls:
             mock_model = AsyncMock()
             mock_model.aembed_query = AsyncMock(return_value=FAKE_VECTOR)
             mock_cls.return_value = mock_model
@@ -116,7 +116,7 @@ class TestEmbeddingService:
             # Call 3 times quickly -- should not block with capacity=1500
             for _ in range(3):
                 vec = await svc.embed_text("test")
-                assert len(vec) == 768
+                assert len(vec) == 3072
 
             assert mock_model.aembed_query.await_count == 3
 
