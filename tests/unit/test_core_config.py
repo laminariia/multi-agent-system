@@ -34,7 +34,7 @@ class TestSettings:
     def test_default_app_version(self):
         """Settings has default app version."""
         settings = Settings(_env_file=None)
-        assert settings.APP_VERSION == "1.0.0"
+        assert settings.APP_VERSION == "4.2.0"
 
     def test_default_debug_false(self):
         """Settings defaults to debug=False."""
@@ -73,7 +73,7 @@ class TestSettings:
         settings = Settings(_env_file=None)
         assert settings.BROWSER_POOL_MAX == 3
         assert settings.BROWSER_PROXY_ROTATION_MINUTES == 45
-        assert settings.BROWSER_HEADLESS is False
+        assert settings.BROWSER_HEADLESS is True
 
     def test_default_jwt_token_expiry(self):
         """JWT token expiry settings have defaults."""

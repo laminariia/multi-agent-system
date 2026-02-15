@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     # ── Browser Pool ──────────────────────────────────────────────────────
     BROWSER_POOL_MAX: int = 3
     BROWSER_PROXY_ROTATION_MINUTES: int = 45
-    BROWSER_HEADLESS: bool = False
+    BROWSER_HEADLESS: bool = True
 
     # ── Auth ─────────────────────────────────────────────────────────────
     JWT_SECRET_KEY: str = "change-me-in-production"  # noqa: S105
@@ -120,7 +120,7 @@ class Settings(BaseSettings):
     MAX_EMAILS_PER_DAY: int = 50
 
     # ── Application ────────────────────────────────────────────────────
-    APP_VERSION: str = "1.0.0"
+    APP_VERSION: str = "4.2.0"
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
 

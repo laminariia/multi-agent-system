@@ -118,7 +118,7 @@ class APIConsumer(HttpUser):
 
     @task(5)
     def health_check(self) -> None:
-        self.client.get("/api/v1/health", name="/api/v1/health")
+        self.client.get("/health", name="/health")
 
     @task(3)
     def orchestrator_status(self) -> None:

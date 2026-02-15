@@ -102,22 +102,36 @@ MODELS: dict[str, ModelSpec] = {
         cost_output_per_1k=0.015,
         max_context_tokens=1_000_000,
     ),
+    "deepseek-v3-2": ModelSpec(
+        provider="deepseek",
+        model_id="deepseek/deepseek-v3.2",
+        cost_input_per_1k=0.00025,
+        cost_output_per_1k=0.00038,
+        max_context_tokens=128_000,
+    ),
+    "nanobanana-pro": ModelSpec(
+        provider="google",
+        model_id="google/gemini-3-pro-image-preview",
+        cost_input_per_1k=0.002,
+        cost_output_per_1k=0.012,
+        max_context_tokens=1_048_576,
+    ),
 }
 
 # Agent -> (primary_model_key, fallback_model_key | None)
 # NOTE: Gemini models are blocked on some OpenRouter accounts.
 # Using Claude Haiku as default cheap model, GPT-4o-mini as fallback.
 AGENT_MODEL_REGISTRY: dict[str, tuple[str, str | None]] = {
-    "scout":     ("claude-haiku-4-5", "gpt-4o-mini"),
-    "bid":       ("claude-haiku-4-5", "gpt-4o-mini"),
+    "scout":     ("deepseek-v3-2",    "claude-haiku-4-5"),
+    "bid":       ("deepseek-v3-2",    "claude-haiku-4-5"),
     "planner":   ("claude-opus-4-6",  "claude-sonnet-4-5"),
     "dev":       ("claude-opus-4-6",  "claude-sonnet-4-5"),
-    "content":   ("claude-haiku-4-5", "gpt-4o-mini"),
-    "design":    ("claude-sonnet-4-5", "claude-haiku-4-5"),
-    "critic":    ("gpt-4o",           "claude-sonnet-4-5"),
-    "packager":  ("claude-haiku-4-5", None),
-    "geoscout":  ("claude-haiku-4-5", None),
-    "outreach":  ("claude-haiku-4-5", None),
+    "content":   ("deepseek-v3-2",    "gemini-3-flash"),
+    "design":    ("nanobanana-pro",   "gemini-3-flash"),
+    "critic":    ("claude-sonnet-4-5", "gpt-4o"),
+    "packager":  ("deepseek-v3-2",    None),
+    "geoscout":  ("deepseek-v3-2",    None),
+    "outreach":  ("deepseek-v3-2",    None),
 }
 
 # ---------------------------------------------------------------------------

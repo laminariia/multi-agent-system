@@ -184,6 +184,7 @@ class AgentController(Controller):
         "/{name:str}/restart",
         summary="Force restart an agent",
         guards=[require_role("owner")],
+        status_code=200,
     )
     async def restart(
         self,
@@ -231,6 +232,7 @@ class AgentController(Controller):
         "/{name:str}/pause",
         summary="Pause agent processing",
         guards=[require_role("owner")],
+        status_code=200,
     )
     async def pause(
         self,
@@ -274,6 +276,7 @@ class AgentController(Controller):
         "/{name:str}/resume",
         summary="Resume agent processing",
         guards=[require_role("owner")],
+        status_code=200,
     )
     async def resume(
         self,

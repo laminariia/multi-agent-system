@@ -144,6 +144,34 @@ services:
           memory: 512m
           cpus: "0.5"
 
+  dashboard:
+    image: ${DOCKER_REGISTRY:-ghcr.io}/${IMAGE_NAME:-mas}-dashboard:latest
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      PORT: 3000
+      API_URL: http://api:8000
+    tmpfs:
+      - /tmp:size=64m
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - frontend
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
+
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped

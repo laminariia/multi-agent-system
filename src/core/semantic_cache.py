@@ -97,9 +97,12 @@ class SemanticCache:
         self.valkey = valkey
         self.db_pool = db_pool
         self.similarity_threshold = similarity_threshold
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY is required for semantic cache embeddings")
         self._embeddings = OpenAIEmbeddings(
             model="text-embedding-3-large",
-            openai_api_key=os.environ.get("OPENAI_API_KEY"),
+            openai_api_key=api_key,
         )
         self._index_created = False
 

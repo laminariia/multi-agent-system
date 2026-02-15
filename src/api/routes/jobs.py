@@ -194,6 +194,7 @@ class JobController(Controller):
         "/{job_id:uuid}/disqualify",
         summary="Manually disqualify a job",
         guards=[require_role("owner")],
+        status_code=200,
     )
     async def disqualify(
         self,
@@ -250,6 +251,7 @@ class JobController(Controller):
         summary="Trigger manual Scout scan",
         description="Start a background Scout agent cycle to discover new jobs.",
         guards=[require_role("owner", "co_owner", "moderator")],
+        status_code=202,
     )
     async def start_scan(
         self,
@@ -295,6 +297,7 @@ class JobController(Controller):
         summary="Run full Pipeline A for a job",
         description="Trigger the Planner pipeline for a specific qualified/won job.",
         guards=[require_role("owner", "co_owner")],
+        status_code=202,
     )
     async def run_pipeline(
         self,

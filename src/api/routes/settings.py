@@ -503,6 +503,7 @@ class SettingsController(Controller):
     @post(
         "/test-credential",
         summary="Test an API key or platform credential",
+        status_code=200,
         description=(
             "Makes a minimal API call to verify that the given credential is "
             "valid. Supported keys: gemini, anthropic, openai, hunter. "
