@@ -286,7 +286,7 @@ class LLMClient:
         cost_tracker: CostTracker | None = None,
         max_retries: int = 5,
         base_backoff_seconds: float = 1.0,
-        request_timeout: float = 60.0,
+        request_timeout: float = 120.0,
         api_key: str | None = None,
         base_url: str | None = None,
         semantic_cache: Any | None = None,

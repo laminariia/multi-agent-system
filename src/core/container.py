@@ -21,7 +21,7 @@ clients, browser pools, and other owned resources.
 
 from __future__ import annotations
 
-import asyncio
+import threading
 from typing import Any
 
 import structlog
@@ -29,7 +29,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 _container: AgentContainer | None = None
-_lock = asyncio.Lock()
+_container_lock = threading.Lock()
 
 
 class AgentContainer:
@@ -55,9 +55,15 @@ class AgentContainer:
     def llm_client(self) -> Any:
         """Return the shared :class:`LLMClient` instance."""
         if self._llm_client is None:
+            from src.core.config import get_settings  # noqa: PLC0415
             from src.core.llm_client import LLMClient  # noqa: PLC0415
 
-            self._llm_client = LLMClient(semantic_cache=self._semantic_cache)
+            settings = get_settings()
+            self._llm_client = LLMClient(
+                api_key=settings.OPENROUTER_API_KEY,
+                base_url=settings.OPENROUTER_BASE_URL,
+                semantic_cache=self._semantic_cache,
+            )
         return self._llm_client
 
     @property
@@ -176,13 +182,17 @@ class AgentContainer:
 def get_container() -> AgentContainer:
     """Return the module-level singleton container.
 
-    Creates the container on first call.  Thread-safe for sync callers
-    because Python's GIL protects the simple None check.
+    Creates the container on first call.  Uses double-checked locking
+    with a threading.Lock for thread safety.
     """
     global _container  # noqa: PLW0603
-    if _container is None:
+    if _container is not None:
+        return _container
+    with _container_lock:
+        if _container is not None:
+            return _container
         _container = AgentContainer()
-    return _container
+        return _container
 
 
 async def teardown_container() -> None:

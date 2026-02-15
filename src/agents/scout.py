@@ -52,7 +52,7 @@ _SCORE_BID_THRESHOLD = 0.7
 _SCORE_REVIEW_THRESHOLD = 0.5
 
 # Maximum jobs to evaluate in one LLM call to avoid context-window overflow.
-_MAX_JOBS_PER_BATCH = 25
+_MAX_JOBS_PER_BATCH = 10
 
 
 class ScoutAgent(ConstrainedAgent):
