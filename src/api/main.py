@@ -24,9 +24,11 @@ from litestar.channels import ChannelsPlugin
 from litestar.channels.backends.redis import RedisChannelsPubSubBackend
 from litestar.config.cors import CORSConfig
 from litestar.exceptions import HTTPException
+from litestar.middleware import AbstractMiddleware
 from litestar.middleware.rate_limit import RateLimitConfig
 from litestar.openapi import OpenAPIConfig
 from litestar.openapi.plugins import RedocRenderPlugin, SwaggerRenderPlugin
+from litestar.types import Receive, Scope, Send
 from sqlalchemy import text as sa_text
 
 from src.api.dependencies import provide_db_session, provide_settings, provide_valkey
@@ -61,6 +63,40 @@ from src.core.exceptions import MASException
 from src.monitoring.sentry_config import init_sentry
 
 logger = structlog.get_logger(__name__)
+
+
+# =============================================================================
+# Security headers middleware
+# =============================================================================
+
+
+class SecurityHeadersMiddleware(AbstractMiddleware):
+    """Inject standard security headers into every HTTP response."""
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                security_headers: list[tuple[bytes, bytes]] = [
+                    (b"x-content-type-options", b"nosniff"),
+                    (b"x-frame-options", b"DENY"),
+                    (b"referrer-policy", b"strict-origin-when-cross-origin"),
+                    (b"permissions-policy", b"camera=(), microphone=(), geolocation=()"),
+                    (b"x-xss-protection", b"1; mode=block"),
+                ]
+                if not get_settings().DEBUG:
+                    security_headers.append(
+                        (b"strict-transport-security", b"max-age=31536000; includeSubDomains"),
+                    )
+                existing = list(message.get("headers", []))
+                existing.extend(security_headers)
+                message["headers"] = existing
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
 
 
 # =============================================================================
@@ -297,7 +333,7 @@ app = Litestar(
         Exception: _generic_exception_handler,  # type: ignore[dict-item]
     },
     cors_config=cors_config,
-    middleware=[rate_limit_config.middleware],
+    middleware=[rate_limit_config.middleware, SecurityHeadersMiddleware],
     plugins=[channels_plugin],
     openapi_config=openapi_config,
     lifespan=[lifespan],

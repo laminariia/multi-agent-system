@@ -54,8 +54,8 @@ RUN playwright install --with-deps chromium
 RUN chmod -R 555 /app/src && chmod -R 755 /app/alembic
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -sf http://localhost:${PORT:-8000}/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["sh", "-c", "curl -sf http://localhost:${PORT:-8000}/health || exit 1"]
 
 # Switch to non-root user
 USER appuser

@@ -85,8 +85,8 @@ class HybridCheckpointSaver(BaseCheckpointSaver):
 
         raw = row["state_data"]
         state_data: dict[str, Any] = json.loads(raw) if isinstance(raw, str) else raw
-        # Warm Valkey
-        await self._valkey_put(thread_id, state_data.get("id", checkpoint_id or "latest"), state_data)
+        # Warm Valkey (NX — never overwrite newer data)
+        await self._valkey_warm(thread_id, state_data.get("id", checkpoint_id or "latest"), state_data)
 
         return self._data_to_tuple(state_data, config)
 
@@ -212,6 +212,21 @@ class HybridCheckpointSaver(BaseCheckpointSaver):
             await pipe.execute()
         except Exception:
             logger.warning("checkpoint_valkey_put_failed", thread_id=thread_id, exc_info=True)
+
+    async def _valkey_warm(self, thread_id: str, checkpoint_id: str, data: dict[str, Any]) -> None:
+        """Warm cache with SET NX -- never overwrites newer data."""
+        serialized = json.dumps(data, default=str)
+
+        specific_key = self._cache_key(thread_id, checkpoint_id)
+        latest_key = self._cache_key(thread_id, None)
+
+        pipe = self.valkey.pipeline(transaction=False)
+        pipe.set(specific_key, serialized, nx=True, ex=self._ttl_seconds)
+        pipe.set(latest_key, serialized, nx=True, ex=self._ttl_seconds)
+        try:
+            await pipe.execute()
+        except Exception:
+            logger.debug("Cache warm failed for %s:%s", thread_id, checkpoint_id)
 
     # ------------------------------------------------------------------
     # PostgreSQL helpers

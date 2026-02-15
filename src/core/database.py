@@ -6,7 +6,6 @@ Uses ``asyncpg`` as the PostgreSQL driver and ``redis.asyncio`` for Valkey
 
 from __future__ import annotations
 
-import threading
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -67,8 +66,11 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 # Valkey (Redis-compatible) client
 # ---------------------------------------------------------------------------
 
-_valkey_pool: aioredis.ConnectionPool | None = None
-_valkey_pool_lock = threading.Lock()
+_valkey_pool: aioredis.ConnectionPool = aioredis.ConnectionPool.from_url(
+    _settings.valkey_redis_url,
+    max_connections=20,
+    decode_responses=True,
+)
 
 
 def get_valkey() -> aioredis.Redis:
@@ -77,16 +79,7 @@ def get_valkey() -> aioredis.Redis:
     The ``redis://`` URL scheme is used because ``redis-py`` is the canonical
     Python client for Valkey (which speaks the Redis protocol).
 
-    Uses a threading lock for thread-safe lazy initialisation of the
-    connection pool (double-checked locking pattern).
+    The connection pool is created eagerly at module level since
+    ``ConnectionPool.from_url()`` is synchronous and performs no I/O.
     """
-    global _valkey_pool  # noqa: PLW0603
-    if _valkey_pool is None:
-        with _valkey_pool_lock:
-            if _valkey_pool is None:
-                _valkey_pool = aioredis.ConnectionPool.from_url(
-                    _settings.valkey_redis_url,
-                    max_connections=20,
-                    decode_responses=True,
-                )
     return aioredis.Redis(connection_pool=_valkey_pool)

@@ -10,7 +10,7 @@ import json
 import logging
 from functools import lru_cache
 
-from pydantic import computed_field
+from pydantic import computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _logger = logging.getLogger(__name__)
@@ -131,6 +131,18 @@ class Settings(BaseSettings):
     # ── Monitoring ───────────────────────────────────────────────────────
     LANGSMITH_API_KEY: str | None = None
     SENTRY_DSN: str | None = None
+
+    # ── Validators ──────────────────────────────────────────────────────
+
+    @model_validator(mode="after")
+    def _check_production_secrets(self) -> Settings:
+        """Refuse to start in production with default secrets."""
+        if not self.DEBUG:
+            if self.JWT_SECRET_KEY == "change-me-in-production":  # noqa: S105
+                raise ValueError("CRITICAL: JWT_SECRET_KEY must be changed in production")
+            if self.ENCRYPTION_KEY == "change-me-in-production":  # noqa: S105
+                raise ValueError("CRITICAL: ENCRYPTION_KEY must be changed in production")
+        return self
 
     # ── Computed ─────────────────────────────────────────────────────────
 

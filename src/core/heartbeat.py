@@ -77,6 +77,8 @@ class HeartbeatMonitor:
             when restart attempts are exhausted.
     """
 
+    _MAX_TRACKED_AGENTS = 1000
+
     def __init__(
         self,
         valkey: AsyncRedis,
@@ -107,6 +109,14 @@ class HeartbeatMonitor:
         Should be called every ``config.interval_seconds`` (default 90 s).
         """
         now = time.time()
+
+        # Evict oldest entry when tracking limit is exceeded.
+        if len(self._last_seen) >= self._MAX_TRACKED_AGENTS and agent_name not in self._last_seen:
+            oldest = min(self._last_seen, key=self._last_seen.get)  # type: ignore[arg-type]
+            self._last_seen.pop(oldest, None)
+            self._last_task.pop(oldest, None)
+            self._restart_counts.pop(oldest, None)
+
         self._last_seen[agent_name] = now
         self._last_task[agent_name] = current_task
 
@@ -247,6 +257,10 @@ class HeartbeatMonitor:
         )
 
         if count > self.config.max_restarts:
+            # Free memory for dead agents.
+            self._last_seen.pop(agent_name, None)
+            self._last_task.pop(agent_name, None)
+
             msg = (
                 f"Agent '{agent_name}' exceeded max restarts ({self.config.max_restarts}). "
                 f"Last heartbeat {round(elapsed, 0)}s ago."

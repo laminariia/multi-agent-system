@@ -35,6 +35,8 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
+import time
 import uuid
 from typing import Any
 
@@ -208,11 +210,14 @@ async def hitl_bid_node(state: dict[str, Any]) -> dict[str, Any]:
     )
 
     if state["status"] != "paused":
+        artifacts = dict(state.get("artifacts") or {})
+        artifacts["_hitl_started_at"] = time.time()
         return update_state(
             state,
             status="paused",
             requires_hitl=True,
             current_agent="hitl_bid",
+            artifacts=artifacts,
         )
 
     return state
@@ -618,10 +623,13 @@ def _route_after_critic(state: dict[str, Any]) -> str:
         artifacts = state.get("artifacts") or {}
         revision_count = artifacts.get("_critic_revision_count", 0)
         if revision_count < MAX_REVISION_CYCLES:
+            # Increment the revision counter so the limit is enforced.
+            artifacts["_critic_revision_count"] = revision_count + 1
+            state["artifacts"] = artifacts
             logger.info(
                 "critic_route_to_dev_revision",
                 thread_id=state["thread_id"],
-                revision_count=revision_count,
+                revision_count=revision_count + 1,
                 max_revisions=MAX_REVISION_CYCLES,
             )
             return "dev_node"
@@ -1316,6 +1324,13 @@ async def resume_from_hitl(
         saved_state: dict[str, Any] = checkpoint_tuple.checkpoint
         action = hitl_response.get("action", "approve")
 
+        # Check if HITL has expired (24-hour max age).
+        artifacts = saved_state.get("artifacts") or {}
+        hitl_started = artifacts.get("_hitl_started_at", 0)
+        if hitl_started and (time.time() - hitl_started > 86400):
+            logger.warning("hitl_expired_24h", thread_id=thread_id)
+            return {"status": "failed", "error": "HITL approval expired after 24 hours"}  # type: ignore[return-value]
+
         # Auto-detect HITL type from saved state if not provided.
         resolved_type = hitl_type
         if resolved_type is None:
@@ -1351,7 +1366,13 @@ async def resume_from_hitl(
             # continues to the Planner and beyond.
             if action == "approve":
                 graph = build_full_pipeline_graph(checkpointer=checkpointer)
-                result: AgentState = await graph.ainvoke(resumed_state, config=config)
+                try:
+                    result: AgentState = await asyncio.wait_for(
+                        graph.ainvoke(resumed_state, config=config), timeout=300,
+                    )
+                except TimeoutError:
+                    logger.error("hitl_resume_timed_out", thread_id=thread_id, hitl_type="bid_approval")
+                    return {"status": "failed", "error": "HITL resume timed out"}  # type: ignore[return-value]
                 logger.info(
                     "hitl_bid_resumed_pipeline_finished",
                     thread_id=thread_id,
@@ -1373,7 +1394,13 @@ async def resume_from_hitl(
             # continues from hitl_review_node -> dev_node.
             if action == "approve":
                 graph = build_full_pipeline_graph(checkpointer=checkpointer)
-                result = await graph.ainvoke(resumed_state, config=config)
+                try:
+                    result = await asyncio.wait_for(
+                        graph.ainvoke(resumed_state, config=config), timeout=300,
+                    )
+                except TimeoutError:
+                    logger.error("hitl_resume_timed_out", thread_id=thread_id, hitl_type="plan_review")
+                    return {"status": "failed", "error": "HITL resume timed out"}  # type: ignore[return-value]
                 logger.info(
                     "hitl_plan_review_resumed_pipeline_finished",
                     thread_id=thread_id,
@@ -1419,7 +1446,13 @@ async def resume_from_hitl(
             # runs and actually sends the approved emails.
             if action in ("approve", "edit"):
                 graph = build_pipeline_b_graph(checkpointer=checkpointer)
-                result = await graph.ainvoke(resumed_state, config=config)
+                try:
+                    result = await asyncio.wait_for(
+                        graph.ainvoke(resumed_state, config=config), timeout=300,
+                    )
+                except TimeoutError:
+                    logger.error("hitl_resume_timed_out", thread_id=thread_id, hitl_type="email_approval")
+                    return {"status": "failed", "error": "HITL resume timed out"}  # type: ignore[return-value]
                 logger.info(
                     "hitl_email_resumed_pipeline_finished",
                     thread_id=thread_id,
