@@ -18,37 +18,41 @@ class TestSettings:
 
     def test_default_database_url(self):
         """Settings uses default PostgreSQL URL."""
-        settings = Settings(_env_file=None)
+        settings = Settings(_env_file=None, DEBUG=True)
         assert settings.DATABASE_URL == "postgresql://mas:mas_password@localhost:5432/mas"
 
     def test_default_valkey_url(self):
         """Settings uses default Valkey URL."""
-        settings = Settings(_env_file=None)
+        settings = Settings(_env_file=None, DEBUG=True)
         assert settings.VALKEY_URL == "valkey://localhost:6379"
 
     def test_default_jwt_secret_key(self):
-        """Settings has default JWT secret key."""
-        settings = Settings(_env_file=None)
+        """Settings has default JWT secret key (allowed in DEBUG mode)."""
+        settings = Settings(_env_file=None, DEBUG=True)
         assert settings.JWT_SECRET_KEY == "change-me-in-production"  # noqa: S105
 
     def test_default_app_version(self):
         """Settings has default app version."""
-        settings = Settings(_env_file=None)
+        settings = Settings(_env_file=None, DEBUG=True)
         assert settings.APP_VERSION == "4.2.0"
 
     def test_default_debug_false(self):
-        """Settings defaults to debug=False."""
-        settings = Settings(_env_file=None)
+        """Settings defaults to debug=False (requires non-default secrets)."""
+        settings = Settings(
+            _env_file=None,
+            JWT_SECRET_KEY="test-jwt-secret-min-32-chars-long",  # noqa: S106
+            ENCRYPTION_KEY="test-encryption-key-for-unit-tests",
+        )
         assert settings.DEBUG is False
 
     def test_default_log_level_info(self):
         """Settings defaults to LOG_LEVEL=INFO."""
-        settings = Settings(_env_file=None)
+        settings = Settings(_env_file=None, DEBUG=True)
         assert settings.LOG_LEVEL == "INFO"
 
     def test_default_llm_api_keys_empty(self):
         """LLM API keys default to empty strings."""
-        settings = Settings(_env_file=None)
+        settings = Settings(_env_file=None, DEBUG=True)
         assert settings.OPENROUTER_API_KEY == ""
         assert settings.GEMINI_API_KEY == ""
         assert settings.ANTHROPIC_API_KEY == ""
@@ -56,7 +60,7 @@ class TestSettings:
 
     def test_default_optional_keys_none(self):
         """Optional API keys default to None."""
-        settings = Settings(_env_file=None)
+        settings = Settings(_env_file=None, DEBUG=True)
         assert settings.E2B_API_KEY is None
         assert settings.FREELANCER_CLIENT_ID is None
         assert settings.FREELANCER_CLIENT_SECRET is None
@@ -65,26 +69,50 @@ class TestSettings:
 
     def test_default_brightdata_host(self):
         """BrightData host has default value."""
-        settings = Settings(_env_file=None)
+        settings = Settings(_env_file=None, DEBUG=True)
         assert settings.BRIGHTDATA_HOST == "brd.superproxy.io"
 
     def test_default_browser_pool_settings(self):
         """Browser pool settings have defaults."""
-        settings = Settings(_env_file=None)
+        settings = Settings(_env_file=None, DEBUG=True)
         assert settings.BROWSER_POOL_MAX == 3
         assert settings.BROWSER_PROXY_ROTATION_MINUTES == 45
         assert settings.BROWSER_HEADLESS is True
 
     def test_default_jwt_token_expiry(self):
         """JWT token expiry settings have defaults."""
-        settings = Settings(_env_file=None)
+        settings = Settings(_env_file=None, DEBUG=True)
         assert settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES == 15
         assert settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS == 7
 
     def test_default_cors_allowed_origins_string(self):
         """CORS_ALLOWED_ORIGINS is stored as JSON string."""
-        settings = Settings(_env_file=None)
+        settings = Settings(_env_file=None, DEBUG=True)
         assert settings.CORS_ALLOWED_ORIGINS == '["http://localhost:3000","http://localhost:5173"]'
+
+    def test_production_rejects_default_jwt_secret(self):
+        """Production mode raises ValueError on default JWT_SECRET_KEY."""
+        with pytest.raises(ValueError, match="JWT_SECRET_KEY must be changed"):
+            Settings(_env_file=None, DEBUG=False)
+
+    def test_production_rejects_default_encryption_key(self):
+        """Production mode raises ValueError on default ENCRYPTION_KEY."""
+        with pytest.raises(ValueError, match="ENCRYPTION_KEY must be changed"):
+            Settings(
+                _env_file=None,
+                DEBUG=False,
+                JWT_SECRET_KEY="real-production-jwt-secret-key-here",  # noqa: S106
+            )
+
+    def test_production_accepts_non_default_secrets(self):
+        """Production mode accepts non-default secrets."""
+        settings = Settings(
+            _env_file=None,
+            DEBUG=False,
+            JWT_SECRET_KEY="real-production-jwt-secret-key-here",  # noqa: S106
+            ENCRYPTION_KEY="real-production-encryption-key-here",
+        )
+        assert settings.DEBUG is False
 
 
 class TestAsyncDatabaseUrl:
@@ -93,7 +121,7 @@ class TestAsyncDatabaseUrl:
     def test_converts_postgresql_to_asyncpg(self):
         """async_database_url converts postgresql:// to postgresql+asyncpg://."""
         settings = Settings(
-            _env_file=None,
+            _env_file=None, DEBUG=True,
             DATABASE_URL="postgresql://user:pass@host:5432/db"
         )
         assert settings.async_database_url == "postgresql+asyncpg://user:pass@host:5432/db"
@@ -101,7 +129,7 @@ class TestAsyncDatabaseUrl:
     def test_preserves_asyncpg_scheme(self):
         """async_database_url leaves postgresql+asyncpg:// unchanged."""
         settings = Settings(
-            _env_file=None,
+            _env_file=None, DEBUG=True,
             DATABASE_URL="postgresql+asyncpg://user:pass@host:5432/db"
         )
         assert settings.async_database_url == "postgresql+asyncpg://user:pass@host:5432/db"
@@ -109,7 +137,7 @@ class TestAsyncDatabaseUrl:
     def test_raises_on_unsupported_scheme(self):
         """async_database_url raises ValueError for unsupported schemes."""
         settings = Settings(
-            _env_file=None,
+            _env_file=None, DEBUG=True,
             DATABASE_URL="mysql://user:pass@host:3306/db"
         )
         with pytest.raises(ValueError, match="Unsupported DATABASE_URL scheme"):
@@ -122,7 +150,7 @@ class TestValkeyRedisUrl:
     def test_converts_valkey_to_redis(self):
         """valkey_redis_url converts valkey:// to redis://."""
         settings = Settings(
-            _env_file=None,
+            _env_file=None, DEBUG=True,
             VALKEY_URL="valkey://localhost:6379/0"
         )
         assert settings.valkey_redis_url == "redis://localhost:6379/0"
@@ -130,7 +158,7 @@ class TestValkeyRedisUrl:
     def test_preserves_redis_scheme(self):
         """valkey_redis_url leaves redis:// unchanged."""
         settings = Settings(
-            _env_file=None,
+            _env_file=None, DEBUG=True,
             VALKEY_URL="redis://localhost:6379/0"
         )
         assert settings.valkey_redis_url == "redis://localhost:6379/0"
@@ -138,7 +166,7 @@ class TestValkeyRedisUrl:
     def test_converts_valkey_with_auth(self):
         """valkey_redis_url converts valkey:// with auth credentials."""
         settings = Settings(
-            _env_file=None,
+            _env_file=None, DEBUG=True,
             VALKEY_URL="valkey://user:pass@host:6379/1"
         )
         assert settings.valkey_redis_url == "redis://user:pass@host:6379/1"
@@ -150,7 +178,7 @@ class TestCorsOrigins:
     def test_parses_json_array_format(self):
         """cors_origins parses valid JSON array."""
         settings = Settings(
-            _env_file=None,
+            _env_file=None, DEBUG=True,
             CORS_ALLOWED_ORIGINS='["https://example.com","https://test.com"]'
         )
         assert settings.cors_origins == ["https://example.com", "https://test.com"]
@@ -158,7 +186,7 @@ class TestCorsOrigins:
     def test_parses_bracket_format_without_quotes(self):
         """cors_origins parses [url1,url2] without JSON quotes."""
         settings = Settings(
-            _env_file=None,
+            _env_file=None, DEBUG=True,
             CORS_ALLOWED_ORIGINS="[https://example.com,https://test.com]"
         )
         assert settings.cors_origins == ["https://example.com", "https://test.com"]
@@ -166,7 +194,7 @@ class TestCorsOrigins:
     def test_parses_comma_separated_format(self):
         """cors_origins parses comma-separated URLs."""
         settings = Settings(
-            _env_file=None,
+            _env_file=None, DEBUG=True,
             CORS_ALLOWED_ORIGINS="https://example.com,https://test.com"
         )
         assert settings.cors_origins == ["https://example.com", "https://test.com"]
@@ -174,7 +202,7 @@ class TestCorsOrigins:
     def test_parses_single_origin(self):
         """cors_origins parses single origin without commas."""
         settings = Settings(
-            _env_file=None,
+            _env_file=None, DEBUG=True,
             CORS_ALLOWED_ORIGINS="https://example.com"
         )
         assert settings.cors_origins == ["https://example.com"]
@@ -182,7 +210,7 @@ class TestCorsOrigins:
     def test_strips_whitespace_from_origins(self):
         """cors_origins strips whitespace from each origin."""
         settings = Settings(
-            _env_file=None,
+            _env_file=None, DEBUG=True,
             CORS_ALLOWED_ORIGINS=" https://example.com , https://test.com "
         )
         assert settings.cors_origins == ["https://example.com", "https://test.com"]
@@ -190,7 +218,7 @@ class TestCorsOrigins:
     def test_ignores_empty_strings_in_split(self):
         """cors_origins filters out empty strings from split."""
         settings = Settings(
-            _env_file=None,
+            _env_file=None, DEBUG=True,
             CORS_ALLOWED_ORIGINS="https://example.com,,https://test.com"
         )
         assert settings.cors_origins == ["https://example.com", "https://test.com"]

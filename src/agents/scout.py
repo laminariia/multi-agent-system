@@ -114,7 +114,15 @@ class ScoutAgent(ConstrainedAgent):
 
         for batch_start in range(0, len(new_jobs), _MAX_JOBS_PER_BATCH):
             batch = new_jobs[batch_start: batch_start + _MAX_JOBS_PER_BATCH]
-            scored = await self._score_jobs(batch)
+            try:
+                scored = await self._score_jobs(batch)
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to score batch of %d jobs, marking as review", len(batch))
+                for job in batch:
+                    job["match_score"] = 0.5
+                    job["score_reason"] = "scoring_failed"
+                    job["recommendation"] = "review"
+                scored = batch
 
             for scored_job in scored:
                 score = scored_job.get("match_score", 0.0)
@@ -297,10 +305,13 @@ class ScoutAgent(ConstrainedAgent):
         *,
         status: str,
     ) -> list[str]:
-        """Insert scored jobs into the ``jobs`` table.
+        """Insert scored jobs into the ``jobs`` table using upsert (ON CONFLICT DO NOTHING).
 
         Returns a list of stringified UUIDs for the newly-created rows.
+        Duplicate (platform, external_id) pairs are silently skipped.
         """
+        from sqlalchemy.dialects.postgresql import insert as pg_insert  # noqa: PLC0415
+
         if not scored_jobs:
             return []
 
@@ -309,31 +320,37 @@ class ScoutAgent(ConstrainedAgent):
         async with get_db_session() as session:
             for sj in scored_jobs:
                 job_id = uuid.uuid4()
-                job = Job(
-                    id=job_id,
-                    platform=sj.get("platform", "unknown"),
-                    external_id=str(sj.get("external_id", sj.get("job_id", ""))),
-                    title=sj.get("title", "")[:500],
-                    description=sj.get("description", ""),
-                    budget_min=(
+                values = {
+                    "id": job_id,
+                    "platform": sj.get("platform", "unknown"),
+                    "external_id": str(sj.get("external_id", sj.get("job_id", ""))),
+                    "title": sj.get("title", "")[:500],
+                    "description": sj.get("description", ""),
+                    "budget_min": (
                         Decimal(str(sj["budget_min"])) if sj.get("budget_min") is not None else None
                     ),
-                    budget_max=(
+                    "budget_max": (
                         Decimal(str(sj["budget_max"])) if sj.get("budget_max") is not None else None
                     ),
-                    currency=sj.get("currency", "USD"),
-                    skills_required=sj.get("skills_required"),
-                    score=Decimal(str(round(sj.get("match_score", 0.0), 2))),
-                    status=status,
-                    disqualify_reason=(
+                    "currency": sj.get("currency", "USD"),
+                    "skills_required": sj.get("skills_required"),
+                    "score": Decimal(str(round(sj.get("match_score", 0.0), 2))),
+                    "status": status,
+                    "disqualify_reason": (
                         sj.get("reasoning", "")[:255] if status == "disqualified" else None
                     ),
-                    url=sj.get("url"),
-                    raw_data=sj.get("raw_data"),
-                    client_info=sj.get("client_info"),
+                    "url": sj.get("url"),
+                    "raw_data": sj.get("raw_data"),
+                    "client_info": sj.get("client_info"),
+                }
+                stmt = (
+                    pg_insert(Job)
+                    .values(**values)
+                    .on_conflict_do_nothing(index_elements=["platform", "external_id"])
                 )
-                session.add(job)
-                created_ids.append(str(job_id))
+                result = await session.execute(stmt)
+                if result.rowcount > 0:
+                    created_ids.append(str(job_id))
 
         self._log.info("jobs_stored", count=len(created_ids), status=status)
         return created_ids

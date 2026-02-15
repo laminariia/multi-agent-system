@@ -506,8 +506,8 @@ def test_score_thresholds():
 
 
 def test_max_jobs_per_batch():
-    """Batch size should be 25 to avoid context overflow."""
-    assert _MAX_JOBS_PER_BATCH == 25
+    """Batch size should be 10 to avoid context overflow."""
+    assert _MAX_JOBS_PER_BATCH == 10
 
 
 # ---------------------------------------------------------------------------

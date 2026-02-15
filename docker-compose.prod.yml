@@ -1,3 +1,9 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     image: timescale/timescaledb-ha:pg16
@@ -26,6 +32,7 @@ services:
         limits:
           memory: 1g
           cpus: "1.0"
+    logging: *default-logging
 
   valkey:
     image: valkey/valkey:8.1-alpine
@@ -54,6 +61,7 @@ services:
         limits:
           memory: 512m
           cpus: "0.5"
+    logging: *default-logging
 
   api:
     image: ${DOCKER_REGISTRY:-ghcr.io}/${IMAGE_NAME:-mas}:latest
@@ -89,6 +97,7 @@ services:
         limits:
           memory: 1g
           cpus: "1.5"
+    logging: *default-logging
 
   worker:
     image: ${DOCKER_REGISTRY:-ghcr.io}/${IMAGE_NAME:-mas}:latest
@@ -117,6 +126,7 @@ services:
         limits:
           memory: 1g
           cpus: "1.5"
+    logging: *default-logging
 
   bot:
     image: ${DOCKER_REGISTRY:-ghcr.io}/${IMAGE_NAME:-mas}:latest
@@ -143,6 +153,7 @@ services:
         limits:
           memory: 512m
           cpus: "0.5"
+    logging: *default-logging
 
   dashboard:
     image: ${DOCKER_REGISTRY:-ghcr.io}/${IMAGE_NAME:-mas}-dashboard:latest
@@ -171,6 +182,7 @@ services:
         limits:
           memory: 512m
           cpus: "0.5"
+    logging: *default-logging
 
   nginx:
     image: nginx:1.27-alpine
@@ -183,7 +195,8 @@ services:
       - "443:443"
     volumes:
       - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ssl_certs:/etc/letsencrypt:ro
+      - certbot-conf:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
     tmpfs:
       - /tmp:size=64m
       - /var/cache/nginx:size=128m
@@ -203,6 +216,93 @@ services:
         limits:
           memory: 256m
           cpus: "0.25"
+    logging: *default-logging
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot-conf:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    profiles:
+      - ssl
+    logging: *default-logging
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    restart: unless-stopped
+    volumes:
+      - ./docker/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging: *default-logging
+
+  grafana:
+    image: grafana/grafana:10.4.1
+    restart: unless-stopped
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    networks:
+      - backend
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  valkey-exporter:
+    image: oliver006/redis_exporter:v1.58.0
+    restart: unless-stopped
+    environment:
+      - REDIS_ADDR=valkey:6379
+    networks:
+      - backend
+    depends_on:
+      - valkey
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    logging: *default-logging
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    restart: unless-stopped
+    environment:
+      - DATA_SOURCE_NAME=${DATABASE_URL}
+    networks:
+      - backend
+    depends_on:
+      - postgres
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    logging: *default-logging
 
 networks:
   frontend:
@@ -214,4 +314,7 @@ networks:
 volumes:
   postgres_data:
   valkey_data:
-  ssl_certs:
+  certbot-conf:
+  certbot-www:
+  prometheus_data:
+  grafana_data:

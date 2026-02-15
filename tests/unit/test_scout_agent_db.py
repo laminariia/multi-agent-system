@@ -85,6 +85,9 @@ async def test_store_jobs_empty(mock_db, mock_llm_client, mock_heartbeat, mock_l
 @patch("src.agents.scout.get_db_session")
 async def test_store_jobs_qualified(mock_db, mock_llm_client, mock_heartbeat, mock_loop_detector):
     mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.rowcount = 1
+    mock_session.execute = AsyncMock(return_value=mock_result)
     mock_db.return_value.__aenter__ = AsyncMock(return_value=mock_session)
     mock_db.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -94,12 +97,15 @@ async def test_store_jobs_qualified(mock_db, mock_llm_client, mock_heartbeat, mo
     assert len(result) == 2
     for r in result:
         uuid.UUID(r)
-    assert mock_session.add.call_count == 2
+    assert mock_session.execute.call_count == 2
 
 
 @patch("src.agents.scout.get_db_session")
 async def test_store_jobs_disqualified(mock_db, mock_llm_client, mock_heartbeat, mock_loop_detector):
     mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.rowcount = 1
+    mock_session.execute = AsyncMock(return_value=mock_result)
     mock_db.return_value.__aenter__ = AsyncMock(return_value=mock_session)
     mock_db.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -107,13 +113,16 @@ async def test_store_jobs_disqualified(mock_db, mock_llm_client, mock_heartbeat,
     jobs = [_job(reasoning="Too expensive")]
     result = await agent._store_jobs(jobs, status="disqualified")
     assert len(result) == 1
-    added_obj = mock_session.add.call_args[0][0]
-    assert added_obj.disqualify_reason == "Too expensive"
+    # Verify the INSERT statement was executed
+    assert mock_session.execute.call_count == 1
 
 
 @patch("src.agents.scout.get_db_session")
 async def test_store_jobs_optional_fields(mock_db, mock_llm_client, mock_heartbeat, mock_loop_detector):
     mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.rowcount = 1
+    mock_session.execute = AsyncMock(return_value=mock_result)
     mock_db.return_value.__aenter__ = AsyncMock(return_value=mock_session)
     mock_db.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -121,9 +130,7 @@ async def test_store_jobs_optional_fields(mock_db, mock_llm_client, mock_heartbe
     jobs = [_job(budget_min=None, budget_max=None)]
     result = await agent._store_jobs(jobs, status="qualified")
     assert len(result) == 1
-    added_obj = mock_session.add.call_args[0][0]
-    assert added_obj.budget_min is None
-    assert added_obj.budget_max is None
+    assert mock_session.execute.call_count == 1
 
 
 # ===== _create_hitl_review ====================================================

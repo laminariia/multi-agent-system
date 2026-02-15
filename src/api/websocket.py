@@ -73,6 +73,8 @@ async def ws_handler(socket: WebSocket, channels: ChannelsPlugin) -> None:
     user_id: str | None = None
     subscribed_channels: set[str] = set()
     heartbeat_task: asyncio.Task[None] | None = None
+    auth_failures = 0
+    _MAX_AUTH_FAILURES = 5
 
     async def _heartbeat_loop() -> None:
         """Send periodic ping frames to keep the connection alive."""
@@ -128,8 +130,14 @@ async def ws_handler(socket: WebSocket, channels: ChannelsPlugin) -> None:
                         heartbeat_task = asyncio.create_task(_heartbeat_loop())
 
                 except Exception as exc:
+                    auth_failures += 1
                     await _send_error(socket, f"Authentication failed: {exc}")
-                    logger.warning("ws.auth_failed", error=str(exc))
+                    logger.warning("ws.auth_failed", error=str(exc), failures=auth_failures)
+                    await asyncio.sleep(1.0)
+                    if auth_failures >= _MAX_AUTH_FAILURES:
+                        await socket.send_json({"type": "error", "message": "Too many auth failures"})
+                        await socket.close(code=4001)
+                        return
                 continue
 
             # Everything below requires auth

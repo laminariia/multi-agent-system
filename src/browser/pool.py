@@ -129,6 +129,13 @@ class BrowserPool:
                     self._slots,
                     key=lambda p: self._slots[p].last_rotation_ts,
                 )
+                # Save cookies before eviction so session is not lost.
+                try:
+                    oldest_slot = self._slots[oldest_platform]
+                    if self._session_manager and oldest_slot.context:
+                        await self._session_manager.save_session(oldest_platform, oldest_slot.context)
+                except Exception:
+                    self._log.warning("failed_save_session_before_eviction", platform=oldest_platform)
                 self._log.info("evicting_browser", platform=oldest_platform)
                 await self._close_slot(oldest_platform)
 
