@@ -2,6 +2,7 @@
 
 All subprocess calls are mocked — no real Semgrep binary required.
 """
+
 from __future__ import annotations
 
 import json
@@ -14,6 +15,7 @@ from src.security.semgrep_gate import ScanResult, SemgrepGate
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _semgrep_output(results: list[dict] | None = None, errors: list[dict] | None = None) -> bytes:
     """Build mock Semgrep JSON output."""
@@ -58,6 +60,7 @@ def _mock_subprocess(stdout: bytes, returncode: int = 0) -> AsyncMock:
 # Tests: scan_code
 # ---------------------------------------------------------------------------
 
+
 class TestScanCode:
     """Tests for SemgrepGate.scan_code()."""
 
@@ -89,9 +92,11 @@ class TestScanCode:
     @pytest.mark.asyncio
     async def test_warning_does_not_block(self) -> None:
         gate = SemgrepGate()
-        stdout = _semgrep_output(results=[
-            _finding(rule_id="mas-network-requests-get", severity="WARNING", message="requests.get detected"),
-        ])
+        stdout = _semgrep_output(
+            results=[
+                _finding(rule_id="mas-network-requests-get", severity="WARNING", message="requests.get detected"),
+            ]
+        )
 
         with patch("asyncio.create_subprocess_exec", return_value=_mock_subprocess(stdout)):
             result = await gate.scan_code("requests.get('http://example.com')")
@@ -105,6 +110,7 @@ class TestScanCode:
 # Tests: scan_files
 # ---------------------------------------------------------------------------
 
+
 class TestScanFiles:
     """Tests for SemgrepGate.scan_files()."""
 
@@ -115,9 +121,11 @@ class TestScanFiles:
             {"path": "app.py", "content": "import os\nos.system('ls')"},
             {"path": "utils.py", "content": "def helper(): pass"},
         ]
-        stdout = _semgrep_output(results=[
-            _finding(rule_id="mas-dangerous-os-system", path="app.py", line=2),
-        ])
+        stdout = _semgrep_output(
+            results=[
+                _finding(rule_id="mas-dangerous-os-system", path="app.py", line=2),
+            ]
+        )
 
         with patch("asyncio.create_subprocess_exec", return_value=_mock_subprocess(stdout, returncode=1)):
             result = await gate.scan_files(files)
@@ -157,6 +165,7 @@ class TestScanFiles:
 # Tests: is_blocked
 # ---------------------------------------------------------------------------
 
+
 class TestIsBlocked:
     """Tests for SemgrepGate.is_blocked()."""
 
@@ -173,17 +182,25 @@ class TestIsBlocked:
 # Tests: error handling
 # ---------------------------------------------------------------------------
 
+
 class TestErrorHandling:
     """Tests for timeout, missing binary, and parse errors."""
 
     @pytest.mark.asyncio
     async def test_semgrep_not_installed_fails_closed(self) -> None:
-        gate = SemgrepGate()
+        from unittest.mock import MagicMock
 
-        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("semgrep not found")):
+        gate = SemgrepGate()
+        mock_settings = MagicMock()
+        mock_settings.DEBUG = False
+
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("semgrep not found")),
+            patch("src.core.config.get_settings", return_value=mock_settings),
+        ):
             result = await gate.scan_code("print('hello')")
 
-        # Fail closed: blocked when semgrep unavailable.
+        # Fail closed: blocked when semgrep unavailable in production.
         assert result.blocked is True
         assert result.critical_count >= 1
 
@@ -213,6 +230,7 @@ class TestErrorHandling:
 # ---------------------------------------------------------------------------
 # Tests: no shell=True
 # ---------------------------------------------------------------------------
+
 
 class TestNoShell:
     """Verify SemgrepGate does NOT use shell=True."""

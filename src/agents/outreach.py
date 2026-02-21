@@ -190,6 +190,8 @@ class OutreachAgent(ConstrainedAgent):
             emails_drafted = 0
             if enriched_leads:
                 campaign = await self._create_campaign(city)
+                # Store campaign_id in artifacts so email_sending_node can find it.
+                artifacts["campaign_id"] = str(campaign.id)
                 emails_drafted = await self._generate_emails(enriched_leads, campaign)
 
                 # 4. Create HITL request for email approval.

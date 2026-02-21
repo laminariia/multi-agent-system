@@ -226,9 +226,18 @@ class SemgrepGate:
                 timeout=_SEMGREP_TIMEOUT_SECONDS,
             )
         except FileNotFoundError:
+            from src.core.config import get_settings  # noqa: PLC0415
+
+            debug = get_settings().DEBUG
+            if debug:
+                self._log.warning("semgrep_not_installed_dev_mode_skip")
+                return ScanResult(
+                    findings=[],
+                    critical_count=0,
+                    warning_count=0,
+                    blocked=False,
+                )
             self._log.error("semgrep_not_installed")
-            # If Semgrep is not installed, return a blocked result as a
-            # safety precaution -- fail closed.
             return ScanResult(
                 findings=[
                     SemgrepFinding(

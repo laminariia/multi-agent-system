@@ -70,8 +70,7 @@ services:
     security_opt:
       - no-new-privileges:true
     command: >
-      litestar --app src.api.main:app run
-      --host 0.0.0.0 --port 8000 --workers 2
+      sh -c "alembic upgrade head && litestar --app src.api.main:app run --host 0.0.0.0 --port 8000 --workers 2"
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-mas}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mas}
@@ -117,6 +116,8 @@ services:
         condition: service_healthy
       valkey:
         condition: service_healthy
+      api:
+        condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
@@ -146,6 +147,8 @@ services:
         condition: service_healthy
       valkey:
         condition: service_healthy
+      api:
+        condition: service_healthy
     networks:
       - backend
     deploy:
@@ -163,7 +166,8 @@ services:
       - no-new-privileges:true
     environment:
       PORT: 3000
-      API_URL: http://api:8000
+      API_URL: ${PUBLIC_URL:-http://localhost}
+      NODE_ENV: production
     tmpfs:
       - /tmp:size=64m
     depends_on:
@@ -201,6 +205,7 @@ services:
       - /tmp:size=64m
       - /var/cache/nginx:size=128m
       - /var/run:size=16m
+      - /var/log/nginx:size=64m
     depends_on:
       api:
         condition: service_healthy
@@ -251,6 +256,8 @@ services:
     restart: unless-stopped
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./docker/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
@@ -273,6 +280,7 @@ services:
     restart: unless-stopped
     environment:
       - REDIS_ADDR=valkey:6379
+      - REDIS_PASSWORD=${VALKEY_PASSWORD:-changeme}
     networks:
       - backend
     depends_on:
@@ -290,7 +298,7 @@ services:
     image: prometheuscommunity/postgres-exporter:v0.15.0
     restart: unless-stopped
     environment:
-      - DATA_SOURCE_NAME=${DATABASE_URL}
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER:-mas}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mas}
     networks:
       - backend
     depends_on:

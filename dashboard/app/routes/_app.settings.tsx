@@ -215,7 +215,12 @@ export default function SettingsPage() {
 
     setSavingKeys(true);
     try {
-      await saveAPIKeys(changedKeys);
+      // Backend expects keys with _api_key suffix (e.g. "openrouter_api_key")
+      const backendKeys: Record<string, string> = {};
+      for (const [key, value] of Object.entries(changedKeys)) {
+        backendKeys[`${key}_api_key`] = value;
+      }
+      await saveAPIKeys(backendKeys);
       toast({
         title: "API keys saved",
         description: `Updated ${Object.keys(changedKeys).length} key(s) successfully`,
@@ -753,11 +758,15 @@ export default function SettingsPage() {
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-muted-foreground">Version</p>
-              <p className="font-medium font-mono">1.0.0</p>
+              <p className="font-medium font-mono">
+                {(typeof window !== "undefined" && (window as any).ENV?.APP_VERSION) || "4.2.0"}
+              </p>
             </div>
             <div>
               <p className="text-muted-foreground">Environment</p>
-              <p className="font-medium font-mono">production</p>
+              <p className="font-medium font-mono">
+                {(typeof window !== "undefined" && (window as any).ENV?.NODE_ENV) || "production"}
+              </p>
             </div>
             <div>
               <p className="text-muted-foreground">Account Created</p>

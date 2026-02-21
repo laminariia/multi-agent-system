@@ -113,12 +113,9 @@ export default function AppLayout() {
 
     setWsStatus("connecting");
 
-    const apiUrl = window.ENV?.API_URL;
-    const wsHost = apiUrl
-      ? new URL(apiUrl).host
-      : window.location.host;
-    const protocol = (apiUrl?.startsWith("https") || window.location.protocol === "https:") ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${wsHost}/ws/events`;
+    // Use browser location for WebSocket — API_URL may resolve to Docker-internal host
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws/events`;
 
     try {
       const ws = new WebSocket(wsUrl);
