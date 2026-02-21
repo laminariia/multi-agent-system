@@ -38,6 +38,11 @@ export function SidebarNav({ pendingCount, urgentCount, collapsed, pendingUsersC
       badge: pendingCount > 0 ? pendingCount : undefined,
       badgeVariant: urgentCount > 0 ? "destructive" : "default",
     },
+    {
+      to: "/telegram-channels",
+      label: "TG Channels",
+      icon: "M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z",
+    },
   ];
 
   const pipelineBItems: NavItem[] = [
