@@ -159,10 +159,8 @@ class TestHITLQueue:
             self.page.get_by_text("empty"),
             self.page.get_by_text("Nothing"),
         ]
-        visible = False
         for indicator in empty_indicators:
             if await indicator.count() > 0:
-                visible = True
                 break
         # Empty state might also just show no cards
         # This is acceptable — no assertion failure

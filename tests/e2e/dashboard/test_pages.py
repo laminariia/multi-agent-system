@@ -6,8 +6,6 @@ All tests use route mocking to avoid requiring a real backend.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 from playwright.async_api import Page, expect
 
@@ -17,7 +15,6 @@ from tests.e2e.dashboard.conftest import (
     make_hitl_stats,
     make_job_list_response,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared fixture: pre-authenticated page with common mocks

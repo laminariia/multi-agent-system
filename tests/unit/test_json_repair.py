@@ -5,8 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel, Field
 
-from src.core.json_repair import extract_json, extract_and_validate
-
+from src.core.json_repair import extract_and_validate, extract_json
 
 # ---------------------------------------------------------------------------
 # Pydantic test model
