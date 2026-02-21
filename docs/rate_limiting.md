@@ -25,7 +25,7 @@
 │  │ Gemini Flash  │ 5-15 RPM   │ 150-300 RPM │ 2000+ RPM   │ 1M        │   │
 │  │ Gemini Pro    │ 2 RPM      │ 60 RPM      │ 1000 RPM    │ 500K      │   │
 │  │ Claude Opus   │ 50 RPM     │ 50-100 RPM  │ 300+ RPM    │ 40K       │   │
-│  │ GPT 5.3 Codex │ 60 RPM     │ 500 RPM     │ 5000+ RPM   │ 150K      │   │
+│  │ Claude Sonnet  │ 50 RPM     │ 200 RPM     │ 1000+ RPM   │ 400K      │   │
 │  │ NanoBanana    │ via Gemini │ via Gemini  │ via Gemini  │ -         │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │  ⚠️ Free tier = 5 RPM Gemini = только ~2 шага агента/минуту!               │
@@ -178,11 +178,11 @@ LLM_LIMITS = {
         "tier_2": RateLimit(300, RateLimitWindow.MINUTE, "claude:rpm"),
         "tokens": RateLimit(40_000, RateLimitWindow.MINUTE, "claude:tpm"),
     },
-    "gpt_5_3_codex": {
-        "tier_0": RateLimit(60, RateLimitWindow.MINUTE, "openai:rpm"),  # Free tier
-        "tier_1": RateLimit(500, RateLimitWindow.MINUTE, "openai:rpm"), # Tier 1
-        "tier_2": RateLimit(5000, RateLimitWindow.MINUTE, "openai:rpm"), # Tier 2+
-        "tokens": RateLimit(150_000, RateLimitWindow.MINUTE, "openai:tpm"),
+    "claude_sonnet": {
+        "tier_0": RateLimit(50, RateLimitWindow.MINUTE, "anthropic:rpm"),  # Free tier
+        "tier_1": RateLimit(200, RateLimitWindow.MINUTE, "anthropic:rpm"), # Tier 1
+        "tier_2": RateLimit(1000, RateLimitWindow.MINUTE, "anthropic:rpm"), # Tier 2+
+        "tokens": RateLimit(400_000, RateLimitWindow.MINUTE, "anthropic:tpm"),
     },
     "nanobanana_pro": {
         # Uses Gemini API limits

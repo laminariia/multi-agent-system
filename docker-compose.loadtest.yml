@@ -71,7 +71,7 @@ services:
       valkey:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8000/api/v1/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 15

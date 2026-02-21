@@ -370,7 +370,7 @@ jobs:
           litestar --app src.api.main:app run --host 0.0.0.0 --port 8000 &
           # Wait for API to be ready
           for i in $(seq 1 30); do
-            curl -sf http://localhost:8000/api/v1/health && break || sleep 2
+            curl -sf http://localhost:8000/health && break || sleep 2
           done
 
       # Start dashboard in background
@@ -555,7 +555,7 @@ jobs:
       - name: Health check
         run: |
           for i in $(seq 1 5); do
-            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "${{ secrets.PRODUCTION_URL }}/api/v1/health" || echo "000")
+            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "${{ secrets.PRODUCTION_URL }}/health" || echo "000")
             if [ "$STATUS" = "200" ]; then
               echo "Health check passed"
               exit 0

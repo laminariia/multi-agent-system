@@ -26,9 +26,9 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Install only runtime libraries (no gcc)
+# Install runtime libraries and Playwright system deps
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libpq5 curl \
+    && apt-get install -y --no-install-recommends libpq5 curl wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
@@ -47,12 +47,15 @@ COPY --chown=appuser:appuser src/ ./src/
 COPY --chown=appuser:appuser alembic.ini ./
 COPY --chown=appuser:appuser alembic/ ./alembic/
 
+# Install Playwright Chromium browser with system dependencies
+RUN playwright install --with-deps chromium
+
 # Set proper file permissions
 RUN chmod -R 555 /app/src && chmod -R 755 /app/alembic
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -sf http://localhost:${PORT:-8000}/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["sh", "-c", "curl -sf http://localhost:${PORT:-8000}/health || exit 1"]
 
 # Switch to non-root user
 USER appuser

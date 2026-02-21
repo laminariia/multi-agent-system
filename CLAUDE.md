@@ -71,14 +71,14 @@ Log events to `~/.claude/logs/session_{date}.jsonl` — see master-orchestrator 
 | Слой | Технология | Назначение |
 |------|------------|------------|
 | **Оркестрация** | LangGraph 1.0 | Граф состояний, управление агентами |
-| **LLM** | Gemini 3 Flash + Claude Opus 4.6 + GPT 5.3 Codex | Flash для большинства, Opus для кода, GPT для code review |
+| **LLM** | DeepSeek V3.2 + Claude Opus 4.6 + Claude Sonnet 4.5 | DeepSeek для bulk, Opus для планирования, Sonnet для кода и ревью |
 | **Backend** | Litestar + Python 3.12 | API, WebSocket для UI |
 | **База данных** | PostgreSQL | Состояния LangGraph, история, задачи |
 | **Кэш/Очереди** | Valkey | Pub/Sub, очереди задач, сессии |
 | **Песочница** | Docker (E2B для коротких) | Изолированное выполнение кода |
 | **Браузер** | Playwright + Stealth | Мониторинг, НЕ auto-submit |
 | **Frontend** | Remix | Dashboard для HITL |
-| **Эмбеддинги** | Google text-embedding-004 | Векторный поиск (768 dim) |
+| **Эмбеддинги** | OpenAI text-embedding-3-large | Векторный поиск (3072 dim) |
 | **Деплой** | Docker + VPS | Hetzner/DigitalOcean |
 
 ### 10 агентов системы
@@ -120,13 +120,17 @@ Pipeline B (Outreach):
 
 ## 🔧 Ключевые технические решения
 
-### 1. LLM стратегия (трёхуровневая)
-- **Gemini 3 Flash** ($0.001/1K): Scout, Bid, Content, Packager, GeoScout, Outreach
-- **Claude Opus 4.6** ($0.015/1K): Planner + Dev Agent (высокое качество планирования и кодогенерации)
-- **GPT 5.3 Codex**: Critic Agent (лучший для code review)
-- **Gemini 3 Pro** (NanoBanana Pro): Design Agent (генерация изображений)
+### 1. LLM стратегия (трёхуровневая, OpenRouter)
 
-> Полная таблица агент → модель: см. `TECH_STACK.md` → "LLM Models — Canonical Agent Assignment"
+> Все LLM-вызовы через **OpenRouter** (`OPENROUTER_API_KEY`). Embeddings — OpenAI API напрямую.
+
+- **DeepSeek V3.2** ($0.25/$0.38 per 1M): Scout, Bid, Content, Packager, GeoScout, Outreach
+- **Claude Opus 4.6** ($5/$25 per 1M): Planner + Dev Agent (сложные задачи)
+- **Claude Sonnet 4.5** ($3/$15 per 1M): Dev Agent (обычные задачи) + Critic Agent (code review)
+- **NanoBanana Pro** ($2/$12 per 1M): Design Agent (генерация изображений)
+- **OpenAI text-embedding-3-large** (3072 dim): Embeddings
+
+> Полная таблица агент → модель → OpenRouter ID: см. `TECH_STACK.md` → "LLM Models — Canonical Agent Assignment"
 
 ### 2. Платформы фриланса (HITL-FIRST!)
 
@@ -235,14 +239,14 @@ async def create_stealth_browser():
 
 | Компонент | Стоимость | Примечание |
 |-----------|-----------|------------|
-| **LLM API** | **$450-600** | Claude Opus дорогой! |
+| **LLM API (OpenRouter)** | **$391** | DeepSeek bulk + Claude critical |
 | Docker/E2B | $50-100 | Docker дешевле |
 | Lead Enrichment | $40-100 | Hunter.io + Apollo |
 | Redis/Postgres | $50-90 | |
 | Прокси | $60-100 | |
 | VPS сервер | $20-40 | |
 | Email (warm-up) | $50-100 | Instantly.ai |
-| **ИТОГО** | **$800-1200/мес** | Пересчитано с учётом объёма bids и embedding costs |
+| **ИТОГО** | **$700-1000/мес** | Пересчитано: LLM через OpenRouter, embeddings через OpenAI |
 
 ---
 
@@ -314,10 +318,12 @@ multi-agent-service/
 > Каноничные имена — см. `TECH_STACK.md` → "Environment Variables"
 
 ```bash
-# LLM APIs
-GEMINI_API_KEY=
-ANTHROPIC_API_KEY=          # Claude Opus 4.6 (Planner, Dev)
-OPENAI_API_KEY=             # GPT 5.3 Codex (Critic Agent)
+# LLM (OpenRouter — single gateway for all models)
+OPENROUTER_API_KEY=         # All LLM calls: https://openrouter.ai/keys
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+
+# Embeddings (OpenAI direct)
+OPENAI_API_KEY=             # text-embedding-3-large (3072 dim)
 
 # Databases
 DATABASE_URL=postgresql://user:pass@localhost:5432/mas

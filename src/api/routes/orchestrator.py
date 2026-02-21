@@ -69,6 +69,7 @@ class OrchestratorController(Controller):
         "/start",
         summary="Start the orchestrator runner",
         guards=[require_role("owner", "co_owner")],
+        status_code=200,
     )
     async def start(
         self,
@@ -101,6 +102,7 @@ class OrchestratorController(Controller):
         "/stop",
         summary="Stop the orchestrator runner",
         guards=[require_role("owner", "co_owner")],
+        status_code=200,
     )
     async def stop(
         self,

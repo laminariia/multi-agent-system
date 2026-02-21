@@ -40,7 +40,7 @@ jobs:
           fi
 
           for i in $(seq 1 6); do
-            RESPONSE=$(curl -sf -w "\n%{http_code}" "$PRODUCTION_URL/api/v1/health" 2>/dev/null || echo -e "\n000")
+            RESPONSE=$(curl -sf -w "\n%{http_code}" "$PRODUCTION_URL/health" 2>/dev/null || echo -e "\n000")
             BODY=$(echo "$RESPONSE" | head -n -1)
             STATUS=$(echo "$RESPONSE" | tail -1)
 

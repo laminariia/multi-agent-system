@@ -21,7 +21,7 @@ clients, browser pools, and other owned resources.
 
 from __future__ import annotations
 
-import asyncio
+import threading
 from typing import Any
 
 import structlog
@@ -29,7 +29,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 _container: AgentContainer | None = None
-_lock = asyncio.Lock()
+_container_lock = threading.Lock()
 
 
 class AgentContainer:
@@ -46,6 +46,7 @@ class AgentContainer:
         self._loop_detector: Any | None = None
         self._semantic_cache: Any | None = None
         self._browser_pool: Any | None = None
+        self._telegram_adapter: Any | None = None
 
     # ------------------------------------------------------------------
     # Lazy accessors
@@ -55,9 +56,15 @@ class AgentContainer:
     def llm_client(self) -> Any:
         """Return the shared :class:`LLMClient` instance."""
         if self._llm_client is None:
+            from src.core.config import get_settings  # noqa: PLC0415
             from src.core.llm_client import LLMClient  # noqa: PLC0415
 
-            self._llm_client = LLMClient(semantic_cache=self._semantic_cache)
+            settings = get_settings()
+            self._llm_client = LLMClient(
+                api_key=settings.OPENROUTER_API_KEY,
+                base_url=settings.OPENROUTER_BASE_URL,
+                semantic_cache=self._semantic_cache,
+            )
         return self._llm_client
 
     @property
@@ -118,6 +125,25 @@ class AgentContainer:
                 )
         return self._browser_pool
 
+    @property
+    def telegram_adapter(self) -> Any | None:
+        """Return the Telegram channel adapter (reads from Valkey queue).
+
+        Returns ``None`` when Telegram credentials are not configured.
+        """
+        if self._telegram_adapter is None:
+            from src.core.config import get_settings  # noqa: PLC0415
+
+            settings = get_settings()
+            if settings.TELEGRAM_API_ID and settings.TELEGRAM_SESSION_STRING:
+                from src.adapters.telegram_channels import TelegramChannelAdapter  # noqa: PLC0415
+                from src.core.database import get_valkey  # noqa: PLC0415
+
+                self._telegram_adapter = TelegramChannelAdapter(
+                    valkey=get_valkey(),
+                )
+        return self._telegram_adapter
+
     # ------------------------------------------------------------------
     # Teardown
     # ------------------------------------------------------------------
@@ -176,13 +202,17 @@ class AgentContainer:
 def get_container() -> AgentContainer:
     """Return the module-level singleton container.
 
-    Creates the container on first call.  Thread-safe for sync callers
-    because Python's GIL protects the simple None check.
+    Creates the container on first call.  Uses double-checked locking
+    with a threading.Lock for thread safety.
     """
     global _container  # noqa: PLW0603
-    if _container is None:
+    if _container is not None:
+        return _container
+    with _container_lock:
+        if _container is not None:
+            return _container
         _container = AgentContainer()
-    return _container
+        return _container
 
 
 async def teardown_container() -> None:

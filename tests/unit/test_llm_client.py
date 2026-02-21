@@ -41,7 +41,7 @@ def _make_ai_response(content: str = "ok", tokens_in: int = 50, tokens_out: int 
 
 
 async def test_call_uses_primary_model_for_scout():
-    """LLMClient.call('scout', ...) should use claude-haiku-4-5 as primary."""
+    """LLMClient.call('scout', ...) should use deepseek-v3-2 as primary."""
     client = LLMClient(max_retries=1, base_backoff_seconds=0.0)
     mock_response = _make_ai_response("scout result", 80, 40)
 
@@ -52,8 +52,8 @@ async def test_call_uses_primary_model_for_scout():
 
         response, metrics = await client.call("scout", [HumanMessage(content="find jobs")])
 
-    assert metrics.model_id == "anthropic/claude-haiku-4.5"
-    assert metrics.provider == "anthropic"
+    assert metrics.model_id == "deepseek/deepseek-v3.2"
+    assert metrics.provider == "deepseek"
     assert metrics.was_fallback is False
     assert response.content == "scout result"
 
@@ -66,13 +66,13 @@ async def test_call_falls_back_on_rate_limit():
     with patch.object(client, "_invoke_with_retries") as mock_invoke:
         mock_invoke.side_effect = [
             LLMRateLimitError(
-                "Rate limit", model="anthropic/claude-haiku-4.5",
-                provider="anthropic", agent_name="scout",
+                "Rate limit", model="deepseek/deepseek-v3.2",
+                provider="deepseek", agent_name="scout",
             ),
             (mock_fallback_response, CallMetrics(
                 agent_name="scout",
-                model_id="openai/gpt-4o-mini",
-                provider="openai",
+                model_id="anthropic/claude-haiku-4.5",
+                provider="anthropic",
                 was_fallback=True,
                 attempt=1,
             )),
@@ -80,8 +80,8 @@ async def test_call_falls_back_on_rate_limit():
 
         response, metrics = await client.call("scout", [HumanMessage(content="find jobs")])
 
-    assert metrics.model_id == "openai/gpt-4o-mini"
-    assert metrics.provider == "openai"
+    assert metrics.model_id == "anthropic/claude-haiku-4.5"
+    assert metrics.provider == "anthropic"
     assert metrics.was_fallback is True
 
 
@@ -134,10 +134,10 @@ def test_agent_model_registry_completeness():
         f"Extra: {set(AGENT_MODEL_REGISTRY.keys()) - expected_agents}"
     )
 
-    for agent_name, (primary, fallback) in AGENT_MODEL_REGISTRY.items():
-        assert primary in MODELS, f"Agent '{agent_name}' primary model '{primary}' not in MODELS"
-        if fallback is not None:
-            assert fallback in MODELS, f"Agent '{agent_name}' fallback model '{fallback}' not in MODELS"
+    for agent_name, model_chain in AGENT_MODEL_REGISTRY.items():
+        assert len(model_chain) >= 2, f"Agent '{agent_name}' must have at least 2 models in chain"
+        for model_key in model_chain:
+            assert model_key in MODELS, f"Agent '{agent_name}' model '{model_key}' not in MODELS"
 
 
 # ---------------------------------------------------------------------------

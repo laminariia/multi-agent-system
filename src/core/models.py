@@ -5,7 +5,7 @@ modern ``Mapped`` / ``mapped_column`` annotation style.
 
 Key conventions:
 - UUIDs as primary keys (``gen_random_uuid()`` server-side default)
-- ``Vector(768)`` for Google text-embedding-004 embedding columns
+- ``Vector(3072)`` for OpenAI text-embedding-3-large embedding columns
 - DiskANN indexes for vector columns (NOT HNSW)
 - ``datetime.now(timezone.utc)`` for Python-side timestamp defaults
 - Async Alembic with asyncpg for migrations
@@ -41,6 +41,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 # Base
 # ---------------------------------------------------------------------------
 
+
 class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
 
@@ -53,6 +54,7 @@ class Base(DeclarativeBase):
 # Helper for UTC-now defaults
 # ---------------------------------------------------------------------------
 
+
 def _utcnow() -> datetime:
     return datetime.now(UTC)
 
@@ -61,11 +63,13 @@ def _utcnow() -> datetime:
 # 1. users
 # ---------------------------------------------------------------------------
 
+
 class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password_hash: Mapped[str | None] = mapped_column(String(255))
@@ -91,11 +95,13 @@ class User(Base):
 # 2. platform_accounts
 # ---------------------------------------------------------------------------
 
+
 class PlatformAccount(Base):
     __tablename__ = "platform_accounts"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     platform: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -112,20 +118,20 @@ class PlatformAccount(Base):
     user: Mapped[User] = relationship(back_populates="platform_accounts")
     bids: Mapped[list[Bid]] = relationship(back_populates="account")
 
-    __table_args__ = (
-        Index("idx_accounts_platform", "platform", "status"),
-    )
+    __table_args__ = (Index("idx_accounts_platform", "platform", "status"),)
 
 
 # ---------------------------------------------------------------------------
 # 3. jobs
 # ---------------------------------------------------------------------------
 
+
 class Job(Base):
     __tablename__ = "jobs"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
     platform: Mapped[str] = mapped_column(String(50), nullable=False)
     external_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -168,11 +174,13 @@ class Job(Base):
 # 4. bids
 # ---------------------------------------------------------------------------
 
+
 class Bid(Base):
     __tablename__ = "bids"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
     job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     account_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("platform_accounts.id"))
@@ -213,11 +221,13 @@ class Bid(Base):
 # 5. projects
 # ---------------------------------------------------------------------------
 
+
 class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
     bid_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("bids.id"))
     job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id"))
@@ -270,11 +280,13 @@ class Project(Base):
 # 6. tasks
 # ---------------------------------------------------------------------------
 
+
 class Task(Base):
     __tablename__ = "tasks"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     parent_task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id"))
@@ -316,11 +328,13 @@ class Task(Base):
 # 7. artifacts
 # ---------------------------------------------------------------------------
 
+
 class Artifact(Base):
     __tablename__ = "artifacts"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id"))
@@ -362,11 +376,13 @@ class Artifact(Base):
 # 8. hitl_queue
 # ---------------------------------------------------------------------------
 
+
 class HITLQueue(Base):
     __tablename__ = "hitl_queue"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
 
     type: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -415,11 +431,13 @@ class HITLQueue(Base):
 # 9. revisions
 # ---------------------------------------------------------------------------
 
+
 class Revision(Base):
     __tablename__ = "revisions"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
 
@@ -445,20 +463,20 @@ class Revision(Base):
     # Relationships
     project: Mapped[Project] = relationship(back_populates="revisions")
 
-    __table_args__ = (
-        Index("idx_revisions_project", "project_id", "status"),
-    )
+    __table_args__ = (Index("idx_revisions_project", "project_id", "status"),)
 
 
 # ---------------------------------------------------------------------------
 # 10. leads
 # ---------------------------------------------------------------------------
 
+
 class Lead(Base):
     __tablename__ = "leads"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
 
     # Business info
@@ -505,11 +523,13 @@ class Lead(Base):
 # 11. email_campaigns
 # ---------------------------------------------------------------------------
 
+
 class EmailCampaign(Base):
     __tablename__ = "email_campaigns"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -535,7 +555,8 @@ class EmailCampaign(Base):
 
     # Relationships
     campaign_leads: Mapped[list[CampaignLead]] = relationship(
-        back_populates="campaign", cascade="all, delete-orphan",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
     )
 
 
@@ -543,14 +564,17 @@ class EmailCampaign(Base):
 # 11b. campaign_leads (association table)
 # ---------------------------------------------------------------------------
 
+
 class CampaignLead(Base):
     __tablename__ = "campaign_leads"
 
     campaign_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("email_campaigns.id", ondelete="CASCADE"), primary_key=True,
+        ForeignKey("email_campaigns.id", ondelete="CASCADE"),
+        primary_key=True,
     )
     lead_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("leads.id", ondelete="CASCADE"), primary_key=True,
+        ForeignKey("leads.id", ondelete="CASCADE"),
+        primary_key=True,
     )
 
     status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
@@ -569,11 +593,13 @@ class CampaignLead(Base):
 # 12. agent_logs
 # ---------------------------------------------------------------------------
 
+
 class AgentLog(Base):
     __tablename__ = "agent_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
     agent_name: Mapped[str] = mapped_column(String(30), nullable=False)
 
@@ -612,6 +638,7 @@ class AgentLog(Base):
 # 13. agent_heartbeats
 # ---------------------------------------------------------------------------
 
+
 class AgentHeartbeat(Base):
     __tablename__ = "agent_heartbeats"
 
@@ -628,6 +655,7 @@ class AgentHeartbeat(Base):
 # 14. langgraph_checkpoints
 # ---------------------------------------------------------------------------
 
+
 class LanggraphCheckpoint(Base):
     __tablename__ = "langgraph_checkpoints"
 
@@ -641,14 +669,13 @@ class LanggraphCheckpoint(Base):
     requires_hitl: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
-    __table_args__ = (
-        Index("idx_checkpoints_thread", "thread_id", "created_at"),
-    )
+    __table_args__ = (Index("idx_checkpoints_thread", "thread_id", "created_at"),)
 
 
 # ---------------------------------------------------------------------------
 # 14b. langgraph_checkpoint_history
 # ---------------------------------------------------------------------------
+
 
 class LanggraphCheckpointHistory(Base):
     __tablename__ = "langgraph_checkpoint_history"
@@ -658,7 +685,9 @@ class LanggraphCheckpointHistory(Base):
     checkpoint_id: Mapped[str] = mapped_column(String(255), nullable=False)
     state_data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=text("now()"), default=_utcnow,
+        DateTime(timezone=True),
+        server_default=text("now()"),
+        default=_utcnow,
     )
 
     __table_args__ = (
@@ -671,11 +700,13 @@ class LanggraphCheckpointHistory(Base):
 # 15. knowledge_base
 # ---------------------------------------------------------------------------
 
+
 class KnowledgeBase(Base):
     __tablename__ = "knowledge_base"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
 
     type: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -684,8 +715,8 @@ class KnowledgeBase(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # Embedding for RAG — Google text-embedding-004 (768 dim)
-    embedding = mapped_column(Vector(768))
+    # Embedding for RAG — OpenAI text-embedding-3-large (3072 dim)
+    embedding = mapped_column(Vector(3072))
 
     # Stats
     usage_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
@@ -706,19 +737,21 @@ class KnowledgeBase(Base):
 # 16. semantic_cache
 # ---------------------------------------------------------------------------
 
+
 class SemanticCache(Base):
     __tablename__ = "semantic_cache"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
     query_hash: Mapped[str | None] = mapped_column(Text, unique=True)
     query: Mapped[str] = mapped_column(Text, nullable=False)
     response: Mapped[str] = mapped_column(Text, nullable=False)
     query_type: Mapped[str] = mapped_column(Text, default="default", server_default="default")
 
-    # Embedding — Google text-embedding-004 (768 dim)
-    embedding = mapped_column(Vector(768))
+    # Embedding — OpenAI text-embedding-3-large (3072 dim)
+    embedding = mapped_column(Vector(3072))
 
     hit_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -735,11 +768,13 @@ class SemanticCache(Base):
 # 17. ab_test_results
 # ---------------------------------------------------------------------------
 
+
 class ABTestResult(Base):
     __tablename__ = "ab_test_results"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
     test_name: Mapped[str] = mapped_column(String(100), nullable=False)
     variant_id: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -762,14 +797,13 @@ class ABTestResult(Base):
     job: Mapped[Job | None] = relationship(back_populates="ab_test_results")
     bid: Mapped[Bid | None] = relationship(back_populates="ab_test_results")
 
-    __table_args__ = (
-        Index("idx_ab_test", "test_name", "variant_id"),
-    )
+    __table_args__ = (Index("idx_ab_test", "test_name", "variant_id"),)
 
 
 # ---------------------------------------------------------------------------
 # 18. orchestrator_goals
 # ---------------------------------------------------------------------------
+
 
 class OrchestratorGoal(Base):
     """Orchestrator goal, shared between dashboard (Railway) and bot (local)."""
@@ -777,7 +811,8 @@ class OrchestratorGoal(Base):
     __tablename__ = "orchestrator_goals"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=text("gen_random_uuid()"),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
     goal_id: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -795,3 +830,24 @@ class OrchestratorGoal(Base):
         Index("idx_orch_goals_status", "status"),
         Index("idx_orch_goals_goal_id", "goal_id"),
     )
+
+
+# ---------------------------------------------------------------------------
+# 19. telegram_channels
+# ---------------------------------------------------------------------------
+
+
+class TelegramChannel(Base):
+    """Telegram channels monitored for freelance job postings."""
+
+    __tablename__ = "telegram_channels"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    title: Mapped[str | None] = mapped_column(String(500))
+    category: Mapped[str | None] = mapped_column(String(100))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (Index("idx_tg_channels_active", "active"),)

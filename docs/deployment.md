@@ -62,7 +62,8 @@ services:
       context: .
       dockerfile: Dockerfile.agents
     environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}    # Embeddings only
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - DATABASE_URL=postgresql://mas:${DB_PASSWORD}@postgres:5432/mas
       - VALKEY_URL=valkey://valkey:6379/0
@@ -169,9 +170,12 @@ VALKEY_URL=valkey://localhost:6379/0  # Redis-compatible protocol
 SECRET_KEY=your-secret-key-min-32-chars
 
 # ==================== LLM PROVIDERS ====================
-GEMINI_API_KEY=AIza...
-ANTHROPIC_API_KEY=sk-ant-...         # Claude Opus 4.6 (Planner, Dev)
-OPENAI_API_KEY=sk-...                # GPT 5.3 Codex (Critic Agent)
+# All LLM calls go through OpenRouter (single gateway)
+OPENROUTER_API_KEY=sk-or-...         # All models: DeepSeek, Claude, Gemini via OpenRouter
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+
+# Embeddings use OpenAI directly (not through OpenRouter)
+OPENAI_API_KEY=sk-...                # text-embedding-3-large (3072 dim) — embeddings only
 
 # ==================== PLATFORMS ====================
 # Freelancer.com

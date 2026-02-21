@@ -13,6 +13,7 @@ The Scout Agent:
 Role constraints: can READ jobs, CANNOT submit bids, CANNOT modify projects.
 LLM: Gemini 3 Flash (fallback Claude Haiku).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -52,7 +53,7 @@ _SCORE_BID_THRESHOLD = 0.7
 _SCORE_REVIEW_THRESHOLD = 0.5
 
 # Maximum jobs to evaluate in one LLM call to avoid context-window overflow.
-_MAX_JOBS_PER_BATCH = 25
+_MAX_JOBS_PER_BATCH = 10
 
 
 class ScoutAgent(ConstrainedAgent):
@@ -113,8 +114,16 @@ class ScoutAgent(ConstrainedAgent):
         rejected_jobs: list[dict[str, Any]] = []
 
         for batch_start in range(0, len(new_jobs), _MAX_JOBS_PER_BATCH):
-            batch = new_jobs[batch_start: batch_start + _MAX_JOBS_PER_BATCH]
-            scored = await self._score_jobs(batch)
+            batch = new_jobs[batch_start : batch_start + _MAX_JOBS_PER_BATCH]
+            try:
+                scored = await self._score_jobs(batch)
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to score batch of %d jobs, marking as review", len(batch))
+                for job in batch:
+                    job["match_score"] = 0.5
+                    job["score_reason"] = "scoring_failed"
+                    job["recommendation"] = "review"
+                scored = batch
 
             for scored_job in scored:
                 score = scored_job.get("match_score", 0.0)
@@ -169,10 +178,8 @@ class ScoutAgent(ConstrainedAgent):
         for platform_name, adapter in self.adapters.items():
             platform_names.append(platform_name)
             if platform_name == "freelancer":
-                tasks.append(
-                    asyncio.create_task(self._safe_fetch(platform_name, adapter.fetch_jobs, "websites", 20))
-                )
-            elif platform_name in ("flru", "kwork", "upwork"):
+                tasks.append(asyncio.create_task(self._safe_fetch(platform_name, adapter.fetch_jobs, "websites", 20)))
+            elif platform_name in ("flru", "kwork", "upwork", "telegram"):
                 tasks.append(asyncio.create_task(self._safe_fetch(platform_name, adapter.fetch_jobs)))
             else:
                 self._log.warning("unknown_platform_adapter", platform=platform_name)
@@ -234,10 +241,11 @@ class ScoutAgent(ConstrainedAgent):
 
         messages = [
             SystemMessage(content=SCOUT_SYSTEM_PROMPT),
-            HumanMessage(content=(
-                "Evaluate the following jobs and return a JSON array of scored objects.\n\n"
-                f"Jobs:\n{jobs_text}"
-            )),
+            HumanMessage(
+                content=(
+                    f"Evaluate the following jobs and return a JSON array of scored objects.\n\nJobs:\n{jobs_text}"
+                )
+            ),
         ]
 
         response_msg, _metrics = await self._call_llm(messages, temperature=0.2)
@@ -297,10 +305,13 @@ class ScoutAgent(ConstrainedAgent):
         *,
         status: str,
     ) -> list[str]:
-        """Insert scored jobs into the ``jobs`` table.
+        """Insert scored jobs into the ``jobs`` table using upsert (ON CONFLICT DO NOTHING).
 
         Returns a list of stringified UUIDs for the newly-created rows.
+        Duplicate (platform, external_id) pairs are silently skipped.
         """
+        from sqlalchemy.dialects.postgresql import insert as pg_insert  # noqa: PLC0415
+
         if not scored_jobs:
             return []
 
@@ -309,31 +320,29 @@ class ScoutAgent(ConstrainedAgent):
         async with get_db_session() as session:
             for sj in scored_jobs:
                 job_id = uuid.uuid4()
-                job = Job(
-                    id=job_id,
-                    platform=sj.get("platform", "unknown"),
-                    external_id=str(sj.get("external_id", sj.get("job_id", ""))),
-                    title=sj.get("title", "")[:500],
-                    description=sj.get("description", ""),
-                    budget_min=(
-                        Decimal(str(sj["budget_min"])) if sj.get("budget_min") is not None else None
-                    ),
-                    budget_max=(
-                        Decimal(str(sj["budget_max"])) if sj.get("budget_max") is not None else None
-                    ),
-                    currency=sj.get("currency", "USD"),
-                    skills_required=sj.get("skills_required"),
-                    score=Decimal(str(round(sj.get("match_score", 0.0), 2))),
-                    status=status,
-                    disqualify_reason=(
-                        sj.get("reasoning", "")[:255] if status == "disqualified" else None
-                    ),
-                    url=sj.get("url"),
-                    raw_data=sj.get("raw_data"),
-                    client_info=sj.get("client_info"),
+                values = {
+                    "id": job_id,
+                    "platform": sj.get("platform", "unknown"),
+                    "external_id": str(sj.get("external_id", sj.get("job_id", ""))),
+                    "title": sj.get("title", "")[:500],
+                    "description": sj.get("description", ""),
+                    "budget_min": (Decimal(str(sj["budget_min"])) if sj.get("budget_min") is not None else None),
+                    "budget_max": (Decimal(str(sj["budget_max"])) if sj.get("budget_max") is not None else None),
+                    "currency": sj.get("currency", "USD"),
+                    "skills_required": sj.get("skills_required"),
+                    "score": Decimal(str(round(sj.get("match_score", 0.0), 2))),
+                    "status": status,
+                    "disqualify_reason": (sj.get("reasoning", "")[:255] if status == "disqualified" else None),
+                    "url": sj.get("url"),
+                    "raw_data": sj.get("raw_data"),
+                    "client_info": sj.get("client_info"),
+                }
+                stmt = (
+                    pg_insert(Job).values(**values).on_conflict_do_nothing(index_elements=["platform", "external_id"])
                 )
-                session.add(job)
-                created_ids.append(str(job_id))
+                result = await session.execute(stmt)
+                if result.rowcount > 0:
+                    created_ids.append(str(job_id))
 
         self._log.info("jobs_stored", count=len(created_ids), status=status)
         return created_ids
@@ -384,10 +393,7 @@ class ScoutAgent(ConstrainedAgent):
                 id=uuid.uuid4(),
                 agent_name="scout",
                 event_type="scan_complete",
-                message=(
-                    f"Scout scan complete: {qualified} qualified, "
-                    f"{review} for review, {rejected} rejected"
-                ),
+                message=(f"Scout scan complete: {qualified} qualified, {review} for review, {rejected} rejected"),
                 details={
                     "qualified": qualified,
                     "review": review,
@@ -408,6 +414,7 @@ class ScoutAgent(ConstrainedAgent):
 # ======================================================================
 # Module-level node function for LangGraph
 # ======================================================================
+
 
 async def scout_node(state: AgentState) -> AgentState:
     """LangGraph node function that creates and invokes the Scout Agent.
@@ -436,6 +443,7 @@ async def scout_node(state: AgentState) -> AgentState:
     if user_id:
         try:
             from src.core.credential_loader import load_platform_credentials  # noqa: PLC0415
+
             db_creds = await load_platform_credentials("freelancer", user_id=user_id)
             if db_creds:
                 freelancer_id = db_creds.get("client_id", "") or freelancer_id
@@ -445,6 +453,7 @@ async def scout_node(state: AgentState) -> AgentState:
 
     if freelancer_id:
         from src.adapters.freelancer import FreelancerClient  # noqa: PLC0415
+
         adapters["freelancer"] = FreelancerClient(
             client_id=freelancer_id,
             client_secret=freelancer_secret,
@@ -452,6 +461,11 @@ async def scout_node(state: AgentState) -> AgentState:
 
     # FL.ru is always available (public RSS, no auth required).
     adapters["flru"] = FlRuClient()
+
+    # Telegram channel adapter (reads from Valkey queue, no auth needed here).
+    telegram_adapter = container.telegram_adapter
+    if telegram_adapter is not None:
+        adapters["telegram"] = telegram_adapter
 
     # Browser-based adapters (use shared pool from container).
     pool = container.browser_pool

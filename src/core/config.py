@@ -10,7 +10,7 @@ import json
 import logging
 from functools import lru_cache
 
-from pydantic import computed_field
+from pydantic import computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _logger = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     # ── Browser Pool ──────────────────────────────────────────────────────
     BROWSER_POOL_MAX: int = 3
     BROWSER_PROXY_ROTATION_MINUTES: int = 45
-    BROWSER_HEADLESS: bool = False
+    BROWSER_HEADLESS: bool = True
 
     # ── Auth ─────────────────────────────────────────────────────────────
     JWT_SECRET_KEY: str = "change-me-in-production"  # noqa: S105
@@ -98,11 +98,11 @@ class Settings(BaseSettings):
 
     # ── Semantic Cache ────────────────────────────────────────────────
     SEMANTIC_CACHE_SIMILARITY_THRESHOLD: float = 0.92
-    SEMANTIC_CACHE_TTL_PROPOSAL: int = 86_400       # 24 h
-    SEMANTIC_CACHE_TTL_CODE: int = 3_600             # 1 h
-    SEMANTIC_CACHE_TTL_CONTENT: int = 43_200         # 12 h
-    SEMANTIC_CACHE_TTL_TRANSLATION: int = 604_800    # 7 d
-    SEMANTIC_CACHE_TTL_DEFAULT: int = 21_600         # 6 h
+    SEMANTIC_CACHE_TTL_PROPOSAL: int = 86_400  # 24 h
+    SEMANTIC_CACHE_TTL_CODE: int = 3_600  # 1 h
+    SEMANTIC_CACHE_TTL_CONTENT: int = 43_200  # 12 h
+    SEMANTIC_CACHE_TTL_TRANSLATION: int = 604_800  # 7 d
+    SEMANTIC_CACHE_TTL_DEFAULT: int = 21_600  # 6 h
 
     # ── Scheduler ────────────────────────────────────────────────────
     SCOUT_INTERVAL_MINUTES: int = 5
@@ -118,9 +118,16 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = ""
     MAX_EMAILS_PER_DAY: int = 50
+    EMAIL_STAGGER_MIN_SECONDS: int = 30
+    EMAIL_STAGGER_MAX_SECONDS: int = 60
+    EMAIL_HTML_ENABLED: bool = True
+
+    # ── Admin Seed ──────────────────────────────────────────────────────
+    ADMIN_EMAIL: str = ""
+    ADMIN_PASSWORD: str = ""
 
     # ── Application ────────────────────────────────────────────────────
-    APP_VERSION: str = "1.0.0"
+    APP_VERSION: str = "4.2.0"
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
 
@@ -128,9 +135,30 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str | None = None
     TELEGRAM_CHAT_ID: str | None = None
 
+    # ── Telegram Channel Monitoring (Telethon MTProto) ────────────────
+    TELEGRAM_API_ID: int | None = None
+    TELEGRAM_API_HASH: str | None = None
+    TELEGRAM_SESSION_STRING: str | None = None
+
     # ── Monitoring ───────────────────────────────────────────────────────
     LANGSMITH_API_KEY: str | None = None
     SENTRY_DSN: str | None = None
+
+    # ── Validators ──────────────────────────────────────────────────────
+
+    @model_validator(mode="after")
+    def _check_production_secrets(self) -> Settings:
+        """Refuse to start in production with default secrets."""
+        if not self.DEBUG:
+            if self.JWT_SECRET_KEY == "change-me-in-production":  # noqa: S105
+                raise ValueError("CRITICAL: JWT_SECRET_KEY must be changed in production")
+            if self.ENCRYPTION_KEY == "change-me-in-production":  # noqa: S105
+                raise ValueError("CRITICAL: ENCRYPTION_KEY must be changed in production")
+            if not self.OPENROUTER_API_KEY:
+                raise ValueError("CRITICAL: OPENROUTER_API_KEY must be set in production")
+            if not self.OPENAI_API_KEY:
+                _logger.warning("OPENAI_API_KEY is not set -- embeddings will be unavailable")
+        return self
 
     # ── Computed ─────────────────────────────────────────────────────────
 

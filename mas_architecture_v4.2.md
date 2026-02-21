@@ -73,7 +73,7 @@ This architecture defines a **10-agent Multi-Agent System (MAS)** for automating
 | **Dev** | Code generation (Full-stack) | **Claude Opus 4.6** | Docker Sandbox, Git |
 | **Content** | Copywriting, docs | Gemini 3 Flash | RAG, Templates |
 | **Design** | UI/UX, graphics | **Gemini 3 Pro** (NanoBanana Pro) | Figma API, Image Generation |
-| **Critic** | Code review + **Semgrep** | **GPT 5.3 Codex** | Semgrep, Linters |
+| **Critic** | Code review + **Semgrep** | **Claude Sonnet 4.5** | Semgrep, Linters |
 | **Packager** | Final assembly & delivery | Gemini 3 Flash | ZIP, Upload APIs |
 
 ### Pipeline B: Cold Outreach
@@ -390,7 +390,7 @@ LLM receives semantically similar prompts repeatedly, wasting tokens.
 ### Solution: Vector-Based Response Cache
 
 ```python
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 import numpy as np
 from typing import Optional
 import hashlib
@@ -398,7 +398,7 @@ import hashlib
 class SemanticCache:
     """Cache LLM responses by semantic similarity.
 
-    Uses Google text-embedding-004 (768 dim) — must match Valkey/PostgreSQL index dimensions.
+    Uses OpenAI text-embedding-3-large (3072 dim) — must match Valkey/PostgreSQL index dimensions.
     See TECH_STACK.md for canonical embedding model.
     """
 
@@ -406,9 +406,9 @@ class SemanticCache:
 
     def __init__(self, redis_client):
         self.redis = redis_client
-        self.embeddings_model = GoogleGenerativeAIEmbeddings(
-            model="models/text-embedding-004"
-        )  # 768 dimensions
+        self.embeddings_model = OpenAIEmbeddings(
+            model="text-embedding-3-large"
+        )  # 3072 dimensions
         self.embeddings: dict[str, np.ndarray] = {}
 
     async def get_or_generate(
@@ -419,7 +419,7 @@ class SemanticCache:
     ) -> tuple[str, bool]:
         """Returns (response, was_cached)."""
 
-        # Generate embedding for prompt (768 dim)
+        # Generate embedding for prompt (3072 dim)
         prompt_embedding = np.array(
             await self.embeddings_model.aembed_query(prompt)
         )
@@ -603,11 +603,11 @@ class H3GeoScanner:
 
 ### Monthly Operating Costs
 
-> Пересчитано с учётом Claude Opus 4.6 (Planner+Dev) + GPT 5.3 Codex (Critic).
+> Пересчитано с учётом Claude Opus 4.6 (Planner+Dev) + Claude Sonnet 4.5 (Critic). All LLM calls via OpenRouter; only embeddings use OpenAI directly.
 
 | Component | v4.1 Estimate | v4.2 Estimate | Change |
 |-----------|---------------|---------------|--------|
-| LLM API (Gemini + Claude Opus 4.6 + GPT 5.3 Codex) | $130-260 | **$450-600** | Claude Opus дорогой! |
+| LLM API (OpenRouter: DeepSeek + Claude Opus 4.6 + Sonnet 4.5) | $130-260 | **$391** | Via OpenRouter |
 | Docker/E2B Sandboxes | $80-150 | $50-100 | Docker дешевле |
 | Lead Enrichment | $40-100 | $40-100 | = (Waterfall) |
 | Valkey/Postgres | $50-90 | $50-90 | = |

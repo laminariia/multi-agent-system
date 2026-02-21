@@ -149,6 +149,7 @@ class AuthController(Controller):
         "/login",
         summary="Authenticate with email and password",
         exclude_from_auth=True,
+        status_code=200,
     )
     async def login(
         self,
@@ -207,6 +208,7 @@ class AuthController(Controller):
         "/refresh",
         summary="Refresh an access token",
         exclude_from_auth=True,
+        status_code=200,
     )
     async def refresh(
         self,
@@ -258,6 +260,7 @@ class AuthController(Controller):
     @post(
         "/logout",
         summary="Invalidate the current access token",
+        status_code=200,
     )
     async def logout(
         self,
@@ -310,6 +313,7 @@ class AuthController(Controller):
     @post(
         "/telegram/link",
         summary="Link a Telegram account using a bot-generated code",
+        status_code=200,
     )
     async def telegram_link(
         self,

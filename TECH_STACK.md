@@ -20,7 +20,7 @@
 | **Database** | PostgreSQL | 16+ | With extensions below |
 | **Vector Search** | pgvectorscale | latest | DiskANN indexes (11x faster than HNSW) |
 | **Vector Types** | pgvector | 0.7+ | Required for pgvectorscale |
-| **Embeddings** | Google text-embedding-004 | 768 dim | Embedding model for vector search |
+| **Embeddings** | OpenAI text-embedding-3-large | 3072 dim | Embedding model for vector search |
 | **Cache/Queue** | Valkey | 8.1 | Redis-compatible fork |
 | **Frontend** | Remix | 2.x | NOT Next.js |
 | **UI Components** | shadcn/ui | latest | With Tailwind CSS |
@@ -169,38 +169,78 @@ def choose_sandbox(estimated_time_minutes: int) -> str:
 > This is the **single source of truth** for agent → LLM mapping.
 > All other documents MUST match this table.
 
-| Agent | Primary Model | Fallback | Cost Tier | Rationale |
-|-------|--------------|----------|-----------|-----------|
-| **Scout** | Gemini 3 Flash | Claude Haiku | Low | High volume, cheap filtering |
-| **Bid** | Gemini 3 Flash | Claude Haiku | Low | Template-based generation |
-| **Planner** | **Claude Opus 4.6** | Gemini 3 Pro | High | Complex task decomposition |
-| **Dev** | **Claude Opus 4.6** | Gemini 3 Pro | High | Production-quality code generation |
-| **Content** | Gemini 3 Flash | Claude Haiku | Low | Copywriting, documentation |
-| **Design** | **Gemini 3 Pro** (NanoBanana Pro) | Gemini 3 Flash | Medium | Image generation requires Pro |
-| **Critic** | **GPT 5.3 Codex** | Gemini 3 Pro | High | Best-in-class code review |
-| **Packager** | Gemini 3 Flash | — | Low | Simple assembly tasks |
-| **GeoScout** | Gemini 3 Flash | — | Low | Data filtering |
-| **Outreach** | Gemini 3 Flash | — | Low | Email generation |
+> **API Gateway:** All LLM calls go through **OpenRouter** (`OPENROUTER_API_KEY`).
+> Exception: Embeddings use **OpenAI API** directly (`OPENAI_API_KEY`).
+
+| Agent | Primary Model | OpenRouter ID | Fallback 1 | Fallback 2 | Cost Tier |
+|-------|--------------|---------------|------------|------------|-----------|
+| **Scout** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Grok 4.1 Fast | Local Qwen3-4B | Low |
+| **Bid** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Claude Haiku 3.5 | — | Low |
+| **Planner** | Claude Opus 4.6 | `anthropic/claude-opus-4.6` | DeepSeek R1 | Gemini 3 Pro | High |
+| **Dev** (complex) | Claude Opus 4.6 | `anthropic/claude-opus-4.6` | DeepSeek V3.2 | Qwen3-Coder-Next | High |
+| **Dev** (standard) | Claude Sonnet 4.5 | `anthropic/claude-sonnet-4.5` | DeepSeek V3.2 | Qwen3-Coder-Next | Medium |
+| **Content** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Gemini 3 Flash | — | Low |
+| **Design** | NanoBanana Pro | `google/gemini-3-pro-image-preview` | Gemini 3 Flash | — | Medium |
+| **Critic** | Claude Sonnet 4.5 | `anthropic/claude-sonnet-4.5` | DeepSeek R1 | GPT-5.2 Codex | High |
+| **Packager** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Grok 4.1 Fast | — | Low |
+| **GeoScout** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Grok 4.1 Fast | Local Qwen3-4B | Low |
+| **Outreach** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Gemini 3 Flash | — | Low |
 
 ### Supplementary Models
 
-| Task Type | Model | Notes |
-|-----------|-------|-------|
-| Embeddings | Google text-embedding-004 (768 dim) | Vector search, semantic cache |
-| Fast image drafts | Gemini 3 Flash Image | Quick concept exploration |
+| Task Type | Model | Provider | Notes |
+|-----------|-------|----------|-------|
+| Embeddings | OpenAI text-embedding-3-large (3072 dim) | OpenAI API direct | Vector search, semantic cache |
+| Fast image drafts | Gemini 3 Flash | OpenRouter | Quick concept exploration |
+
+### Dev Agent Routing Logic
+
+Planner tags each task with complexity. Dev Agent selects model accordingly:
+- `complexity: "complex"` → Claude Opus 4.6 (architecture, multi-file, new modules)
+- `complexity: "standard"` → Claude Sonnet 4.5 (bug fixes, single-file, routine code)
 
 ### NanoBanana Pro
 
-**NanoBanana Pro** = Gemini 3 Pro Image Generation (`gemini-3-pro-image-preview`).
+**NanoBanana Pro** = Gemini 3 Pro Image Generation (`google/gemini-3-pro-image-preview`).
 Used by Design Agent for high-quality image generation: logos with text, infographics, marketing materials.
-- 4K native resolution (2048x2048)
-- 94-97% text accuracy
-- Thinking mode for complex prompts
+- 2K/4K output resolution, flexible aspect ratios
+- Industry-leading text rendering in images
+- Context: 65K tokens
 
-**Model naming convention (API model IDs):**
-- Gemini: `gemini-3-flash`, `gemini-3-pro`
-- Claude: `claude-opus-4-6`, `claude-haiku-4-5`
-- GPT: `gpt-5.3-codex`
+### OpenRouter Model Reference
+
+| Model | OpenRouter ID | $/1M in | $/1M out | Context |
+|-------|---------------|---------|----------|---------|
+| DeepSeek V3.2 | `deepseek/deepseek-v3.2` | $0.25 | $0.38 | 164K |
+| DeepSeek R1 | `deepseek/deepseek-r1` | $0.70 | $2.50 | 64K |
+| Claude Opus 4.6 | `anthropic/claude-opus-4.6` | $5.00 | $25.00 | 1M |
+| Claude Sonnet 4.5 | `anthropic/claude-sonnet-4.5` | $3.00 | $15.00 | 1M |
+| Claude Haiku 3.5 | `anthropic/claude-3.5-haiku` | $0.80 | $4.00 | 200K |
+| NanoBanana Pro | `google/gemini-3-pro-image-preview` | $2.00 | $12.00 | 65K |
+| Gemini 3 Flash | `google/gemini-3-flash-preview` | $0.50 | $3.00 | 1M |
+| Gemini 3 Pro | `google/gemini-3-pro-preview` | $2.00 | $12.00 | 1M |
+| GPT-5.2 | `openai/gpt-5.2` | $1.75 | $14.00 | 400K |
+| GPT-5.2 Codex | `openai/gpt-5.2-codex` | $1.75 | $14.00 | 400K |
+| Grok 4.1 Fast | `x-ai/grok-4.1-fast` | $0.20 | $0.50 | 2M |
+| Qwen3-Coder-Next | `qwen/qwen3-coder-next` | $0.07 | $0.30 | 262K |
+
+### Monthly Cost Estimate (~$391/mo at full 24/7 load)
+
+| Agent | Model | $/mo |
+|-------|-------|------|
+| Scout | DeepSeek V3.2 | $14 |
+| Bid | DeepSeek V3.2 | $6 |
+| Planner | Claude Opus 4.6 | $41 |
+| Dev (complex 30%) | Claude Opus 4.6 | $41 |
+| Dev (standard 70%) | Claude Sonnet 4.5 | $57 |
+| Content | DeepSeek V3.2 | $3 |
+| Design | NanoBanana Pro | $30 |
+| Critic | Claude Sonnet 4.5 | $176 |
+| Packager | DeepSeek V3.2 | $1 |
+| GeoScout | DeepSeek V3.2 | $6 |
+| Outreach | DeepSeek V3.2 | $11 |
+| Embeddings | text-embedding-3-large | $5 |
+| **Total** | | **~$391** |
 
 ### Platform Status
 
@@ -235,10 +275,12 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;       -- Text search (optional)
 DATABASE_URL=postgresql://user:pass@localhost:5432/mas
 VALKEY_URL=valkey://localhost:6379
 
-# ==================== LLM APIs ====================
-GEMINI_API_KEY=
-ANTHROPIC_API_KEY=          # Claude Opus 4.6 (Planner, Dev)
-OPENAI_API_KEY=             # GPT 5.3 Codex (Critic Agent)
+# ==================== LLM (OpenRouter — single gateway for all models) ====================
+OPENROUTER_API_KEY=         # All LLM calls: https://openrouter.ai/keys
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+
+# ==================== EMBEDDINGS (OpenAI direct) ====================
+OPENAI_API_KEY=             # text-embedding-3-large (3072 dim)
 
 # ==================== SANDBOX ====================
 E2B_API_KEY=                # For quick tests only (<5 min)

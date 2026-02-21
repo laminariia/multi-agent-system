@@ -214,6 +214,7 @@ class HITLController(Controller):
         "/{hitl_id:uuid}/resolve",
         summary="Resolve a HITL item",
         guards=[require_role("owner", "co_owner")],
+        status_code=200,
     )
     async def resolve(
         self,
@@ -381,6 +382,7 @@ class HITLController(Controller):
         "/bulk-resolve",
         summary="Bulk resolve multiple HITL items",
         guards=[require_role("owner", "co_owner")],
+        status_code=200,
     )
     async def bulk_resolve(
         self,

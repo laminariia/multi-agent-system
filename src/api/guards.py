@@ -168,6 +168,7 @@ def create_access_token(user: User) -> str:
     return jwt_auth.create_token(
         identifier=str(user.id),
         token_expiration=timedelta(minutes=_settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES),
+        token_unique_jwt_id=uuid.uuid4().hex,
         token_extras={"email": user.email, "role": user.role},
     )
 
@@ -181,5 +182,6 @@ def create_refresh_token(user: User) -> str:
     return jwt_auth.create_token(
         identifier=str(user.id),
         token_expiration=timedelta(days=_settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS),
+        token_unique_jwt_id=uuid.uuid4().hex,
         token_extras={"type": "refresh", "email": user.email, "role": user.role},
     )

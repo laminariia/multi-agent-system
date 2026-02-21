@@ -1,6 +1,6 @@
 """Unit tests for src/knowledge/embedding_service.py.
 
-Tests _TokenBucket rate limiter and EmbeddingService wrapper around Google embeddings.
+Tests _TokenBucket rate limiter and EmbeddingService wrapper around OpenAI embeddings.
 """
 
 from __future__ import annotations
@@ -25,12 +25,12 @@ def mock_time() -> _patch:
 
 
 @pytest.fixture
-def mock_google_embeddings() -> _patch:
-    """Mock GoogleGenerativeAIEmbeddings to avoid real API calls."""
-    with patch("src.knowledge.embedding_service.GoogleGenerativeAIEmbeddings") as mock_cls:
+def mock_openai_embeddings() -> _patch:
+    """Mock OpenAIEmbeddings to avoid real API calls."""
+    with patch("src.knowledge.embedding_service.OpenAIEmbeddings") as mock_cls:
         mock_instance = MagicMock()
-        mock_instance.aembed_query = AsyncMock(return_value=[0.1] * 768)
-        mock_instance.aembed_documents = AsyncMock(return_value=[[0.1] * 768, [0.2] * 768])
+        mock_instance.aembed_query = AsyncMock(return_value=[0.1] * 3072)
+        mock_instance.aembed_documents = AsyncMock(return_value=[[0.1] * 3072, [0.2] * 3072])
         mock_cls.return_value = mock_instance
         yield mock_cls
 
@@ -127,66 +127,66 @@ class TestTokenBucket:
 class TestEmbeddingServiceInit:
     """Tests for EmbeddingService initialization."""
 
-    def test_embedding_service_init_with_default_params(self, mock_google_embeddings):
+    def test_embedding_service_init_with_default_params(self, mock_openai_embeddings):
         """Creates EmbeddingService with default params."""
         from src.knowledge.embedding_service import EmbeddingService
 
         service = EmbeddingService(api_key="test-key-123")  # noqa: S106
-        assert service._dim == 768
-        assert service._bucket._capacity == 1500
-        mock_google_embeddings.assert_called_once()
+        assert service._dim == 3072
+        assert service._bucket._capacity == 3000
+        mock_openai_embeddings.assert_called_once()
 
-    def test_embedding_service_init_with_custom_api_key(self, mock_google_embeddings):
+    def test_embedding_service_init_with_custom_api_key(self, mock_openai_embeddings):
         """Creates with custom api_key."""
         from src.knowledge.embedding_service import EmbeddingService
 
         service = EmbeddingService(api_key="custom-key-456")  # noqa: S106
-        assert service._dim == 768
-        mock_google_embeddings.assert_called_once()
-        call_kwargs = mock_google_embeddings.call_args.kwargs
-        assert call_kwargs["google_api_key"] == "custom-key-456"  # noqa: S105
+        assert service._dim == 3072
+        mock_openai_embeddings.assert_called_once()
+        call_kwargs = mock_openai_embeddings.call_args.kwargs
+        assert call_kwargs["openai_api_key"] == "custom-key-456"  # noqa: S105
 
-    def test_embedding_service_init_with_custom_max_rpm(self, mock_google_embeddings):
+    def test_embedding_service_init_with_custom_max_rpm(self, mock_openai_embeddings):
         """Creates with custom max_rpm."""
         from src.knowledge.embedding_service import EmbeddingService
 
         service = EmbeddingService(api_key="test-key", max_rpm=500)
         assert service._bucket._capacity == 500
 
-    def test_embedding_service_init_fallback_to_env_var(self, mock_google_embeddings, monkeypatch):
-        """Falls back to GEMINI_API_KEY env var."""
+    def test_embedding_service_init_fallback_to_env_var(self, mock_openai_embeddings, monkeypatch):
+        """Falls back to OPENAI_API_KEY env var."""
         from src.knowledge.embedding_service import EmbeddingService
 
-        monkeypatch.setenv("GEMINI_API_KEY", "env-key-789")
+        monkeypatch.setenv("OPENAI_API_KEY", "env-key-789")
         service = EmbeddingService()
-        assert service._dim == 768
-        call_kwargs = mock_google_embeddings.call_args.kwargs
-        assert call_kwargs["google_api_key"] == "env-key-789"
+        assert service._dim == 3072
+        call_kwargs = mock_openai_embeddings.call_args.kwargs
+        assert call_kwargs["openai_api_key"] == "env-key-789"
 
-    def test_embedding_service_dimension_property_returns_768(self, mock_google_embeddings):
-        """Dimension property returns 768."""
+    def test_embedding_service_dimension_property_returns_3072(self, mock_openai_embeddings):
+        """Dimension property returns 3072."""
         from src.knowledge.embedding_service import EmbeddingService
 
         service = EmbeddingService(api_key="test-key")
-        assert service.dimension == 768
+        assert service.dimension == 3072
 
 
 class TestEmbeddingServiceEmbedText:
     """Tests for EmbeddingService.embed_text."""
 
     @pytest.mark.asyncio
-    async def test_embed_text_success_returns_vector(self, mock_google_embeddings):
+    async def test_embed_text_success_returns_vector(self, mock_openai_embeddings):
         """embed_text success returns vector."""
         from src.knowledge.embedding_service import EmbeddingService
 
         service = EmbeddingService(api_key="test-key")
         result = await service.embed_text("test text")
         assert isinstance(result, list)
-        assert len(result) == 768
+        assert len(result) == 3072
         assert all(isinstance(x, float) for x in result)
 
     @pytest.mark.asyncio
-    async def test_embed_text_calls_acquire(self, mock_google_embeddings):
+    async def test_embed_text_calls_acquire(self, mock_openai_embeddings):
         """embed_text calls token bucket acquire."""
         from src.knowledge.embedding_service import EmbeddingService
 
@@ -196,7 +196,7 @@ class TestEmbeddingServiceEmbedText:
             mock_acquire.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_embed_text_propagates_errors(self, mock_google_embeddings):
+    async def test_embed_text_propagates_errors(self, mock_openai_embeddings):
         """embed_text propagates errors from embedding client."""
         from src.knowledge.embedding_service import EmbeddingService
 
@@ -206,7 +206,7 @@ class TestEmbeddingServiceEmbedText:
             await service.embed_text("test")
 
     @pytest.mark.asyncio
-    async def test_embed_text_logs_on_error(self, mock_google_embeddings, caplog):
+    async def test_embed_text_logs_on_error(self, mock_openai_embeddings, caplog):
         """embed_text logs error details."""
         from src.knowledge.embedding_service import EmbeddingService
 
@@ -220,7 +220,7 @@ class TestEmbeddingServiceEmbedBatch:
     """Tests for EmbeddingService.embed_batch."""
 
     @pytest.mark.asyncio
-    async def test_embed_batch_empty_list_returns_empty(self, mock_google_embeddings):
+    async def test_embed_batch_empty_list_returns_empty(self, mock_openai_embeddings):
         """embed_batch with empty list returns []."""
         from src.knowledge.embedding_service import EmbeddingService
 
@@ -229,26 +229,26 @@ class TestEmbeddingServiceEmbedBatch:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_embed_batch_single_batch(self, mock_google_embeddings):
+    async def test_embed_batch_single_batch(self, mock_openai_embeddings):
         """embed_batch handles single batch."""
         from src.knowledge.embedding_service import EmbeddingService
 
         service = EmbeddingService(api_key="test-key")
-        service._embeddings.aembed_documents = AsyncMock(return_value=[[0.1] * 768, [0.2] * 768])
+        service._embeddings.aembed_documents = AsyncMock(return_value=[[0.1] * 3072, [0.2] * 3072])
         result = await service.embed_batch(["text1", "text2"])
         assert len(result) == 2
-        assert len(result[0]) == 768
+        assert len(result[0]) == 3072
 
     @pytest.mark.asyncio
-    async def test_embed_batch_multi_batch_with_sleep(self, mock_google_embeddings):
+    async def test_embed_batch_multi_batch_with_sleep(self, mock_openai_embeddings):
         """embed_batch handles multiple batches with sleep."""
         from src.knowledge.embedding_service import EmbeddingService
 
         service = EmbeddingService(api_key="test-key")
         service._embeddings.aembed_documents = AsyncMock(
             side_effect=[
-                [[0.1] * 768, [0.2] * 768],
-                [[0.3] * 768],
+                [[0.1] * 3072, [0.2] * 3072],
+                [[0.3] * 3072],
             ]
         )
         with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
@@ -257,29 +257,29 @@ class TestEmbeddingServiceEmbedBatch:
             mock_sleep.assert_awaited_once_with(0.1)
 
     @pytest.mark.asyncio
-    async def test_embed_batch_no_sleep_on_last_batch(self, mock_google_embeddings):
+    async def test_embed_batch_no_sleep_on_last_batch(self, mock_openai_embeddings):
         """embed_batch does not sleep after last batch."""
         from src.knowledge.embedding_service import EmbeddingService
 
         service = EmbeddingService(api_key="test-key")
-        service._embeddings.aembed_documents = AsyncMock(return_value=[[0.1] * 768, [0.2] * 768])
+        service._embeddings.aembed_documents = AsyncMock(return_value=[[0.1] * 3072, [0.2] * 3072])
         with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await service.embed_batch(["t1", "t2"], batch_size=5)
             mock_sleep.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_embed_batch_acquires_token_per_text(self, mock_google_embeddings):
+    async def test_embed_batch_acquires_token_per_text(self, mock_openai_embeddings):
         """embed_batch acquires one token per text."""
         from src.knowledge.embedding_service import EmbeddingService
 
         service = EmbeddingService(api_key="test-key")
-        service._embeddings.aembed_documents = AsyncMock(return_value=[[0.1] * 768, [0.2] * 768, [0.3] * 768])
+        service._embeddings.aembed_documents = AsyncMock(return_value=[[0.1] * 3072, [0.2] * 3072, [0.3] * 3072])
         with patch.object(service._bucket, "acquire", new_callable=AsyncMock) as mock_acquire:
             await service.embed_batch(["t1", "t2", "t3"], batch_size=10)
             assert mock_acquire.await_count == 3
 
     @pytest.mark.asyncio
-    async def test_embed_batch_propagates_errors(self, mock_google_embeddings):
+    async def test_embed_batch_propagates_errors(self, mock_openai_embeddings):
         """embed_batch propagates errors from embedding client."""
         from src.knowledge.embedding_service import EmbeddingService
 
@@ -289,16 +289,16 @@ class TestEmbeddingServiceEmbedBatch:
             await service.embed_batch(["text1", "text2"])
 
     @pytest.mark.asyncio
-    async def test_embed_batch_custom_batch_size(self, mock_google_embeddings):
+    async def test_embed_batch_custom_batch_size(self, mock_openai_embeddings):
         """embed_batch respects custom batch_size."""
         from src.knowledge.embedding_service import EmbeddingService
 
         service = EmbeddingService(api_key="test-key")
         service._embeddings.aembed_documents = AsyncMock(
             side_effect=[
-                [[0.1] * 768],
-                [[0.2] * 768],
-                [[0.3] * 768],
+                [[0.1] * 3072],
+                [[0.2] * 3072],
+                [[0.3] * 3072],
             ]
         )
         result = await service.embed_batch(["t1", "t2", "t3"], batch_size=1)
@@ -310,19 +310,19 @@ class TestModuleConstants:
     """Tests for module-level constants."""
 
     def test_default_max_requests_per_minute(self):
-        """_DEFAULT_MAX_REQUESTS_PER_MINUTE is 1500."""
+        """_DEFAULT_MAX_REQUESTS_PER_MINUTE is 3000."""
         from src.knowledge.embedding_service import _DEFAULT_MAX_REQUESTS_PER_MINUTE
 
-        assert _DEFAULT_MAX_REQUESTS_PER_MINUTE == 1500
+        assert _DEFAULT_MAX_REQUESTS_PER_MINUTE == 3000
 
     def test_embedding_model(self):
         """_EMBEDDING_MODEL is correct."""
         from src.knowledge.embedding_service import _EMBEDDING_MODEL
 
-        assert _EMBEDDING_MODEL == "models/text-embedding-004"
+        assert _EMBEDDING_MODEL == "text-embedding-3-large"
 
     def test_embedding_dimension(self):
-        """_EMBEDDING_DIM is 768."""
+        """_EMBEDDING_DIM is 3072."""
         from src.knowledge.embedding_service import _EMBEDDING_DIM
 
-        assert _EMBEDDING_DIM == 768
+        assert _EMBEDDING_DIM == 3072

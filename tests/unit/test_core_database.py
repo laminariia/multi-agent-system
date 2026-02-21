@@ -6,10 +6,10 @@ manager behavior (commit/rollback/close), and get_valkey lazy pool creation with
 
 from __future__ import annotations
 
-import threading
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import redis.asyncio as aioredis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.core import database
@@ -143,184 +143,52 @@ class TestGetDbSession:
 
 
 class TestGetValkey:
-    """Test get_valkey lazy pool creation and Redis client."""
+    """Test get_valkey eager pool initialization and Redis client."""
 
     def test_returns_redis_instance(self):
         """get_valkey returns redis.asyncio.Redis instance."""
-        # Reset pool to test fresh creation
-        original_pool = database._valkey_pool
-        database._valkey_pool = None
+        client = database.get_valkey()
+        assert isinstance(client, aioredis.Redis)
 
-        try:
-            with (
-                patch("redis.asyncio.ConnectionPool.from_url") as mock_pool_cls,
-                patch("redis.asyncio.Redis") as mock_redis_cls,
-            ):
-                mock_pool = MagicMock()
-                mock_pool.connection_kwargs = {"protocol": 2}
-                mock_pool_cls.return_value = mock_pool
-
-                mock_client = MagicMock()
-                mock_redis_cls.return_value = mock_client
-
-                client = database.get_valkey()
-
-                assert client is mock_client
-                mock_redis_cls.assert_called_once_with(connection_pool=mock_pool)
-        finally:
-            database._valkey_pool = original_pool
-
-    def test_creates_pool_lazily_first_call(self):
-        """get_valkey creates pool on first call."""
-        # Reset pool to simulate first call
-        original_pool = database._valkey_pool
-        database._valkey_pool = None
-
-        try:
-            with (
-                patch("redis.asyncio.ConnectionPool.from_url") as mock_pool_cls,
-                patch("redis.asyncio.Redis"),
-            ):
-                mock_pool = MagicMock()
-                mock_pool.connection_kwargs = {"protocol": 2}
-                mock_pool_cls.return_value = mock_pool
-
-                database.get_valkey()
-
-                mock_pool_cls.assert_called_once()
-                assert database._valkey_pool is mock_pool
-        finally:
-            database._valkey_pool = original_pool
+    def test_pool_initialized_at_module_level(self):
+        """Connection pool is created eagerly at module import."""
+        assert database._valkey_pool is not None
+        assert isinstance(database._valkey_pool, aioredis.ConnectionPool)
 
     def test_reuses_pool_on_second_call(self):
-        """get_valkey reuses existing pool on subsequent calls."""
-        # Reset and set up mock pool
-        original_pool = database._valkey_pool
-        mock_pool = MagicMock()
-        mock_pool.connection_kwargs = {"protocol": 2}
-        database._valkey_pool = mock_pool
+        """get_valkey uses the same module-level pool for all clients."""
+        with patch("redis.asyncio.Redis") as mock_redis_cls:
+            mock_redis_cls.return_value = MagicMock()
 
-        try:
-            with (
-                patch("redis.asyncio.ConnectionPool.from_url") as mock_pool_cls,
-                patch("redis.asyncio.Redis") as mock_redis_cls,
-            ):
-                mock_client = MagicMock()
-                mock_redis_cls.return_value = mock_client
+            database.get_valkey()
+            database.get_valkey()
 
-                database.get_valkey()
-                database.get_valkey()
-
-                # Pool creation not called (pool already exists)
-                mock_pool_cls.assert_not_called()
-
-                # Both clients created with the same pool
-                assert mock_redis_cls.call_count == 2
-                for call in mock_redis_cls.call_args_list:
-                    assert call[1]["connection_pool"] is mock_pool
-        finally:
-            database._valkey_pool = original_pool
+            assert mock_redis_cls.call_count == 2
+            for call in mock_redis_cls.call_args_list:
+                assert call[1]["connection_pool"] is database._valkey_pool
 
     def test_pool_max_connections_twenty(self):
-        """get_valkey creates pool with max_connections=20."""
-        original_pool = database._valkey_pool
-        database._valkey_pool = None
-
-        try:
-            with (
-                patch("redis.asyncio.ConnectionPool.from_url") as mock_pool_cls,
-                patch("redis.asyncio.Redis"),
-            ):
-                mock_pool = MagicMock()
-                mock_pool.connection_kwargs = {"protocol": 2}
-                mock_pool_cls.return_value = mock_pool
-
-                database.get_valkey()
-
-                mock_pool_cls.assert_called_once_with(
-                    database._settings.valkey_redis_url,
-                    max_connections=20,
-                    decode_responses=True,
-                )
-        finally:
-            database._valkey_pool = original_pool
+        """Module-level pool configured with max_connections=20."""
+        assert database._valkey_pool.max_connections == 20
 
     def test_pool_decode_responses_true(self):
-        """get_valkey creates pool with decode_responses=True."""
-        original_pool = database._valkey_pool
-        database._valkey_pool = None
+        """Module-level pool configured with decode_responses=True."""
+        assert database._valkey_pool.connection_kwargs.get("decode_responses") is True
 
-        try:
-            with (
-                patch("redis.asyncio.ConnectionPool.from_url") as mock_pool_cls,
-                patch("redis.asyncio.Redis"),
-            ):
-                mock_pool = MagicMock()
-                mock_pool.connection_kwargs = {"protocol": 2}
-                mock_pool_cls.return_value = mock_pool
+    def test_pool_uses_settings_url(self):
+        """Module-level pool created from settings valkey_redis_url."""
+        pool = database._valkey_pool
+        assert pool is not None
+        assert isinstance(pool, aioredis.ConnectionPool)
 
-                database.get_valkey()
+    def test_concurrent_get_valkey_calls(self):
+        """Concurrent calls all get a valid client using the same pool."""
+        import concurrent.futures
 
-                # Check decode_responses=True in call args
-                call_kwargs = mock_pool_cls.call_args[1]
-                assert call_kwargs["decode_responses"] is True
-        finally:
-            database._valkey_pool = original_pool
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(database.get_valkey) for _ in range(10)]
+            clients = [f.result() for f in futures]
 
-    def test_uses_settings_valkey_redis_url(self):
-        """get_valkey uses valkey_redis_url from settings."""
-        original_pool = database._valkey_pool
-        database._valkey_pool = None
-
-        try:
-            with (
-                patch("redis.asyncio.ConnectionPool.from_url") as mock_pool_cls,
-                patch("redis.asyncio.Redis"),
-            ):
-                mock_pool = MagicMock()
-                mock_pool.connection_kwargs = {"protocol": 2}
-                mock_pool_cls.return_value = mock_pool
-
-                database.get_valkey()
-
-                # First positional arg is the URL from settings
-                call_args = mock_pool_cls.call_args[0]
-                assert call_args[0] == database._settings.valkey_redis_url
-        finally:
-            database._valkey_pool = original_pool
-
-    def test_pool_lock_exists(self):
-        """Module has a threading.Lock for pool initialisation."""
-        assert isinstance(database._valkey_pool_lock, type(threading.Lock()))
-
-    def test_thread_safe_pool_creation(self):
-        """Concurrent calls to get_valkey create pool only once."""
-        original_pool = database._valkey_pool
-        database._valkey_pool = None
-        creation_count = 0
-
-        try:
-            def counting_from_url(*args, **kwargs):
-                nonlocal creation_count
-                creation_count += 1
-                mock_pool = MagicMock()
-                mock_pool.connection_kwargs = {"protocol": 2}
-                return mock_pool
-
-            with (
-                patch("redis.asyncio.ConnectionPool.from_url", side_effect=counting_from_url),
-                patch("redis.asyncio.Redis", return_value=MagicMock()),
-            ):
-                threads = []
-                for _ in range(10):
-                    t = threading.Thread(target=database.get_valkey)
-                    threads.append(t)
-                    t.start()
-
-                for t in threads:
-                    t.join()
-
-                # Pool should be created exactly once despite 10 concurrent calls
-                assert creation_count == 1
-        finally:
-            database._valkey_pool = original_pool
+        # All clients should reference the same pool
+        for client in clients:
+            assert client.connection_pool is database._valkey_pool

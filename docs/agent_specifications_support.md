@@ -628,7 +628,7 @@ GEOSCOUT_AGENT_TOOLS = [
 | Content | Gemini 3 Flash | Copywriting | On brand-sensitive |
 | Design | **Gemini 3 Pro** (NanoBanana Pro) | Graphics/UI | On delivery |
 | Dev | **Claude Opus 4.6** | Code generation | On security issues |
-| Critic | **GPT 5.3 Codex** | Quality assurance | On rejections |
+| Critic | **Claude Sonnet 4.5** | Quality assurance | On rejections |
 | **Packager** | Gemini 3 Flash | Final delivery | **YES** (always) |
 | Outreach | Gemini 3 Flash | Cold email | On first campaign |
 | GeoScout | Gemini 3 Flash | Lead discovery | No |

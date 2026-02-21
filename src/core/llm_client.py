@@ -102,22 +102,36 @@ MODELS: dict[str, ModelSpec] = {
         cost_output_per_1k=0.015,
         max_context_tokens=1_000_000,
     ),
+    "deepseek-v3-2": ModelSpec(
+        provider="deepseek",
+        model_id="deepseek/deepseek-v3.2",
+        cost_input_per_1k=0.00025,
+        cost_output_per_1k=0.00038,
+        max_context_tokens=128_000,
+    ),
+    "nanobanana-pro": ModelSpec(
+        provider="google",
+        model_id="google/gemini-3-pro-image-preview",
+        cost_input_per_1k=0.002,
+        cost_output_per_1k=0.012,
+        max_context_tokens=1_048_576,
+    ),
 }
 
-# Agent -> (primary_model_key, fallback_model_key | None)
+# Agent -> tuple of model keys forming the fallback chain (primary, fallback1, fallback2).
 # NOTE: Gemini models are blocked on some OpenRouter accounts.
-# Using Claude Haiku as default cheap model, GPT-4o-mini as fallback.
-AGENT_MODEL_REGISTRY: dict[str, tuple[str, str | None]] = {
-    "scout":     ("claude-haiku-4-5", "gpt-4o-mini"),
-    "bid":       ("claude-haiku-4-5", "gpt-4o-mini"),
-    "planner":   ("claude-opus-4-6",  "claude-sonnet-4-5"),
-    "dev":       ("claude-opus-4-6",  "claude-sonnet-4-5"),
-    "content":   ("claude-haiku-4-5", "gpt-4o-mini"),
-    "design":    ("claude-sonnet-4-5", "claude-haiku-4-5"),
-    "critic":    ("gpt-4o",           "claude-sonnet-4-5"),
-    "packager":  ("claude-haiku-4-5", None),
-    "geoscout":  ("claude-haiku-4-5", None),
-    "outreach":  ("claude-haiku-4-5", None),
+# Using Claude Haiku as default cheap model, GPT-4o-mini as last-resort fallback.
+AGENT_MODEL_REGISTRY: dict[str, tuple[str, ...]] = {
+    "scout":     ("deepseek-v3-2",    "claude-haiku-4-5",  "gpt-4o-mini"),
+    "bid":       ("deepseek-v3-2",    "claude-haiku-4-5",  "gpt-4o-mini"),
+    "planner":   ("claude-opus-4-6",  "claude-sonnet-4-5", "claude-haiku-4-5"),
+    "dev":       ("claude-opus-4-6",  "claude-sonnet-4-5", "gpt-4o-mini"),
+    "content":   ("deepseek-v3-2",    "gemini-3-flash",    "gpt-4o-mini"),
+    "design":    ("nanobanana-pro",   "gemini-3-flash",    "gpt-4o-mini"),
+    "critic":    ("claude-sonnet-4-5", "gpt-4o",           "claude-haiku-4-5"),
+    "packager":  ("deepseek-v3-2",    "claude-haiku-4-5",  "gpt-4o-mini"),
+    "geoscout":  ("deepseek-v3-2",    "claude-haiku-4-5",  "gpt-4o-mini"),
+    "outreach":  ("deepseek-v3-2",    "claude-haiku-4-5",  "gpt-4o-mini"),
 }
 
 # ---------------------------------------------------------------------------
@@ -272,7 +286,7 @@ class LLMClient:
         cost_tracker: CostTracker | None = None,
         max_retries: int = 5,
         base_backoff_seconds: float = 1.0,
-        request_timeout: float = 60.0,
+        request_timeout: float = 120.0,
         api_key: str | None = None,
         base_url: str | None = None,
         semantic_cache: Any | None = None,
@@ -343,7 +357,7 @@ class LLMClient:
 
                     t0 = time.perf_counter()
                     latency_ms = (time.perf_counter() - t0) * 1000
-                    primary_key = AGENT_MODEL_REGISTRY.get(agent_name, ("gemini-3-flash", None))[0]
+                    primary_key = AGENT_MODEL_REGISTRY.get(agent_name, ("gemini-3-flash",))[0]
                     spec = MODELS.get(primary_key)
                     metrics = CallMetrics(
                         agent_name=agent_name,
@@ -371,13 +385,18 @@ class LLMClient:
         if force_model:
             model_chain = [force_model]
         else:
-            primary, fallback = AGENT_MODEL_REGISTRY.get(agent_name, ("gemini-3-flash", None))
-            model_chain = [primary] + ([fallback] if fallback else [])
+            chain = AGENT_MODEL_REGISTRY.get(agent_name, ("gemini-3-flash",))
+            model_chain = list(chain)
 
         last_error: BaseException | None = None
 
         for chain_idx, model_key in enumerate(model_chain):
             is_fallback = chain_idx > 0
+
+            # Brief pause between fallback attempts to avoid thundering herd.
+            if is_fallback:
+                await asyncio.sleep(1.0)
+
             spec = MODELS.get(model_key)
             if spec is None:
                 logger.warning("unknown_model_key", model_key=model_key, agent=agent_name)

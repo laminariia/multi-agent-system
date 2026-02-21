@@ -30,7 +30,7 @@
 | Dev | 1 task | Variable | 5-10 tasks/day | Code complexity |
 | Content | 1 piece | 4-6 | ~30-50 pieces/day | Gemini Flash RPM |
 | Design | 1 asset | 2-3 | ~15-30 assets/day | Gemini Pro RPM |
-| Critic | 1 review | On-demand | ~20-30 reviews/day | GPT 5.3 Codex RPM |
+| Critic | 1 review | On-demand | ~20-30 reviews/day | Claude Sonnet 4.5 RPM |
 | Packager | 1 delivery | On-demand | ~3-5 deliveries/day | Depends on project volume |
 | GeoScout | 50 hexagons | 2-3 | ~500-750 businesses/day | Overpass API limits |
 | Outreach | 10 emails | 5 | ~50 emails/day (warm-up phase) | Email warm-up status |
