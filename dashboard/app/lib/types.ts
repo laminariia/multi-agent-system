@@ -360,3 +360,18 @@ export interface CreateCampaignPayload {
   city_filter?: string;
   category_filter?: string;
 }
+
+export interface TelegramChannel {
+  id: number;
+  username: string;
+  title: string | null;
+  category: string | null;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TelegramChannelListResponse {
+  channels: TelegramChannel[];
+  total: number;
+}

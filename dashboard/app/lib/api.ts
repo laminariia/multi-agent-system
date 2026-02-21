@@ -31,6 +31,8 @@ import type {
   CampaignListResponse,
   CampaignLeadListResponse,
   CreateCampaignPayload,
+  TelegramChannel,
+  TelegramChannelListResponse,
 } from "./types";
 
 declare global {
@@ -636,5 +638,39 @@ export async function addLeadsToCampaign(id: number, leadIds: number[]): Promise
 export async function enrichLead(id: string): Promise<LeadDetail> {
   return apiFetch<LeadDetail>(`/pipeline-b/leads/${id}/enrich`, {
     method: "POST",
+  });
+}
+
+// --- Telegram Channels ---
+
+export async function fetchTelegramChannels(activeOnly = false): Promise<TelegramChannelListResponse> {
+  const query = activeOnly ? "?active_only=true" : "";
+  return apiFetch<TelegramChannelListResponse>(`/telegram-channels${query}`);
+}
+
+export async function createTelegramChannel(data: {
+  username: string;
+  title?: string;
+  category?: string;
+}): Promise<TelegramChannel> {
+  return apiFetch<TelegramChannel>("/telegram-channels", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateTelegramChannel(
+  id: number,
+  data: { active?: boolean; title?: string; category?: string }
+): Promise<TelegramChannel> {
+  return apiFetch<TelegramChannel>(`/telegram-channels/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteTelegramChannel(id: number): Promise<{ status: string; id: number }> {
+  return apiFetch<{ status: string; id: number }>(`/telegram-channels/${id}`, {
+    method: "DELETE",
   });
 }
