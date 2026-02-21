@@ -54,6 +54,9 @@ dependencies = [
     # Telegram bot
     "python-telegram-bot>=21.0",
 
+    # Telegram channel monitoring (MTProto user API)
+    "telethon>=1.42",
+
     # Sandbox
     "docker>=7.0",
     "e2b-code-interpreter>=0.0.8",

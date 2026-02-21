@@ -7,6 +7,7 @@ Adjusts request rates based on platform response signals:
 
 State is stored in Valkey so it survives process restarts.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,6 +40,7 @@ _DEFAULT_LIMITS: dict[str, dict[str, float]] = {
     "fl_ru": {"max_rpm": 10.0, "min_rpm": 1.0, "initial_rpm": 5.0},
     "kwork": {"max_rpm": 6.0, "min_rpm": 1.0, "initial_rpm": 3.0},
     "upwork": {"max_rpm": 6.0, "min_rpm": 1.0, "initial_rpm": 3.0},
+    "telegram": {"max_rpm": 60.0, "min_rpm": 5.0, "initial_rpm": 30.0},
 }
 
 # How long to pause after captcha/ban detection (seconds).
@@ -149,6 +151,7 @@ class AdaptiveRateLimiter:
             if not data:
                 return
             state = self._get_state(platform)
+
             # Valkey returns bytes or str depending on decode_responses.
             def _val(k: str, default: float = 0.0) -> float:
                 v = data.get(k) or data.get(k.encode())

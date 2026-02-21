@@ -13,6 +13,7 @@ Features:
 - OpenAPI 3.1 documentation at ``/schema``
 - Lifespan hooks for DB engine and Valkey connection management
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
@@ -43,6 +44,7 @@ from src.api.routes.metrics import MetricsController
 from src.api.routes.orchestrator import OrchestratorController
 from src.api.routes.pipeline_b import PipelineBController
 from src.api.routes.settings import SettingsController
+from src.api.routes.telegram_channels import TelegramChannelController
 from src.api.routes.users import UserController
 from src.api.schemas import ErrorResponseSchema, ErrorSchema
 from src.api.websocket import (
@@ -159,6 +161,40 @@ def _generic_exception_handler(request: Request, exc: Exception) -> Response[Err
 # =============================================================================
 
 
+async def _seed_admin_user(settings: object) -> None:
+    """Create an admin user if the users table is empty and env vars are set."""
+    from sqlalchemy import func
+    from sqlalchemy import select as sa_select
+
+    from src.api.guards import hash_password
+    from src.core.database import get_db_session
+    from src.core.models import User
+
+    admin_email = getattr(settings, "ADMIN_EMAIL", "")
+    admin_password = getattr(settings, "ADMIN_PASSWORD", "")
+    if not admin_email or not admin_password:
+        return
+
+    try:
+        async with get_db_session() as session:
+            result = await session.execute(sa_select(func.count()).select_from(User))
+            count = result.scalar()
+            if count and count > 0:
+                return
+
+            user = User(
+                email=admin_email,
+                password_hash=hash_password(admin_password),
+                role="owner",
+                status="active",
+            )
+            session.add(user)
+            await session.commit()
+            logger.info("admin_user_seeded", email=admin_email)
+    except Exception:
+        logger.warning("admin_seed_failed", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: Litestar) -> AsyncGenerator[None, None]:
     """Manage startup and shutdown of long-lived resources.
@@ -219,6 +255,9 @@ async def lifespan(app: Litestar) -> AsyncGenerator[None, None]:
 
     container = get_container()
     container.semantic_cache = getattr(app.state, "semantic_cache", None)
+
+    # Seed admin user if users table is empty and ADMIN_EMAIL/PASSWORD are set.
+    await _seed_admin_user(settings)
 
     yield
 
@@ -318,6 +357,7 @@ app = Litestar(
         OrchestratorController,
         PipelineBController,
         SettingsController,
+        TelegramChannelController,
         UserController,
         ws_handler,
     ],

@@ -46,6 +46,7 @@ class AgentContainer:
         self._loop_detector: Any | None = None
         self._semantic_cache: Any | None = None
         self._browser_pool: Any | None = None
+        self._telegram_adapter: Any | None = None
 
     # ------------------------------------------------------------------
     # Lazy accessors
@@ -123,6 +124,25 @@ class AgentContainer:
                     ),
                 )
         return self._browser_pool
+
+    @property
+    def telegram_adapter(self) -> Any | None:
+        """Return the Telegram channel adapter (reads from Valkey queue).
+
+        Returns ``None`` when Telegram credentials are not configured.
+        """
+        if self._telegram_adapter is None:
+            from src.core.config import get_settings  # noqa: PLC0415
+
+            settings = get_settings()
+            if settings.TELEGRAM_API_ID and settings.TELEGRAM_SESSION_STRING:
+                from src.adapters.telegram_channels import TelegramChannelAdapter  # noqa: PLC0415
+                from src.core.database import get_valkey  # noqa: PLC0415
+
+                self._telegram_adapter = TelegramChannelAdapter(
+                    valkey=get_valkey(),
+                )
+        return self._telegram_adapter
 
     # ------------------------------------------------------------------
     # Teardown
