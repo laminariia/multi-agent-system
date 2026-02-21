@@ -42,6 +42,7 @@ class TestSettings:
             _env_file=None,
             JWT_SECRET_KEY="test-jwt-secret-min-32-chars-long",  # noqa: S106
             ENCRYPTION_KEY="test-encryption-key-for-unit-tests",
+            OPENROUTER_API_KEY="sk-or-test-key-for-unit-tests",  # noqa: S106
         )
         assert settings.DEBUG is False
 
@@ -111,6 +112,7 @@ class TestSettings:
             DEBUG=False,
             JWT_SECRET_KEY="real-production-jwt-secret-key-here",  # noqa: S106
             ENCRYPTION_KEY="real-production-encryption-key-here",
+            OPENROUTER_API_KEY="sk-or-real-production-key-here",  # noqa: S106
         )
         assert settings.DEBUG is False
 
@@ -120,26 +122,17 @@ class TestAsyncDatabaseUrl:
 
     def test_converts_postgresql_to_asyncpg(self):
         """async_database_url converts postgresql:// to postgresql+asyncpg://."""
-        settings = Settings(
-            _env_file=None, DEBUG=True,
-            DATABASE_URL="postgresql://user:pass@host:5432/db"
-        )
+        settings = Settings(_env_file=None, DEBUG=True, DATABASE_URL="postgresql://user:pass@host:5432/db")
         assert settings.async_database_url == "postgresql+asyncpg://user:pass@host:5432/db"
 
     def test_preserves_asyncpg_scheme(self):
         """async_database_url leaves postgresql+asyncpg:// unchanged."""
-        settings = Settings(
-            _env_file=None, DEBUG=True,
-            DATABASE_URL="postgresql+asyncpg://user:pass@host:5432/db"
-        )
+        settings = Settings(_env_file=None, DEBUG=True, DATABASE_URL="postgresql+asyncpg://user:pass@host:5432/db")
         assert settings.async_database_url == "postgresql+asyncpg://user:pass@host:5432/db"
 
     def test_raises_on_unsupported_scheme(self):
         """async_database_url raises ValueError for unsupported schemes."""
-        settings = Settings(
-            _env_file=None, DEBUG=True,
-            DATABASE_URL="mysql://user:pass@host:3306/db"
-        )
+        settings = Settings(_env_file=None, DEBUG=True, DATABASE_URL="mysql://user:pass@host:3306/db")
         with pytest.raises(ValueError, match="Unsupported DATABASE_URL scheme"):
             _ = settings.async_database_url
 
@@ -149,26 +142,17 @@ class TestValkeyRedisUrl:
 
     def test_converts_valkey_to_redis(self):
         """valkey_redis_url converts valkey:// to redis://."""
-        settings = Settings(
-            _env_file=None, DEBUG=True,
-            VALKEY_URL="valkey://localhost:6379/0"
-        )
+        settings = Settings(_env_file=None, DEBUG=True, VALKEY_URL="valkey://localhost:6379/0")
         assert settings.valkey_redis_url == "redis://localhost:6379/0"
 
     def test_preserves_redis_scheme(self):
         """valkey_redis_url leaves redis:// unchanged."""
-        settings = Settings(
-            _env_file=None, DEBUG=True,
-            VALKEY_URL="redis://localhost:6379/0"
-        )
+        settings = Settings(_env_file=None, DEBUG=True, VALKEY_URL="redis://localhost:6379/0")
         assert settings.valkey_redis_url == "redis://localhost:6379/0"
 
     def test_converts_valkey_with_auth(self):
         """valkey_redis_url converts valkey:// with auth credentials."""
-        settings = Settings(
-            _env_file=None, DEBUG=True,
-            VALKEY_URL="valkey://user:pass@host:6379/1"
-        )
+        settings = Settings(_env_file=None, DEBUG=True, VALKEY_URL="valkey://user:pass@host:6379/1")
         assert settings.valkey_redis_url == "redis://user:pass@host:6379/1"
 
 
@@ -178,49 +162,33 @@ class TestCorsOrigins:
     def test_parses_json_array_format(self):
         """cors_origins parses valid JSON array."""
         settings = Settings(
-            _env_file=None, DEBUG=True,
-            CORS_ALLOWED_ORIGINS='["https://example.com","https://test.com"]'
+            _env_file=None, DEBUG=True, CORS_ALLOWED_ORIGINS='["https://example.com","https://test.com"]'
         )
         assert settings.cors_origins == ["https://example.com", "https://test.com"]
 
     def test_parses_bracket_format_without_quotes(self):
         """cors_origins parses [url1,url2] without JSON quotes."""
-        settings = Settings(
-            _env_file=None, DEBUG=True,
-            CORS_ALLOWED_ORIGINS="[https://example.com,https://test.com]"
-        )
+        settings = Settings(_env_file=None, DEBUG=True, CORS_ALLOWED_ORIGINS="[https://example.com,https://test.com]")
         assert settings.cors_origins == ["https://example.com", "https://test.com"]
 
     def test_parses_comma_separated_format(self):
         """cors_origins parses comma-separated URLs."""
-        settings = Settings(
-            _env_file=None, DEBUG=True,
-            CORS_ALLOWED_ORIGINS="https://example.com,https://test.com"
-        )
+        settings = Settings(_env_file=None, DEBUG=True, CORS_ALLOWED_ORIGINS="https://example.com,https://test.com")
         assert settings.cors_origins == ["https://example.com", "https://test.com"]
 
     def test_parses_single_origin(self):
         """cors_origins parses single origin without commas."""
-        settings = Settings(
-            _env_file=None, DEBUG=True,
-            CORS_ALLOWED_ORIGINS="https://example.com"
-        )
+        settings = Settings(_env_file=None, DEBUG=True, CORS_ALLOWED_ORIGINS="https://example.com")
         assert settings.cors_origins == ["https://example.com"]
 
     def test_strips_whitespace_from_origins(self):
         """cors_origins strips whitespace from each origin."""
-        settings = Settings(
-            _env_file=None, DEBUG=True,
-            CORS_ALLOWED_ORIGINS=" https://example.com , https://test.com "
-        )
+        settings = Settings(_env_file=None, DEBUG=True, CORS_ALLOWED_ORIGINS=" https://example.com , https://test.com ")
         assert settings.cors_origins == ["https://example.com", "https://test.com"]
 
     def test_ignores_empty_strings_in_split(self):
         """cors_origins filters out empty strings from split."""
-        settings = Settings(
-            _env_file=None, DEBUG=True,
-            CORS_ALLOWED_ORIGINS="https://example.com,,https://test.com"
-        )
+        settings = Settings(_env_file=None, DEBUG=True, CORS_ALLOWED_ORIGINS="https://example.com,,https://test.com")
         assert settings.cors_origins == ["https://example.com", "https://test.com"]
 
 
