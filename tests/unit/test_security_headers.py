@@ -72,7 +72,7 @@ class TestOtherSecurityHeaders:
     """X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy."""
 
     def test_x_frame_options_deny(self, nginx_content: str) -> None:
-        assert 'X-Frame-Options' in nginx_content
+        assert "X-Frame-Options" in nginx_content
         assert '"DENY"' in nginx_content
 
     def test_x_content_type_options_nosniff(self, nginx_content: str) -> None:
@@ -119,4 +119,4 @@ class TestProxyConfig:
         assert "location /ws" in nginx_content
 
     def test_dashboard_location_block(self, nginx_content: str) -> None:
-        assert "location /dashboard" in nginx_content
+        assert "proxy_pass http://dashboard_backend" in nginx_content

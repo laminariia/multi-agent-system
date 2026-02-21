@@ -310,7 +310,7 @@ async def test_send_approved_emails_smtp_not_configured():
     with patch("src.enrichment.email_sender.EmailSender", return_value=sender):
         stats = await send_approved_emails(uuid.uuid4(), AsyncMock())
 
-    assert stats == {"sent": 0, "failed": 0, "rate_limited": 0}
+    assert stats == {"sent": 0, "failed": 0, "rate_limited": 0, "bounced": 0}
 
 
 @pytest.mark.asyncio
@@ -356,7 +356,7 @@ async def test_send_approved_emails_empty_campaign():
     with patch("src.enrichment.email_sender.EmailSender", return_value=sender):
         stats = await send_approved_emails(campaign_id, mock_session)
 
-    assert stats == {"sent": 0, "failed": 0, "rate_limited": 0}
+    assert stats == {"sent": 0, "failed": 0, "rate_limited": 0, "bounced": 0}
 
 
 # ============================================================================

@@ -1484,6 +1484,40 @@ async def resume_from_hitl(
 # Internal HITL response helpers
 # ---------------------------------------------------------------------------
 
+
+def _enrich_project_from_bid(saved_state: dict[str, Any]) -> dict[str, Any]:
+    """Build a rich project context from approved bid + job data for Planner.
+
+    Merges the existing ``state["project"]`` with details from the bid artifact
+    and ``current_job`` so the Planner has the full picture.
+    """
+    project = dict(saved_state.get("project") or {})
+    job = saved_state.get("current_job") or {}
+    artifacts = saved_state.get("artifacts") or {}
+    bid_artifact = artifacts.get("bid") or {}
+
+    # Fill in fields from job data if not already present.
+    if not project.get("requirements"):
+        project["requirements"] = job.get("description", "")
+    if not project.get("title"):
+        project["title"] = job.get("title", "")
+    if not project.get("budget"):
+        project["budget"] = job.get("budget", {})
+    if not project.get("skills"):
+        project["skills"] = job.get("skills", [])
+    if not project.get("deadline"):
+        project["deadline"] = job.get("deadline")
+    if not project.get("platform"):
+        project["platform"] = job.get("platform", "")
+
+    # Attach bid reference so Planner knows which bid was approved.
+    if bid_artifact:
+        project["bid_id"] = bid_artifact.get("id")
+        project["bid_amount"] = bid_artifact.get("amount")
+
+    return project
+
+
 def _apply_bid_approval(
     saved_state: dict[str, Any],
     action: str,
@@ -1496,6 +1530,7 @@ def _apply_bid_approval(
     ``next_agent="planner"`` and ``status="active"``.
     """
     if action == "approve":
+        project = _enrich_project_from_bid(saved_state)
         return update_state(
             saved_state,  # type: ignore[arg-type]
             requires_hitl=False,
@@ -1503,6 +1538,7 @@ def _apply_bid_approval(
             status="active",
             next_agent="planner",
             current_agent="planner",
+            project=project,
         )
 
     if action == "reject":
@@ -1520,6 +1556,7 @@ def _apply_bid_approval(
         artifacts = dict(saved_state.get("artifacts") or {})
         if edits:
             artifacts["hitl_edits"] = [edits] if not isinstance(edits, list) else edits
+        project = _enrich_project_from_bid(saved_state)
         return update_state(
             saved_state,  # type: ignore[arg-type]
             requires_hitl=False,
@@ -1528,10 +1565,12 @@ def _apply_bid_approval(
             next_agent="planner",
             current_agent="planner",
             artifacts=artifacts,
+            project=project,
         )
 
     # Unknown action -- treat as approve with a warning.
     logger.warning("hitl_bid_unknown_action", action=action, thread_id=thread_id)
+    project = _enrich_project_from_bid(saved_state)
     return update_state(
         saved_state,  # type: ignore[arg-type]
         requires_hitl=False,
@@ -1539,6 +1578,7 @@ def _apply_bid_approval(
         status="active",
         next_agent="planner",
         current_agent="planner",
+        project=project,
     )
 
 

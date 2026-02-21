@@ -206,6 +206,33 @@ class CampaignController(Controller):
         )
         return _campaign_to_response(campaign)
 
+    @get("/{campaign_id:str}/stats")
+    async def get_campaign_stats(
+        self,
+        db_session: AsyncSession,
+        campaign_id: str,
+    ) -> dict[str, Any]:
+        """Get send/fail/bounce/pending breakdown for a campaign."""
+        await _get_campaign_or_404(db_session, campaign_id)
+        campaign_uuid = uuid.UUID(campaign_id)
+
+        result = await db_session.execute(
+            select(CampaignLead.status, func.count())
+            .where(CampaignLead.campaign_id == campaign_uuid)
+            .group_by(CampaignLead.status)
+        )
+        status_counts = {row[0]: row[1] for row in result.all()}
+
+        return {
+            "campaign_id": campaign_id,
+            "sent": status_counts.get("sent", 0),
+            "failed": status_counts.get("failed", 0),
+            "bounced": status_counts.get("bounced", 0),
+            "pending": status_counts.get("pending", 0),
+            "approved": status_counts.get("approved", 0),
+            "total": sum(status_counts.values()),
+        }
+
     @get("/{campaign_id:str}/leads")
     async def list_campaign_leads(
         self,

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useNavigate } from "@remix-run/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 export { RouteErrorBoundary as ErrorBoundary } from "~/components/route-error-boundary";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
@@ -10,10 +11,11 @@ import { ActivityFeed, type ActivityEvent } from "~/components/activity-feed";
 import { JobsByPlatformChart, HITLByTypeChart, AgentStatusChart, HITLTrendsChart } from "~/components/charts";
 import { SkeletonCard, SkeletonGrid } from "~/components/skeleton-card";
 import { EmptyState } from "~/components/empty-state";
-import { fetchAgentStatus, fetchHITLStats, fetchJobs, fetchJobStats, fetchHITLTrends, fetchPipelineBStats } from "~/lib/api";
+import { fetchAgentStatus, fetchHITLStats, fetchJobs, fetchJobStats, fetchHITLTrends, fetchPipelineBStats, fetchCredentials } from "~/lib/api";
 import { OrchStatusWidget } from "~/components/orch-status-widget";
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const { data: agentData, isLoading: agentsLoading, error: agentError } = useQuery({
@@ -56,6 +58,12 @@ export default function DashboardPage() {
     queryFn: fetchPipelineBStats,
     staleTime: 60_000,
     refetchInterval: 120_000,
+  });
+
+  const { data: credentialsData } = useQuery({
+    queryKey: ["credentials-summary"],
+    queryFn: fetchCredentials,
+    staleTime: 60_000,
   });
 
   const agents = agentData?.agents ?? [];
@@ -121,9 +129,118 @@ export default function DashboardPage() {
 
   const hasError = !!agentError;
 
+  // Onboarding: check if the system is freshly deployed with no data
+  const hasApiKey = useMemo(() => {
+    if (!credentialsData?.api_keys) return false;
+    return Object.values(credentialsData.api_keys).some(
+      (k: any) => k?.configured
+    );
+  }, [credentialsData]);
+  const hasPlatformAccounts = (credentialsData?.platform_accounts?.length ?? 0) > 0;
+  const totalJobs = jobStats?.total ?? 0;
+  const showOnboarding = !agentsLoading && totalJobs === 0 && agents.length === 0;
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+
+      {/* Onboarding checklist — shown when no data exists yet */}
+      {showOnboarding && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-medium">
+              Getting Started
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-4">
+              Welcome to MAS! Complete these steps to start your first pipeline run.
+            </p>
+            <ol className="space-y-3">
+              <li className="flex items-start gap-3">
+                <span
+                  className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
+                    hasApiKey
+                      ? "bg-emerald-500/20 text-emerald-500"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {hasApiKey ? "\u2713" : "1"}
+                </span>
+                <div>
+                  <p className="text-sm font-medium">
+                    Add your OpenRouter API key
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Required for all LLM-powered agents (Scout, Bid, Planner, etc.)
+                  </p>
+                  {!hasApiKey && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-1.5"
+                      onClick={() => navigate("/settings")}
+                    >
+                      Go to Settings
+                    </Button>
+                  )}
+                </div>
+              </li>
+              <li className="flex items-start gap-3">
+                <span
+                  className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
+                    hasPlatformAccounts
+                      ? "bg-emerald-500/20 text-emerald-500"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {hasPlatformAccounts ? "\u2713" : "2"}
+                </span>
+                <div>
+                  <p className="text-sm font-medium">
+                    Connect a platform account
+                    <span className="ml-1 text-xs text-muted-foreground font-normal">(optional)</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Add Freelancer.com or FL.ru credentials for Pipeline A
+                  </p>
+                  {!hasPlatformAccounts && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-1.5"
+                      onClick={() => navigate("/settings")}
+                    >
+                      Add Account
+                    </Button>
+                  )}
+                </div>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-medium bg-muted text-muted-foreground">
+                  3
+                </span>
+                <div>
+                  <p className="text-sm font-medium">
+                    Start your first scan
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Navigate to Jobs and trigger a scan, or wait for the next scheduled Scout run
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-1.5"
+                    onClick={() => navigate("/jobs")}
+                  >
+                    Go to Jobs
+                  </Button>
+                </div>
+              </li>
+            </ol>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Error banner */}
       {hasError && (

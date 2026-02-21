@@ -1,8 +1,8 @@
 """Email sender for Pipeline B approved outreach emails.
 
 Uses ``aiosmtplib`` for async SMTP delivery with TLS.  Includes rate
-limiting (default 50 emails/day) and graceful error handling -- never
-raises, returns ``False`` on failure.
+limiting (default 50 emails/day), HTML email support, staggered sending,
+List-Unsubscribe headers (RFC 8058), and bounce detection.
 
 Usage::
 
@@ -15,6 +15,9 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
+import html
+import random
 import uuid
 from datetime import UTC, date, datetime
 from email.mime.multipart import MIMEMultipart
@@ -24,6 +27,62 @@ from typing import Any
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Bounce classification
+# ---------------------------------------------------------------------------
+
+HARD_BOUNCE_CODES = {550, 551, 552, 553}
+SOFT_BOUNCE_CODES = {421, 450, 451, 452}
+
+# ---------------------------------------------------------------------------
+# HTML email template
+# ---------------------------------------------------------------------------
+
+_HTML_WRAPPER = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body {{ margin: 0; padding: 0; font-size: 16px; line-height: 1.5; color: #333; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }}
+  .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+  .footer {{ margin-top: 30px; padding-top: 15px; border-top: 1px solid #eee; font-size: 12px; color: #999; }}
+</style>
+</head>
+<body>
+<div class="container">
+{body}
+<div class="footer">
+{footer}
+</div>
+</div>
+</body>
+</html>"""
+
+_UNSUBSCRIBE_FOOTER_TEXT = (
+    "\n\n---\nIf you no longer wish to receive these emails, "
+    "reply with 'unsubscribe' or click the unsubscribe link in your email client."
+)
+
+_UNSUBSCRIBE_FOOTER_HTML = (
+    '<p style="font-size:12px;color:#999;">If you no longer wish to receive these emails, '
+    "reply with 'unsubscribe' or click the unsubscribe link in your email client.</p>"
+)
+
+
+def _plain_to_html(text_body: str) -> str:
+    """Convert plain text body to simple HTML paragraphs."""
+    escaped = html.escape(text_body)
+    paragraphs = escaped.split("\n\n")
+    html_parts = []
+    for p in paragraphs:
+        lines = p.replace("\n", "<br>\n")
+        html_parts.append(f"<p>{lines}</p>")
+    return "\n".join(html_parts)
+
 
 # ---------------------------------------------------------------------------
 # Rate-limit state (module-level, resets daily)
@@ -113,11 +172,43 @@ class EmailSender:
         self.max_emails_per_day: int = (
             max_emails_per_day if max_emails_per_day is not None else getattr(settings, "MAX_EMAILS_PER_DAY", 50)
         )
+        self.html_enabled: bool = getattr(settings, "EMAIL_HTML_ENABLED", True) if settings else True
 
     @property
     def is_configured(self) -> bool:
         """Return ``True`` if SMTP host and from address are set."""
         return bool(self.smtp_host) and bool(self.smtp_from)
+
+    def _build_message(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        from_addr: str,
+    ) -> MIMEMultipart:
+        """Build a MIME message with plain text, optional HTML, and unsubscribe headers."""
+        msg = MIMEMultipart("alternative")
+        msg["From"] = from_addr
+        msg["To"] = to
+        msg["Subject"] = subject
+
+        # List-Unsubscribe headers (RFC 8058)
+        msg["List-Unsubscribe"] = f"<mailto:{from_addr}?subject=unsubscribe>"
+        msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+
+        # Plain text part (always present, with unsubscribe footer)
+        plain_body = body + _UNSUBSCRIBE_FOOTER_TEXT
+        msg.attach(MIMEText(plain_body, "plain", "utf-8"))
+
+        # HTML part (if enabled)
+        if self.html_enabled:
+            html_body = _HTML_WRAPPER.format(
+                body=_plain_to_html(body),
+                footer=_UNSUBSCRIBE_FOOTER_HTML,
+            )
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+        return msg
 
     async def send_email(
         self,
@@ -125,7 +216,7 @@ class EmailSender:
         subject: str,
         body: str,
         from_addr: str | None = None,
-    ) -> bool:
+    ) -> bool | str:
         """Send a single email via SMTP with TLS.
 
         Parameters
@@ -142,9 +233,10 @@ class EmailSender:
 
         Returns
         -------
-        bool
-            ``True`` if the email was sent successfully, ``False`` on any
-            error (logged but never raised).
+        bool | str
+            ``True`` if the email was sent successfully, ``False`` on generic
+            failure, ``"hard_bounce"`` on permanent rejection (550-553),
+            ``"soft_bounce"`` on temporary rejection (421/450-452).
         """
         sender = from_addr or self.smtp_from
 
@@ -172,11 +264,7 @@ class EmailSender:
         try:
             import aiosmtplib  # noqa: PLC0415
 
-            msg = MIMEMultipart()
-            msg["From"] = sender
-            msg["To"] = to
-            msg["Subject"] = subject
-            msg.attach(MIMEText(body, "plain", "utf-8"))
+            msg = self._build_message(to, subject, body, sender)
 
             await aiosmtplib.send(
                 msg,
@@ -191,6 +279,18 @@ class EmailSender:
             return True
 
         except Exception as exc:  # noqa: BLE001
+            # Detect bounce type from SMTP response codes
+            bounce_type = _classify_bounce(exc)
+            if bounce_type:
+                logger.warning(
+                    f"email_{bounce_type}",
+                    to=to,
+                    subject=subject,
+                    smtp_code=getattr(exc, "code", None),
+                    error=str(exc),
+                )
+                return bounce_type
+
             logger.error(
                 "email_send_failed",
                 to=to,
@@ -199,6 +299,22 @@ class EmailSender:
                 exc_info=True,
             )
             return False
+
+
+def _classify_bounce(exc: Exception) -> str | None:
+    """Classify an SMTP exception as hard_bounce, soft_bounce, or None."""
+    try:
+        import aiosmtplib  # noqa: PLC0415
+
+        if isinstance(exc, aiosmtplib.SMTPResponseException):
+            code = exc.code
+            if code in HARD_BOUNCE_CODES:
+                return "hard_bounce"
+            if code in SOFT_BOUNCE_CODES:
+                return "soft_bounce"
+    except ImportError:
+        pass
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -210,11 +326,14 @@ async def send_approved_emails(
     campaign_id: str | uuid.UUID,
     db_session: Any,
 ) -> dict[str, int]:
-    """Send all approved emails for a campaign.
+    """Send all approved emails for a campaign with staggered delivery.
 
     Queries ``CampaignLead`` records with ``status='approved'`` for the
     given campaign, sends each via :class:`EmailSender`, and updates
-    status to ``'sent'`` or ``'failed'``.
+    status to ``'sent'``, ``'failed'``, or ``'bounced'``.
+
+    Includes configurable random delay between sends (EMAIL_STAGGER_MIN_SECONDS
+    / EMAIL_STAGGER_MAX_SECONDS) to avoid triggering spam filters.
 
     Parameters
     ----------
@@ -226,14 +345,25 @@ async def send_approved_emails(
     Returns
     -------
     dict
-        ``{"sent": N, "failed": M, "rate_limited": R}`` counts.
+        ``{"sent": N, "failed": M, "rate_limited": R, "bounced": B}`` counts.
     """
     from sqlalchemy import select, update  # noqa: PLC0415
 
-    from src.core.models import CampaignLead, Lead  # noqa: PLC0415
+    from src.core.models import CampaignLead, EmailCampaign, Lead  # noqa: PLC0415
+
+    # Load stagger settings
+    try:
+        from src.core.config import get_settings  # noqa: PLC0415
+
+        settings = get_settings()
+        stagger_min = settings.EMAIL_STAGGER_MIN_SECONDS
+        stagger_max = settings.EMAIL_STAGGER_MAX_SECONDS
+    except Exception:  # noqa: BLE001
+        stagger_min = 30
+        stagger_max = 60
 
     sender = EmailSender()
-    stats: dict[str, int] = {"sent": 0, "failed": 0, "rate_limited": 0}
+    stats: dict[str, int] = {"sent": 0, "failed": 0, "rate_limited": 0, "bounced": 0}
 
     if not sender.is_configured:
         logger.warning("send_approved_emails_skipped", reason="SMTP not configured")
@@ -249,20 +379,21 @@ async def send_approved_emails(
         )
     )
     rows = result.all()
+    total = len(rows)
 
-    for campaign_lead, lead in rows:
+    for idx, (campaign_lead, lead) in enumerate(rows, 1):
         if not lead.email:
             logger.warning("send_approved_email_no_address", lead_id=str(lead.id))
             stats["failed"] += 1
             continue
 
-        ok = await sender.send_email(
+        result_code = await sender.send_email(
             to=lead.email,
             subject=campaign_lead.personalized_subject or "",
             body=campaign_lead.personalized_body or "",
         )
 
-        if ok:
+        if result_code is True:
             await db_session.execute(
                 update(CampaignLead)
                 .where(
@@ -272,10 +403,38 @@ async def send_approved_emails(
                 .values(status="sent", sent_at=datetime.now(UTC))
             )
             stats["sent"] += 1
+
+        elif result_code == "hard_bounce":
+            # Hard bounce: mark campaign lead as bounced, mark lead as no_contact
+            await db_session.execute(
+                update(CampaignLead)
+                .where(
+                    CampaignLead.campaign_id == campaign_lead.campaign_id,
+                    CampaignLead.lead_id == campaign_lead.lead_id,
+                )
+                .values(status="bounced")
+            )
+            await db_session.execute(
+                update(Lead)
+                .where(Lead.id == campaign_lead.lead_id)
+                .values(status="no_contact")
+            )
+            stats["bounced"] += 1
+
+        elif result_code == "soft_bounce":
+            # Soft bounce: mark as failed for retry
+            await db_session.execute(
+                update(CampaignLead)
+                .where(
+                    CampaignLead.campaign_id == campaign_lead.campaign_id,
+                    CampaignLead.lead_id == campaign_lead.lead_id,
+                )
+                .values(status="failed")
+            )
+            stats["bounced"] += 1
+
         else:
-            # Distinguish rate-limited vs failed.
-            # If the sender returned False due to rate limit the counter
-            # was not incremented, so remaining emails will also fail.
+            # Generic failure or rate limited
             await db_session.execute(
                 update(CampaignLead)
                 .where(
@@ -285,6 +444,27 @@ async def send_approved_emails(
                 .values(status="failed")
             )
             stats["failed"] += 1
+
+        # Staggered delivery: wait between sends (skip delay after last email)
+        if idx < total:
+            delay = random.uniform(stagger_min, stagger_max)  # noqa: S311
+            logger.info(
+                "email_stagger_progress",
+                sent=f"{idx}/{total}",
+                next_delay_seconds=round(delay, 1),
+                campaign_id=str(campaign_id),
+            )
+            await asyncio.sleep(delay)
+
+    # Update campaign-level stats
+    await db_session.execute(
+        update(EmailCampaign)
+        .where(EmailCampaign.id == campaign_id)
+        .values(
+            sent_count=EmailCampaign.sent_count + stats["sent"],
+            bounce_count=EmailCampaign.bounce_count + stats["bounced"],
+        )
+    )
 
     await db_session.commit()
 
