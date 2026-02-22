@@ -9,6 +9,7 @@ Tests the AgentController endpoints at ``/api/v1/agents``:
 
 We test route handlers directly via ``.fn()`` to avoid needing a full app instance.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -538,7 +539,7 @@ class TestRestart:
             db_session=db_session,
             valkey=valkey,
             request=request,
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.agent == "scout"
@@ -571,7 +572,7 @@ class TestRestart:
                 db_session=db_session,
                 valkey=valkey,
                 request=request,
-                channels=MagicMock(),
+                channels=AsyncMock(),
             )
 
 
@@ -604,7 +605,7 @@ class TestPause:
             db_session=db_session,
             valkey=valkey,
             request=request,
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.agent == "scout"
@@ -635,7 +636,7 @@ class TestPause:
                 db_session=db_session,
                 valkey=valkey,
                 request=request,
-                channels=MagicMock(),
+                channels=AsyncMock(),
             )
 
 
@@ -667,7 +668,7 @@ class TestResume:
             db_session=db_session,
             valkey=valkey,
             request=request,
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.agent == "scout"
@@ -697,7 +698,7 @@ class TestResume:
                 db_session=db_session,
                 valkey=valkey,
                 request=request,
-                channels=MagicMock(),
+                channels=AsyncMock(),
             )
 
 

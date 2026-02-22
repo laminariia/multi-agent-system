@@ -26,6 +26,9 @@ import sys
 from typing import Any
 
 import httpx
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org"
 
@@ -35,9 +38,7 @@ def _get_env(name: str) -> str:
     val = os.environ.get(name, "")
     if not val:
         # Try loading from .env in project dir
-        env_path = os.path.join(
-            os.path.dirname(__file__), "..", "..", ".env"
-        )
+        env_path = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
         if os.path.exists(env_path):
             with open(env_path, encoding="utf-8") as f:
                 for line in f:
@@ -63,7 +64,7 @@ async def send_telegram_message(token: str, chat_id: str, text: str) -> bool:
             data = resp.json()
             return bool(data.get("ok"))
     except httpx.HTTPError as exc:
-        print(f"[orchestrator_notify] Telegram error: {exc}", file=sys.stderr)
+        logger.error("telegram_send_failed", error=str(exc))
         return False
 
 
@@ -132,15 +133,14 @@ async def notify(event: str, data: dict[str, Any]) -> bool:
     chat_id = _get_env("TELEGRAM_CHAT_ID")
 
     if not token or not chat_id:
-        print(
-            "[orchestrator_notify] TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set",
-            file=sys.stderr,
+        logger.warning(
+            "telegram_credentials_missing",
         )
         return False
 
     formatter = _FORMATTERS.get(event)
     if not formatter:
-        print(f"[orchestrator_notify] Unknown event: {event}", file=sys.stderr)
+        logger.warning("unknown_event", event_name=event)
         return False
 
     text = formatter(data)
@@ -163,7 +163,7 @@ def main() -> None:
     try:
         data = json.loads(raw_data)
     except json.JSONDecodeError as exc:
-        print(f"Invalid JSON data: {exc}", file=sys.stderr)
+        logger.error("invalid_json_data", error=str(exc))
         sys.exit(1)
 
     success = asyncio.run(notify(args.event, data))

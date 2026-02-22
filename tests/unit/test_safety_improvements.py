@@ -44,7 +44,9 @@ def _build_state(**overrides: Any) -> AgentState:
         "deadline": datetime(2026, 3, 15, tzinfo=UTC),
     }
     state = create_initial_state(
-        project=project, first_agent="critic", thread_id="thread-safety-test",
+        project=project,
+        first_agent="critic",
+        thread_id="thread-safety-test",
     )
     state.update(overrides)  # type: ignore[typeddict-item]
     return state
@@ -52,9 +54,11 @@ def _build_state(**overrides: Any) -> AgentState:
 
 def _make_dev_artifacts() -> dict[str, list[str]]:
     """Build a minimal set of dev artifacts."""
-    code_data = json.dumps({
-        "files": [{"path": "src/Hero.tsx", "content": "export default function Hero() {}"}],
-    })
+    code_data = json.dumps(
+        {
+            "files": [{"path": "src/Hero.tsx", "content": "export default function Hero() {}"}],
+        }
+    )
     return {"dev": ["artifact-id", code_data]}
 
 
@@ -64,15 +68,17 @@ def _make_review_response(
     revision_type: str = "none",
     issues: list[dict[str, Any]] | None = None,
 ) -> str:
-    return json.dumps({
-        "verdict": verdict,
-        "score": score,
-        "revision_type": revision_type,
-        "issues": issues or [],
-        "passed_checks": ["compiles"],
-        "failed_checks": [],
-        "revision_instructions": "",
-    })
+    return json.dumps(
+        {
+            "verdict": verdict,
+            "score": score,
+            "revision_type": revision_type,
+            "issues": issues or [],
+            "passed_checks": ["compiles"],
+            "failed_checks": [],
+            "revision_instructions": "",
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +120,7 @@ async def test_hitl_resolve_uses_for_update():
     mock_data.edited_payload = None
 
     mock_valkey = AsyncMock()
-    mock_channels = MagicMock()
+    mock_channels = AsyncMock()
 
     await HITLController.resolve.fn(
         controller,
@@ -169,7 +175,7 @@ async def test_hitl_bulk_resolve_uses_for_update():
     mock_data.note = None
 
     mock_valkey = AsyncMock()
-    mock_channels = MagicMock()
+    mock_channels = AsyncMock()
 
     await HITLController.bulk_resolve.fn(
         controller,
@@ -189,6 +195,7 @@ async def test_hitl_bulk_resolve_uses_for_update():
 # ---------------------------------------------------------------------------
 # 2. Critic HITL escalation creates HITLQueue entry
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def mock_llm_client():
@@ -213,14 +220,18 @@ def mock_loop_detector():
 
 @pytest.mark.asyncio
 async def test_critic_creates_hitl_entry_on_revision_limit(
-    mock_llm_client, mock_heartbeat, mock_loop_detector,
+    mock_llm_client,
+    mock_heartbeat,
+    mock_loop_detector,
 ):
     """Critic should create an HITLQueue DB entry when revision limit is exhausted."""
     review_response = _make_review_response(verdict="revise", score=0.75)
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,
@@ -254,16 +265,22 @@ async def test_critic_creates_hitl_entry_on_revision_limit(
 
 @pytest.mark.asyncio
 async def test_critic_creates_hitl_entry_on_scope_creep(
-    mock_llm_client, mock_heartbeat, mock_loop_detector,
+    mock_llm_client,
+    mock_heartbeat,
+    mock_loop_detector,
 ):
     """Critic should create an HITLQueue DB entry when scope creep is detected."""
     review_response = _make_review_response(
-        verdict="revise", score=0.70, revision_type="scope_creep",
+        verdict="revise",
+        score=0.70,
+        revision_type="scope_creep",
     )
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,
@@ -291,14 +308,18 @@ async def test_critic_creates_hitl_entry_on_scope_creep(
 
 @pytest.mark.asyncio
 async def test_critic_creates_hitl_entry_on_rejection(
-    mock_llm_client, mock_heartbeat, mock_loop_detector,
+    mock_llm_client,
+    mock_heartbeat,
+    mock_loop_detector,
 ):
     """Critic should create an HITLQueue DB entry when it rejects the work."""
     review_response = _make_review_response(verdict="reject", score=0.40)
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,
@@ -381,6 +402,7 @@ async def test_agent_no_timeout_on_fast_execution():
     class _FastAgent(ConstrainedAgent):
         async def _execute(self, state: AgentState) -> AgentState:
             from src.core.state import update_state
+
             return update_state(state, next_agent="packager", status="active")
 
     agent = _FastAgent(

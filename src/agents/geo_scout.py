@@ -5,6 +5,7 @@ that don't have a website. Results are stored as Leads in PostgreSQL.
 
 Pipeline B flow: GeoScout -> Enrichment -> Outreach -> [HITL] -> Send
 """
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -177,7 +178,7 @@ class GeoScoutAgent(ConstrainedAgent):
                 errors=[*state["errors"], f"Geocoding failed: {exc}"],
                 next_agent=None,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — intentional: agent must not crash
             self._log.exception("geoscout_error", city=city, error=str(exc))
             return update_state(
                 state,
@@ -196,9 +197,7 @@ class GeoScoutAgent(ConstrainedAgent):
         async with get_db_session() as session:
             for geo_lead in leads:
                 # Check for existing lead by osm_id.
-                existing = await session.execute(
-                    select(Lead).where(Lead.osm_id == geo_lead.osm_id)
-                )
+                existing = await session.execute(select(Lead).where(Lead.osm_id == geo_lead.osm_id))
                 if existing.scalar_one_or_none():
                     continue
 
@@ -251,7 +250,7 @@ async def geo_scout_node(state: dict[str, Any]) -> dict[str, Any]:
         # Clean up Overpass HTTP client.
         try:
             await agent._overpass.close()  # noqa: SLF001
-        except Exception:  # noqa: BLE001
+        except (OSError, ConnectionError):
             logger.debug("geo_scout_overpass_close_error", exc_info=True)
 
     return result

@@ -104,7 +104,7 @@ class KnowledgeRetriever:
         try:
             async with self._pool.acquire() as conn:
                 rows = await conn.fetch(sql, *params)
-        except Exception:
+        except (asyncpg.PostgresError, OSError, ConnectionError):
             logger.error("knowledge_search_failed", exc_info=True)
             return []
 

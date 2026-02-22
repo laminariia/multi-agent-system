@@ -1,4 +1,5 @@
 """API routes for Pipeline B -- Geo Scout + Outreach pipeline."""
+
 from __future__ import annotations
 
 import asyncio
@@ -15,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.guards import require_role
+from src.api.routes import _escape_like
 from src.api.schemas import PipelineBScanRequestSchema
 from src.core.models import Lead, User
 
@@ -48,9 +50,7 @@ class PipelineBController(Controller):
         from src.core.graph import run_pipeline_b  # noqa: PLC0415
 
         # Start the pipeline as a background task (stored to prevent GC)
-        task = asyncio.create_task(
-            run_pipeline_b(city, thread_id=thread_id, user_id=str(request.user.id))
-        )
+        task = asyncio.create_task(run_pipeline_b(city, thread_id=thread_id, user_id=str(request.user.id)))
         _background_tasks.add(task)
         task.add_done_callback(_background_tasks.discard)
 
@@ -60,10 +60,7 @@ class PipelineBController(Controller):
             "status": "started",
             "thread_id": thread_id,
             "city": city,
-            "message": (
-                f"Geo scan started for {city}. "
-                f"Check /api/v1/pipeline-b/leads?city={city} for results."
-            ),
+            "message": (f"Geo scan started for {city}. Check /api/v1/pipeline-b/leads?city={city} for results."),
         }
 
     @get("/leads")
@@ -88,7 +85,7 @@ class PipelineBController(Controller):
         if status:
             query = query.where(Lead.status == status)
         if search:
-            query = query.where(Lead.name.ilike(f"%{search}%"))
+            query = query.where(Lead.name.ilike("%" + _escape_like(search) + "%"))
 
         sort_map = {
             "newest": Lead.discovered_at.desc(),
@@ -110,7 +107,7 @@ class PipelineBController(Controller):
         if status:
             count_query = count_query.where(Lead.status == status)
         if search:
-            count_query = count_query.where(Lead.name.ilike(f"%{search}%"))
+            count_query = count_query.where(Lead.name.ilike("%" + _escape_like(search) + "%"))
         total = (await db_session.execute(count_query)).scalar() or 0
 
         return {
@@ -128,9 +125,7 @@ class PipelineBController(Controller):
                     "email": lead.email,
                     "status": lead.status,
                     "enrichment_source": lead.enrichment_source,
-                    "discovered_at": (
-                        lead.discovered_at.isoformat() if lead.discovered_at else None
-                    ),
+                    "discovered_at": (lead.discovered_at.isoformat() if lead.discovered_at else None),
                 }
                 for lead in leads
             ],
@@ -146,9 +141,7 @@ class PipelineBController(Controller):
         try:
             lead_uuid = uuid.UUID(lead_id)
         except (ValueError, TypeError) as exc:
-            raise HTTPException(
-                status_code=400, detail=f"Invalid lead ID format: {lead_id}"
-            ) from exc
+            raise HTTPException(status_code=400, detail=f"Invalid lead ID format: {lead_id}") from exc
 
         result = await db_session.execute(select(Lead).where(Lead.id == lead_uuid))
         lead = result.scalar_one_or_none()
@@ -171,15 +164,11 @@ class PipelineBController(Controller):
             "website": lead.website,
             "social_links": lead.social_links,
             "enrichment_source": lead.enrichment_source,
-            "enrichment_cost": (
-                float(lead.enrichment_cost) if lead.enrichment_cost is not None else None
-            ),
+            "enrichment_cost": (float(lead.enrichment_cost) if lead.enrichment_cost is not None else None),
             "enrichment_data": lead.enrichment_data,
             "status": lead.status,
             "osm_id": lead.osm_id,
-            "discovered_at": (
-                lead.discovered_at.isoformat() if lead.discovered_at else None
-            ),
+            "discovered_at": (lead.discovered_at.isoformat() if lead.discovered_at else None),
         }
 
     @post(
@@ -201,9 +190,7 @@ class PipelineBController(Controller):
         try:
             lead_uuid = uuid.UUID(lead_id)
         except (ValueError, TypeError) as exc:
-            raise HTTPException(
-                status_code=400, detail=f"Invalid lead ID format: {lead_id}"
-            ) from exc
+            raise HTTPException(status_code=400, detail=f"Invalid lead ID format: {lead_id}") from exc
 
         result = await db_session.execute(select(Lead).where(Lead.id == lead_uuid))
         lead = result.scalar_one_or_none()
@@ -241,7 +228,7 @@ class PipelineBController(Controller):
                 "source": lead.enrichment_source,
                 "email": lead.email,
             }
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — intentional: enrichment waterfall may fail in many ways, return graceful error
             logger.warning("lead.enrichment_failed", lead_id=lead_id, error=str(exc))
             return {
                 "status": "failed",
@@ -256,17 +243,12 @@ class PipelineBController(Controller):
     ) -> dict[str, Any]:
         """Get Pipeline B statistics."""
         # Count leads by status
-        status_counts = await db_session.execute(
-            select(Lead.status, func.count(Lead.id)).group_by(Lead.status)
-        )
+        status_counts = await db_session.execute(select(Lead.status, func.count(Lead.id)).group_by(Lead.status))
         status_map = {row[0]: row[1] for row in status_counts}
 
         # Count leads by city
         city_counts = await db_session.execute(
-            select(Lead.city, func.count(Lead.id))
-            .group_by(Lead.city)
-            .order_by(func.count(Lead.id).desc())
-            .limit(10)
+            select(Lead.city, func.count(Lead.id)).group_by(Lead.city).order_by(func.count(Lead.id).desc()).limit(10)
         )
         top_cities = [{"city": row[0], "count": row[1]} for row in city_counts]
 

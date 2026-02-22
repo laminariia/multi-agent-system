@@ -11,6 +11,7 @@ The Outreach Agent:
 
 CRITICAL: Email sending requires HITL approval. This agent only DRAFTS emails.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -23,6 +24,7 @@ from sqlalchemy import select, update
 
 from src.agents.base import ConstrainedAgent
 from src.core.database import get_db_session
+from src.core.exceptions import LLMException, MASException
 from src.core.heartbeat import HeartbeatMonitor
 from src.core.json_repair import extract_json
 from src.core.llm_client import LLMClient
@@ -118,7 +120,7 @@ class OutreachAgent(ConstrainedAgent):
                     settings = get_settings()
                     hunter_key = hunter_key or settings.HUNTER_API_KEY
                     apollo_key = apollo_key or settings.APOLLO_API_KEY
-                except Exception:  # noqa: BLE001
+                except (ImportError, AttributeError, ValueError):
                     logger.warning("outreach_waterfall_fallback", exc_info=True)
 
             self._waterfall = EnrichmentWaterfall(
@@ -197,7 +199,9 @@ class OutreachAgent(ConstrainedAgent):
                 # 4. Create HITL request for email approval.
                 if emails_drafted > 0:
                     hitl_id = await self._create_hitl_request(
-                        campaign, city, emails_drafted,
+                        campaign,
+                        city,
+                        emails_drafted,
                     )
                     artifacts["_outreach_hitl_id"] = str(hitl_id)
 
@@ -221,7 +225,7 @@ class OutreachAgent(ConstrainedAgent):
                 next_agent=None,
             )
 
-        except Exception as exc:  # noqa: BLE001
+        except (MASException, OSError) as exc:
             self._log.exception("outreach_error", city=city, error=str(exc))
             return update_state(
                 state,
@@ -238,9 +242,7 @@ class OutreachAgent(ConstrainedAgent):
         """Load unenriched leads for the given city."""
         async with get_db_session() as session:
             result = await session.execute(
-                select(Lead)
-                .where(Lead.city == city, Lead.status == "new")
-                .limit(_MAX_LEADS_PER_BATCH)
+                select(Lead).where(Lead.city == city, Lead.status == "new").limit(_MAX_LEADS_PER_BATCH)
             )
             return list(result.scalars().all())
 
@@ -290,11 +292,7 @@ class OutreachAgent(ConstrainedAgent):
                     lead.status = "enriched"
                     enriched.append(lead)
                 else:
-                    await session.execute(
-                        update(Lead)
-                        .where(Lead.id == lead.id)
-                        .values(status="no_contact")
-                    )
+                    await session.execute(update(Lead).where(Lead.id == lead.id).values(status="no_contact"))
 
             await session.commit()
 
@@ -392,7 +390,7 @@ class OutreachAgent(ConstrainedAgent):
             if body:
                 return subject, body
 
-        except Exception:  # noqa: BLE001
+        except (LLMException, KeyError, ValueError):
             self._log.warning(
                 "outreach_email_gen_failed",
                 lead=lead.name,
@@ -430,10 +428,7 @@ class OutreachAgent(ConstrainedAgent):
                 type="email_approval",
                 priority="normal",
                 title=f"Approve {count} cold emails for {city}",
-                description=(
-                    f"Review and approve {count} personalized cold emails "
-                    f"for businesses in {city}."
-                ),
+                description=(f"Review and approve {count} personalized cold emails for businesses in {city}."),
                 payload={
                     "campaign_id": str(campaign.id),
                     "city": city,
@@ -486,7 +481,7 @@ async def outreach_node(state: dict[str, Any]) -> dict[str, Any]:
         if agent._waterfall is not None:  # noqa: SLF001
             try:
                 await agent._waterfall.close()  # noqa: SLF001
-            except Exception:  # noqa: BLE001
+            except (OSError, ConnectionError):
                 logger.debug("outreach_waterfall_close_error", exc_info=True)
 
     return result

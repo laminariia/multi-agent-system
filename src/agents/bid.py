@@ -7,6 +7,7 @@ returns control.  No bid is ever auto-submitted.
 Role constraints: can GENERATE proposals, CANNOT submit bids directly.
 LLM: Gemini 3 Flash (fallback Claude Haiku).
 """
+
 from __future__ import annotations
 
 import json
@@ -178,20 +179,22 @@ class BidAgent(ConstrainedAgent):
                 if job is None:
                     continue
 
-                results.append({
-                    "id": str(job.id),
-                    "platform": job.platform,
-                    "external_id": job.external_id,
-                    "title": job.title,
-                    "description": job.description or "",
-                    "budget_min": float(job.budget_min) if job.budget_min else None,
-                    "budget_max": float(job.budget_max) if job.budget_max else None,
-                    "currency": job.currency,
-                    "skills_required": job.skills_required or [],
-                    "client_info": job.client_info or {},
-                    "url": job.url,
-                    "score": float(job.score) if job.score else 0.0,
-                })
+                results.append(
+                    {
+                        "id": str(job.id),
+                        "platform": job.platform,
+                        "external_id": job.external_id,
+                        "title": job.title,
+                        "description": job.description or "",
+                        "budget_min": float(job.budget_min) if job.budget_min else None,
+                        "budget_max": float(job.budget_max) if job.budget_max else None,
+                        "currency": job.currency,
+                        "skills_required": job.skills_required or [],
+                        "client_info": job.client_info or {},
+                        "url": job.url,
+                        "score": float(job.score) if job.score else 0.0,
+                    }
+                )
 
         return results
 
@@ -245,7 +248,7 @@ class BidAgent(ConstrainedAgent):
                         source="vector_search",
                     )
                     return similar
-            except Exception:
+            except Exception:  # noqa: BLE001 — intentional: any vector failure falls back to SQL
                 self._log.warning(
                     "vector_search_fallback",
                     category=category,
@@ -269,11 +272,13 @@ class BidAgent(ConstrainedAgent):
             rows = result.scalars().all()
 
             for row in rows:
-                similar.append({
-                    "title": row.title,
-                    "content": row.content,
-                    "success_rate": float(row.success_rate) if row.success_rate else None,
-                })
+                similar.append(
+                    {
+                        "title": row.title,
+                        "content": row.content,
+                        "success_rate": float(row.success_rate) if row.success_rate else None,
+                    }
+                )
 
         self._log.debug(
             "similar_bids_found",
@@ -487,10 +492,7 @@ class BidAgent(ConstrainedAgent):
                 agent_name="bid",
                 job_id=uuid.UUID(job["id"]),
                 event_type="bid_generated",
-                message=(
-                    f"Bid generated for '{job.get('title', '')[:100]}' "
-                    f"at ${proposal.get('bid_amount', 0):.2f}"
-                ),
+                message=(f"Bid generated for '{job.get('title', '')[:100]}' at ${proposal.get('bid_amount', 0):.2f}"),
                 details={
                     "bid_id": bid_id,
                     "platform": job.get("platform"),
@@ -507,6 +509,7 @@ class BidAgent(ConstrainedAgent):
 # ======================================================================
 # Module-level node function for LangGraph
 # ======================================================================
+
 
 async def bid_node(state: AgentState) -> AgentState:
     """LangGraph node function that creates and invokes the Bid Agent.

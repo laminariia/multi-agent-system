@@ -3,6 +3,7 @@
 Provides endpoints for listing pending HITL items, resolving them, and
 retrieving aggregate statistics.  Mounted at ``/api/v1/hitl``.
 """
+
 from __future__ import annotations
 
 import json
@@ -21,6 +22,7 @@ from sqlalchemy import Date, case, cast, extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.guards import require_role
+from src.api.routes import _escape_like
 from src.api.schemas import (
     HITLBulkResolveRequestSchema,
     HITLBulkResolveResponseSchema,
@@ -143,7 +145,8 @@ class HITLController(Controller):
         db_session: AsyncSession,
         type: str | None = Parameter(default=None, description="Filter by type: bid_approval, code_review, etc."),
         search: str | None = Parameter(
-            default=None, description="Case-insensitive title substring filter",
+            default=None,
+            description="Case-insensitive title substring filter",
         ),
         limit: int = Parameter(default=20, ge=1, le=100, description="Page size"),
         offset: int = Parameter(default=0, ge=0, description="Pagination offset"),
@@ -154,19 +157,14 @@ class HITLController(Controller):
         if type is not None:
             base = base.where(HITLQueue.type == type)
 
-        if search is not None:
-            base = base.where(HITLQueue.title.ilike(f"%{search}%"))
+        if isinstance(search, str):
+            base = base.where(HITLQueue.title.ilike("%" + _escape_like(search) + "%"))
 
         # Count total + urgent
         count_stmt = select(func.count()).select_from(base.subquery())
         total = (await db_session.execute(count_stmt)).scalar_one()
 
-        urgent_stmt = (
-            select(func.count())
-            .select_from(
-                base.where(HITLQueue.priority == "urgent").subquery()
-            )
-        )
+        urgent_stmt = select(func.count()).select_from(base.where(HITLQueue.priority == "urgent").subquery())
         pending_urgent = (await db_session.execute(urgent_stmt)).scalar_one()
 
         # Fetch page ordered by priority weight then newest first
@@ -176,12 +174,7 @@ class HITLController(Controller):
             (HITLQueue.priority == "low", 2),
             else_=3,
         )
-        items_stmt = (
-            base
-            .order_by(priority_order, HITLQueue.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
+        items_stmt = base.order_by(priority_order, HITLQueue.created_at.desc()).limit(limit).offset(offset)
         result = await db_session.execute(items_stmt)
         rows = result.scalars().all()
 
@@ -291,32 +284,38 @@ class HITLController(Controller):
         try:
             await valkey.publish(
                 "hitl:resolved:bot",
-                json.dumps({
-                    "hitl_id": str(hitl_id),
-                    "type": item.type,
-                    "title": item.title,
-                    "action": data.action,
-                    "next_action": next_action,
-                    "resolved_by": request.user.email,
-                }),
+                json.dumps(
+                    {
+                        "hitl_id": str(hitl_id),
+                        "type": item.type,
+                        "title": item.title,
+                        "action": data.action,
+                        "next_action": next_action,
+                        "resolved_by": request.user.email,
+                    }
+                ),
             )
-        except Exception:
+        except (OSError, ConnectionError):
             logger.warning("hitl.bot_notify_failed", hitl_id=str(hitl_id), exc_info=True)
 
         # Publish real-time event for connected dashboard clients
         try:
-            await publish_event(channels, CHANNEL_HITL_RESOLVED, {
-                "type": "hitl:resolved",
-                "data": {
-                    "hitl_id": str(hitl_id),
-                    "hitl_type": item.type,
-                    "title": item.title,
-                    "action": data.action,
-                    "next_action": next_action,
-                    "resolved_by": request.user.email,
+            await publish_event(
+                channels,
+                CHANNEL_HITL_RESOLVED,
+                {
+                    "type": "hitl:resolved",
+                    "data": {
+                        "hitl_id": str(hitl_id),
+                        "hitl_type": item.type,
+                        "title": item.title,
+                        "action": data.action,
+                        "next_action": next_action,
+                        "resolved_by": request.user.email,
+                    },
                 },
-            })
-        except Exception:
+            )
+        except (OSError, ConnectionError):
             logger.debug("hitl.ws_publish_failed", hitl_id=str(hitl_id), exc_info=True)
 
         # Resume the paused pipeline if this HITL type has a graph to resume.
@@ -337,9 +336,7 @@ class HITLController(Controller):
                 if data.edited_payload:
                     hitl_response["edits"] = data.edited_payload
                 if item.type == "bid_approval":
-                    hitl_response["bid_ids"] = [
-                        (item.payload or {}).get("bid_id", "")
-                    ]
+                    hitl_response["bid_ids"] = [(item.payload or {}).get("bid_id", "")]
 
                 task = asyncio.create_task(
                     _resume(
@@ -360,7 +357,7 @@ class HITLController(Controller):
                     hitl_type=item.type,
                     action=data.action,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — intentional: dynamic import + task creation, any failure is non-fatal
                 logger.warning(
                     "hitl.resume_dispatch_failed",
                     hitl_id=str(hitl_id),
@@ -429,10 +426,12 @@ class HITLController(Controller):
 
             if data.action not in item.available_actions:
                 failed_count += 1
-                errors.append({
-                    "id": str(item_id),
-                    "error": f"Action '{data.action}' not available",
-                })
+                errors.append(
+                    {
+                        "id": str(item_id),
+                        "error": f"Action '{data.action}' not available",
+                    }
+                )
                 continue
 
             # Apply resolution
@@ -473,9 +472,7 @@ class HITLController(Controller):
                         "note": data.note,
                     }
                     if item.type == "bid_approval":
-                        hitl_response["bid_ids"] = [
-                            (item.payload or {}).get("bid_id", "")
-                        ]
+                        hitl_response["bid_ids"] = [(item.payload or {}).get("bid_id", "")]
 
                     task = asyncio.create_task(
                         _resume(
@@ -487,7 +484,7 @@ class HITLController(Controller):
                     )
                     _background_resume_tasks.add(task)
                     task.add_done_callback(_background_resume_tasks.discard)
-                except Exception:
+                except Exception:  # noqa: BLE001 — intentional: dynamic import + task creation, any failure is non-fatal
                     logger.warning(
                         "hitl.bulk_resume_dispatch_failed",
                         hitl_id=item_id_str,
@@ -497,31 +494,37 @@ class HITLController(Controller):
         # Single WebSocket publish with all resolved IDs
         if resolved_ids:
             try:
-                await publish_event(channels, CHANNEL_HITL_RESOLVED, {
-                    "type": "hitl:bulk_resolved",
-                    "data": {
-                        "hitl_ids": resolved_ids,
-                        "action": data.action,
-                        "resolved_count": resolved_count,
-                        "resolved_by": request.user.email,
+                await publish_event(
+                    channels,
+                    CHANNEL_HITL_RESOLVED,
+                    {
+                        "type": "hitl:bulk_resolved",
+                        "data": {
+                            "hitl_ids": resolved_ids,
+                            "action": data.action,
+                            "resolved_count": resolved_count,
+                            "resolved_by": request.user.email,
+                        },
                     },
-                })
-            except Exception:
+                )
+            except (OSError, ConnectionError):
                 logger.debug("hitl.bulk_ws_publish_failed", exc_info=True)
 
             # Single Valkey pub/sub notification with summary
             try:
                 await valkey.publish(
                     "hitl:resolved:bot",
-                    json.dumps({
-                        "bulk": True,
-                        "hitl_ids": resolved_ids,
-                        "action": data.action,
-                        "resolved_count": resolved_count,
-                        "resolved_by": request.user.email,
-                    }),
+                    json.dumps(
+                        {
+                            "bulk": True,
+                            "hitl_ids": resolved_ids,
+                            "action": data.action,
+                            "resolved_count": resolved_count,
+                            "resolved_by": request.user.email,
+                        }
+                    ),
                 )
-            except Exception:
+            except (OSError, ConnectionError):
                 logger.warning("hitl.bulk_bot_notify_failed", exc_info=True)
 
         return HITLBulkResolveResponseSchema(
@@ -552,32 +555,25 @@ class HITLController(Controller):
 
         pending_count = (
             await db_session.execute(
-                select(func.count())
-                .select_from(today_base.where(HITLQueue.status == "pending").subquery())
+                select(func.count()).select_from(today_base.where(HITLQueue.status == "pending").subquery())
             )
         ).scalar_one()
 
         resolved_count = (
             await db_session.execute(
-                select(func.count())
-                .select_from(today_base.where(HITLQueue.status == "resolved").subquery())
+                select(func.count()).select_from(today_base.where(HITLQueue.status == "resolved").subquery())
             )
         ).scalar_one()
 
         expired_count = (
             await db_session.execute(
-                select(func.count())
-                .select_from(today_base.where(HITLQueue.status == "expired").subquery())
+                select(func.count()).select_from(today_base.where(HITLQueue.status == "expired").subquery())
             )
         ).scalar_one()
 
         # -- Average resolution time (minutes) --------------------------------
         avg_stmt = (
-            select(
-                func.avg(
-                    extract("epoch", HITLQueue.resolved_at) - extract("epoch", HITLQueue.created_at)
-                )
-            )
+            select(func.avg(extract("epoch", HITLQueue.resolved_at) - extract("epoch", HITLQueue.created_at)))
             .where(HITLQueue.status == "resolved")
             .where(HITLQueue.resolved_at.is_not(None))
         )
@@ -644,9 +640,7 @@ class HITLController(Controller):
             .group_by(cast(HITLQueue.created_at, Date))
         )
         created_rows = (await db_session.execute(created_stmt)).all()
-        created_map: dict[str, int] = {
-            str(row[0]): row[1] for row in created_rows
-        }
+        created_map: dict[str, int] = {str(row[0]): row[1] for row in created_rows}
 
         # -- Resolved per day (by resolved_at) ---------------------------------
         resolved_stmt = (
@@ -659,9 +653,7 @@ class HITLController(Controller):
             .group_by(cast(HITLQueue.resolved_at, Date))
         )
         resolved_rows = (await db_session.execute(resolved_stmt)).all()
-        resolved_map: dict[str, int] = {
-            str(row[0]): row[1] for row in resolved_rows
-        }
+        resolved_map: dict[str, int] = {str(row[0]): row[1] for row in resolved_rows}
 
         # -- Build day-by-day list (most recent first) -------------------------
         trend_days: list[HITLTrendDaySchema] = []

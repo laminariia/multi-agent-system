@@ -12,6 +12,7 @@ Until authenticated, the server will not forward any events.
 A server-side heartbeat (``ping``) is sent every 30 seconds to keep the
 connection alive and allow the client to detect stale links.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -82,7 +83,7 @@ async def ws_handler(socket: WebSocket, channels: ChannelsPlugin) -> None:
             while True:
                 await asyncio.sleep(_HEARTBEAT_INTERVAL_SECONDS)
                 await socket.send_json({"type": "ping"})
-        except Exception:
+        except (WebSocketDisconnect, ConnectionError, OSError):
             logger.debug("ws.heartbeat_stopped")  # socket closed
 
     try:
@@ -118,18 +119,20 @@ async def ws_handler(socket: WebSocket, channels: ChannelsPlugin) -> None:
                             await channels.subscribe(socket, [ch])
                             subscribed_channels.add(ch)
 
-                    await socket.send_json({
-                        "type": "auth:ok",
-                        "user_id": user_id,
-                        "subscribed": list(subscribed_channels),
-                    })
+                    await socket.send_json(
+                        {
+                            "type": "auth:ok",
+                            "user_id": user_id,
+                            "subscribed": list(subscribed_channels),
+                        }
+                    )
                     logger.info("ws.authenticated", user_id=user_id)
 
                     # Start heartbeat once authenticated
                     if heartbeat_task is None:
                         heartbeat_task = asyncio.create_task(_heartbeat_loop())
 
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 — intentional: any auth failure must be reported, not crash WS
                     auth_failures += 1
                     await _send_error(socket, f"Authentication failed: {exc}")
                     logger.warning("ws.auth_failed", error=str(exc), failures=auth_failures)
@@ -153,10 +156,12 @@ async def ws_handler(socket: WebSocket, channels: ChannelsPlugin) -> None:
                     if channel_name not in subscribed_channels:
                         await channels.subscribe(socket, [channel_name])
                         subscribed_channels.add(channel_name)
-                    await socket.send_json({
-                        "type": "subscribed",
-                        "channel": channel_name,
-                    })
+                    await socket.send_json(
+                        {
+                            "type": "subscribed",
+                            "channel": channel_name,
+                        }
+                    )
                     logger.info("ws.subscribed", user_id=user_id, channel=channel_name)
                 continue
 
@@ -168,10 +173,12 @@ async def ws_handler(socket: WebSocket, channels: ChannelsPlugin) -> None:
                     if channel_name not in subscribed_channels:
                         await channels.subscribe(socket, [channel_name])
                         subscribed_channels.add(channel_name)
-                    await socket.send_json({
-                        "type": "subscribed",
-                        "channel": channel_name,
-                    })
+                    await socket.send_json(
+                        {
+                            "type": "subscribed",
+                            "channel": channel_name,
+                        }
+                    )
                     logger.info("ws.subscribed", user_id=user_id, channel=channel_name)
                 continue
 
@@ -195,7 +202,7 @@ async def ws_handler(socket: WebSocket, channels: ChannelsPlugin) -> None:
         for ch in subscribed_channels:
             try:
                 await channels.unsubscribe(socket, [ch])
-            except Exception:
+            except (OSError, ConnectionError, RuntimeError):
                 logger.debug("ws_unsubscribe_cleanup_failed", channel=ch)
 
 

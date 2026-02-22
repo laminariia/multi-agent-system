@@ -6,6 +6,7 @@ running the full Pipeline A for a specific job.
 
 Mounted at ``/api/v1/jobs``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -23,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.api.guards import require_role
+from src.api.routes import _escape_like
 from src.api.schemas import (
     BidSummarySchema,
     JobDisqualifyResponseSchema,
@@ -91,8 +93,8 @@ class JobController(Controller):
             stmt = stmt.where(Job.platform == platform)
         if min_score is not None:
             stmt = stmt.where(Job.score >= Decimal(str(min_score)))
-        if search is not None:
-            stmt = stmt.where(Job.title.ilike(f"%{search}%"))
+        if isinstance(search, str):
+            stmt = stmt.where(Job.title.ilike("%" + _escape_like(search) + "%"))
 
         # Total count
         count_stmt = select(func.count()).select_from(stmt.subquery())
@@ -130,21 +132,12 @@ class JobController(Controller):
     ) -> dict[str, Any]:
         """Return aggregated job stats: counts by platform and by status."""
         # By platform
-        platform_stmt = (
-            select(Job.platform, func.count())
-            .group_by(Job.platform)
-        )
+        platform_stmt = select(Job.platform, func.count()).group_by(Job.platform)
         platform_rows = (await db_session.execute(platform_stmt)).all()
-        by_platform = [
-            {"platform": row[0], "count": row[1]}
-            for row in platform_rows
-        ]
+        by_platform = [{"platform": row[0], "count": row[1]} for row in platform_rows]
 
         # By status
-        status_stmt = (
-            select(Job.status, func.count())
-            .group_by(Job.status)
-        )
+        status_stmt = select(Job.status, func.count()).group_by(Job.status)
         status_rows = (await db_session.execute(status_stmt)).all()
         by_status = {row[0]: row[1] for row in status_rows}
 
@@ -267,9 +260,7 @@ class JobController(Controller):
 
         from src.worker.tasks import run_scout_cycle  # noqa: PLC0415
 
-        task = asyncio.create_task(
-            run_scout_cycle({"platform": platform, "user_id": str(request.user.id)})
-        )
+        task = asyncio.create_task(run_scout_cycle({"platform": platform, "user_id": str(request.user.id)}))
         _background_tasks.add(task)
         task.add_done_callback(_background_tasks.discard)
 
@@ -282,10 +273,7 @@ class JobController(Controller):
         return {
             "status": "started",
             "platform": platform,
-            "message": (
-                f"Scout scan started for platform '{platform}'. "
-                "Check /api/v1/jobs for new results."
-            ),
+            "message": (f"Scout scan started for platform '{platform}'. Check /api/v1/jobs for new results."),
         }
 
     # -----------------------------------------------------------------
@@ -362,10 +350,7 @@ class JobController(Controller):
             "status": "started",
             "job_id": str(job.id),
             "thread_id": thread_id,
-            "message": (
-                f"Pipeline A started for job {job.id}. "
-                f"Thread ID: {thread_id}."
-            ),
+            "message": (f"Pipeline A started for job {job.id}. Thread ID: {thread_id}."),
         }
 
 

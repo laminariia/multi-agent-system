@@ -138,7 +138,7 @@ class AdaptiveRateLimiter:
         try:
             await self._valkey.hset(key, mapping=data)
             await self._valkey.expire(key, 86400)  # 24h TTL
-        except Exception:  # noqa: BLE001
+        except (OSError, ConnectionError):
             logger.debug("rate_limiter.valkey_save_failed", platform=platform, exc_info=True)
 
     async def _load_state(self, platform: str) -> None:
@@ -169,7 +169,7 @@ class AdaptiveRateLimiter:
             state.total_requests = int(_val("total_requests"))
             state.total_429s = int(_val("total_429s"))
             state.total_bans = int(_val("total_bans"))
-        except Exception:  # noqa: BLE001
+        except (OSError, ConnectionError, ValueError):
             logger.debug("rate_limiter.valkey_load_failed", platform=platform, exc_info=True)
 
     # ------------------------------------------------------------------
@@ -282,7 +282,7 @@ class AdaptiveRateLimiter:
             )
             try:
                 await self._telegram_notify(msg)
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 — intentional: external callback may raise anything
                 logger.debug("rate_limiter.telegram_notify_failed", exc_info=True)
 
         await self._save_state(platform)

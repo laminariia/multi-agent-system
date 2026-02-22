@@ -3,6 +3,7 @@
 Tests ``src.api.websocket`` — channel constants, ws_handler lifecycle,
 authentication handshake, subscription management, and publish_event helper.
 """
+
 from __future__ import annotations
 
 import json
@@ -59,19 +60,23 @@ class TestSendError:
     async def test_sends_error_json(self) -> None:
         mock_socket = AsyncMock()
         await _send_error(mock_socket, "Something went wrong")
-        mock_socket.send_json.assert_awaited_once_with({
-            "type": "error",
-            "message": "Something went wrong",
-        })
+        mock_socket.send_json.assert_awaited_once_with(
+            {
+                "type": "error",
+                "message": "Something went wrong",
+            }
+        )
 
     @pytest.mark.asyncio
     async def test_sends_empty_error_message(self) -> None:
         mock_socket = AsyncMock()
         await _send_error(mock_socket, "")
-        mock_socket.send_json.assert_awaited_once_with({
-            "type": "error",
-            "message": "",
-        })
+        mock_socket.send_json.assert_awaited_once_with(
+            {
+                "type": "error",
+                "message": "",
+            }
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +130,7 @@ class TestWsHandler:
     async def test_accepts_connection(self) -> None:
         """Handler should accept the WebSocket connection immediately."""
         mock_socket = AsyncMock()
-        mock_channels = MagicMock()
+        mock_channels = AsyncMock()
 
         # Disconnect after accept
         mock_socket.receive_text = AsyncMock(side_effect=WebSocketDisconnect)
@@ -137,24 +142,24 @@ class TestWsHandler:
     @pytest.mark.asyncio
     async def test_invalid_json_sends_error(self) -> None:
         mock_socket = AsyncMock()
-        mock_channels = MagicMock()
+        mock_channels = AsyncMock()
 
-        mock_socket.receive_text = AsyncMock(
-            side_effect=["not valid json", WebSocketDisconnect]
-        )
+        mock_socket.receive_text = AsyncMock(side_effect=["not valid json", WebSocketDisconnect])
 
         await ws_handler.fn(socket=mock_socket, channels=mock_channels)
 
         # Should have sent an error about invalid JSON
-        mock_socket.send_json.assert_any_call({
-            "type": "error",
-            "message": "Invalid JSON",
-        })
+        mock_socket.send_json.assert_any_call(
+            {
+                "type": "error",
+                "message": "Invalid JSON",
+            }
+        )
 
     @pytest.mark.asyncio
     async def test_auth_with_valid_token(self) -> None:
         mock_socket = AsyncMock()
-        mock_channels = MagicMock()
+        mock_channels = AsyncMock()
         mock_channels.subscribe = AsyncMock()
 
         mock_token = MagicMock()
@@ -162,9 +167,7 @@ class TestWsHandler:
 
         auth_msg = json.dumps({"type": "auth", "token": "Bearer test-jwt"})  # noqa: S106
 
-        mock_socket.receive_text = AsyncMock(
-            side_effect=[auth_msg, WebSocketDisconnect]
-        )
+        mock_socket.receive_text = AsyncMock(side_effect=[auth_msg, WebSocketDisconnect])
 
         with patch("src.api.websocket.get_settings") as mock_settings:
             mock_settings.return_value.JWT_SECRET_KEY = "test-secret"  # noqa: S105
@@ -180,7 +183,7 @@ class TestWsHandler:
     @pytest.mark.asyncio
     async def test_auth_subscribes_to_default_channels(self) -> None:
         mock_socket = AsyncMock()
-        mock_channels = MagicMock()
+        mock_channels = AsyncMock()
         mock_channels.subscribe = AsyncMock()
 
         mock_token = MagicMock()
@@ -188,9 +191,7 @@ class TestWsHandler:
 
         auth_msg = json.dumps({"type": "auth", "token": "test-jwt"})  # noqa: S106
 
-        mock_socket.receive_text = AsyncMock(
-            side_effect=[auth_msg, WebSocketDisconnect]
-        )
+        mock_socket.receive_text = AsyncMock(side_effect=[auth_msg, WebSocketDisconnect])
 
         with patch("src.api.websocket.get_settings") as mock_settings:
             mock_settings.return_value.JWT_SECRET_KEY = "test-secret"  # noqa: S105
@@ -203,13 +204,11 @@ class TestWsHandler:
     @pytest.mark.asyncio
     async def test_auth_failed_sends_error(self) -> None:
         mock_socket = AsyncMock()
-        mock_channels = MagicMock()
+        mock_channels = AsyncMock()
 
         auth_msg = json.dumps({"type": "auth", "token": "bad-token"})  # noqa: S106
 
-        mock_socket.receive_text = AsyncMock(
-            side_effect=[auth_msg, WebSocketDisconnect]
-        )
+        mock_socket.receive_text = AsyncMock(side_effect=[auth_msg, WebSocketDisconnect])
 
         with patch("src.api.websocket.get_settings") as mock_settings:
             mock_settings.return_value.JWT_SECRET_KEY = "test-secret"  # noqa: S105
@@ -225,14 +224,12 @@ class TestWsHandler:
     @pytest.mark.asyncio
     async def test_unauthenticated_message_rejected(self) -> None:
         mock_socket = AsyncMock()
-        mock_channels = MagicMock()
+        mock_channels = AsyncMock()
 
         # Try to subscribe without auth first
         sub_msg = json.dumps({"type": "subscribe:project", "project_id": "p1"})
 
-        mock_socket.receive_text = AsyncMock(
-            side_effect=[sub_msg, WebSocketDisconnect]
-        )
+        mock_socket.receive_text = AsyncMock(side_effect=[sub_msg, WebSocketDisconnect])
 
         await ws_handler.fn(socket=mock_socket, channels=mock_channels)
 
@@ -244,7 +241,7 @@ class TestWsHandler:
     @pytest.mark.asyncio
     async def test_subscribe_project_after_auth(self) -> None:
         mock_socket = AsyncMock()
-        mock_channels = MagicMock()
+        mock_channels = AsyncMock()
         mock_channels.subscribe = AsyncMock()
 
         mock_token = MagicMock()
@@ -253,9 +250,7 @@ class TestWsHandler:
         auth_msg = json.dumps({"type": "auth", "token": "test-jwt"})  # noqa: S106
         sub_msg = json.dumps({"type": "subscribe:project", "project_id": "proj-42"})
 
-        mock_socket.receive_text = AsyncMock(
-            side_effect=[auth_msg, sub_msg, WebSocketDisconnect]
-        )
+        mock_socket.receive_text = AsyncMock(side_effect=[auth_msg, sub_msg, WebSocketDisconnect])
 
         with patch("src.api.websocket.get_settings") as mock_settings:
             mock_settings.return_value.JWT_SECRET_KEY = "test-secret"  # noqa: S105
@@ -264,10 +259,7 @@ class TestWsHandler:
 
         # Should have subscribed to project channel
         sub_calls = mock_channels.subscribe.call_args_list
-        project_subs = [
-            c for c in sub_calls
-            if any("project:proj-42" in ch for ch in c[0][1])
-        ]
+        project_subs = [c for c in sub_calls if any("project:proj-42" in ch for ch in c[0][1])]
         assert len(project_subs) == 1
 
         # Should have sent subscribed confirmation
@@ -278,7 +270,7 @@ class TestWsHandler:
     @pytest.mark.asyncio
     async def test_subscribe_agent_after_auth(self) -> None:
         mock_socket = AsyncMock()
-        mock_channels = MagicMock()
+        mock_channels = AsyncMock()
         mock_channels.subscribe = AsyncMock()
 
         mock_token = MagicMock()
@@ -287,9 +279,7 @@ class TestWsHandler:
         auth_msg = json.dumps({"type": "auth", "token": "test-jwt"})  # noqa: S106
         sub_msg = json.dumps({"type": "subscribe:agent", "agent": "scout"})
 
-        mock_socket.receive_text = AsyncMock(
-            side_effect=[auth_msg, sub_msg, WebSocketDisconnect]
-        )
+        mock_socket.receive_text = AsyncMock(side_effect=[auth_msg, sub_msg, WebSocketDisconnect])
 
         with patch("src.api.websocket.get_settings") as mock_settings:
             mock_settings.return_value.JWT_SECRET_KEY = "test-secret"  # noqa: S105
@@ -304,7 +294,7 @@ class TestWsHandler:
     @pytest.mark.asyncio
     async def test_unknown_message_type_sends_error(self) -> None:
         mock_socket = AsyncMock()
-        mock_channels = MagicMock()
+        mock_channels = AsyncMock()
         mock_channels.subscribe = AsyncMock()
 
         mock_token = MagicMock()
@@ -313,9 +303,7 @@ class TestWsHandler:
         auth_msg = json.dumps({"type": "auth", "token": "test-jwt"})  # noqa: S106
         unknown_msg = json.dumps({"type": "some_unknown_type"})
 
-        mock_socket.receive_text = AsyncMock(
-            side_effect=[auth_msg, unknown_msg, WebSocketDisconnect]
-        )
+        mock_socket.receive_text = AsyncMock(side_effect=[auth_msg, unknown_msg, WebSocketDisconnect])
 
         with patch("src.api.websocket.get_settings") as mock_settings:
             mock_settings.return_value.JWT_SECRET_KEY = "test-secret"  # noqa: S105
@@ -329,7 +317,7 @@ class TestWsHandler:
     @pytest.mark.asyncio
     async def test_disconnect_unsubscribes_channels(self) -> None:
         mock_socket = AsyncMock()
-        mock_channels = MagicMock()
+        mock_channels = AsyncMock()
         mock_channels.subscribe = AsyncMock()
         mock_channels.unsubscribe = AsyncMock()
 
@@ -338,9 +326,7 @@ class TestWsHandler:
 
         auth_msg = json.dumps({"type": "auth", "token": "test-jwt"})  # noqa: S106
 
-        mock_socket.receive_text = AsyncMock(
-            side_effect=[auth_msg, WebSocketDisconnect]
-        )
+        mock_socket.receive_text = AsyncMock(side_effect=[auth_msg, WebSocketDisconnect])
 
         with patch("src.api.websocket.get_settings") as mock_settings:
             mock_settings.return_value.JWT_SECRET_KEY = "test-secret"  # noqa: S105
@@ -354,7 +340,7 @@ class TestWsHandler:
     async def test_auth_strips_bearer_prefix(self) -> None:
         """Token.decode should receive the raw JWT, not 'Bearer ...'."""
         mock_socket = AsyncMock()
-        mock_channels = MagicMock()
+        mock_channels = AsyncMock()
         mock_channels.subscribe = AsyncMock()
 
         mock_token = MagicMock()
@@ -362,9 +348,7 @@ class TestWsHandler:
 
         auth_msg = json.dumps({"type": "auth", "token": "Bearer my.jwt.token"})  # noqa: S106
 
-        mock_socket.receive_text = AsyncMock(
-            side_effect=[auth_msg, WebSocketDisconnect]
-        )
+        mock_socket.receive_text = AsyncMock(side_effect=[auth_msg, WebSocketDisconnect])
 
         with patch("src.api.websocket.get_settings") as mock_settings:
             mock_settings.return_value.JWT_SECRET_KEY = "test-secret"  # noqa: S105
@@ -380,7 +364,7 @@ class TestWsHandler:
     async def test_duplicate_subscription_not_added(self) -> None:
         """Subscribing to the same project twice should only subscribe once."""
         mock_socket = AsyncMock()
-        mock_channels = MagicMock()
+        mock_channels = AsyncMock()
         mock_channels.subscribe = AsyncMock()
 
         mock_token = MagicMock()
@@ -390,9 +374,7 @@ class TestWsHandler:
         sub_msg1 = json.dumps({"type": "subscribe:project", "project_id": "proj-1"})
         sub_msg2 = json.dumps({"type": "subscribe:project", "project_id": "proj-1"})
 
-        mock_socket.receive_text = AsyncMock(
-            side_effect=[auth_msg, sub_msg1, sub_msg2, WebSocketDisconnect]
-        )
+        mock_socket.receive_text = AsyncMock(side_effect=[auth_msg, sub_msg1, sub_msg2, WebSocketDisconnect])
 
         with patch("src.api.websocket.get_settings") as mock_settings:
             mock_settings.return_value.JWT_SECRET_KEY = "test-secret"  # noqa: S105
@@ -401,8 +383,7 @@ class TestWsHandler:
 
         # Count subscribe calls for project:proj-1
         project_subs = [
-            c for c in mock_channels.subscribe.call_args_list
-            if any("project:proj-1" in ch for ch in c[0][1])
+            c for c in mock_channels.subscribe.call_args_list if any("project:proj-1" in ch for ch in c[0][1])
         ]
         assert len(project_subs) == 1  # Only subscribed once
 
@@ -410,11 +391,9 @@ class TestWsHandler:
     async def test_generic_exception_handled(self) -> None:
         """Handler should not crash on unexpected exceptions."""
         mock_socket = AsyncMock()
-        mock_channels = MagicMock()
+        mock_channels = AsyncMock()
 
-        mock_socket.receive_text = AsyncMock(
-            side_effect=RuntimeError("unexpected")
-        )
+        mock_socket.receive_text = AsyncMock(side_effect=RuntimeError("unexpected"))
 
         # Should not raise
         await ws_handler.fn(socket=mock_socket, channels=mock_channels)

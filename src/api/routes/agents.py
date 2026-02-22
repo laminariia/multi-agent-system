@@ -3,6 +3,7 @@
 Provides status monitoring, log retrieval, and control endpoints
 (restart / pause / resume) for all agents.  Mounted at ``/api/v1/agents``.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -19,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.guards import require_role
+from src.api.routes import _escape_like
 from src.api.schemas import (
     AgentActionResponseSchema,
     AgentLogListSchema,
@@ -139,7 +141,7 @@ class AgentController(Controller):
 
         stmt = select(AgentLog).where(AgentLog.agent_name == name)
 
-        if level is not None:
+        if isinstance(level, str):
             stmt = stmt.where(AgentLog.event_type == level)  # legacy column
             # Also try the level-specific field when available
             stmt = select(AgentLog).where(AgentLog.agent_name == name)
@@ -148,7 +150,7 @@ class AgentController(Controller):
             if level_lower in ("info", "warning", "error"):
                 stmt = stmt.where(
                     AgentLog.event_type.in_([level_lower, level_lower.upper()])
-                    | AgentLog.message.ilike(f"%{level_lower}%")
+                    | AgentLog.message.ilike("%" + _escape_like(level_lower) + "%")
                 )
 
         if since is not None:
@@ -210,11 +212,15 @@ class AgentController(Controller):
 
         # Notify dashboard clients
         try:
-            await publish_event(channels, CHANNEL_AGENT_HEARTBEAT, {
-                "type": "agent:heartbeat",
-                "data": {"agent": name, "action": "restart", "status": "idle"},
-            })
-        except Exception:
+            await publish_event(
+                channels,
+                CHANNEL_AGENT_HEARTBEAT,
+                {
+                    "type": "agent:heartbeat",
+                    "data": {"agent": name, "action": "restart", "status": "idle"},
+                },
+            )
+        except (OSError, ConnectionError):
             logger.debug("agent.ws_publish_failed", agent=name, exc_info=True)
 
         return AgentActionResponseSchema(
@@ -254,11 +260,15 @@ class AgentController(Controller):
         logger.info("agent.pause", agent=name, requested_by=str(request.user.id))
 
         try:
-            await publish_event(channels, CHANNEL_AGENT_HEARTBEAT, {
-                "type": "agent:heartbeat",
-                "data": {"agent": name, "action": "pause", "status": "paused"},
-            })
-        except Exception:
+            await publish_event(
+                channels,
+                CHANNEL_AGENT_HEARTBEAT,
+                {
+                    "type": "agent:heartbeat",
+                    "data": {"agent": name, "action": "pause", "status": "paused"},
+                },
+            )
+        except (OSError, ConnectionError):
             logger.debug("agent.ws_publish_failed", agent=name, exc_info=True)
 
         return AgentActionResponseSchema(
@@ -297,11 +307,15 @@ class AgentController(Controller):
         logger.info("agent.resume", agent=name, requested_by=str(request.user.id))
 
         try:
-            await publish_event(channels, CHANNEL_AGENT_HEARTBEAT, {
-                "type": "agent:heartbeat",
-                "data": {"agent": name, "action": "resume", "status": "idle"},
-            })
-        except Exception:
+            await publish_event(
+                channels,
+                CHANNEL_AGENT_HEARTBEAT,
+                {
+                    "type": "agent:heartbeat",
+                    "data": {"agent": name, "action": "resume", "status": "idle"},
+                },
+            )
+        except (OSError, ConnectionError):
             logger.debug("agent.ws_publish_failed", agent=name, exc_info=True)
 
         return AgentActionResponseSchema(

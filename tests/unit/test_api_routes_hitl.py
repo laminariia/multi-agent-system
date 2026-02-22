@@ -4,6 +4,7 @@ Tests the ``HITLController`` route handlers (``src.api.routes.hitl``)
 with mocked database dependencies. We test handler functions directly
 rather than using TestClient to avoid needing a full app instance.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -85,6 +86,7 @@ def _create_mock_request(user_id: uuid.UUID | None = None) -> MagicMock:
     mock_request = MagicMock()
     mock_request.user = MagicMock()
     mock_request.user.id = user_id
+    mock_request.user.email = f"user-{user_id}@test.local"
     return mock_request
 
 
@@ -158,7 +160,8 @@ class TestListPending:
         db_session.execute.side_effect = [total_result, urgent_result, items_result]
 
         # Using self=None pattern
-        result = await HITLController.list_pending.fn(self=None,
+        result = await HITLController.list_pending.fn(
+            self=None,
             db_session=db_session,
             type="code_review",
             limit=20,
@@ -215,7 +218,8 @@ class TestListPending:
         db_session.execute.side_effect = [total_result, urgent_result, items_result]
 
         # Using self=None pattern
-        result = await HITLController.list_pending.fn(self=None,
+        result = await HITLController.list_pending.fn(
+            self=None,
             db_session=db_session,
             type=None,
             limit=1,
@@ -244,7 +248,8 @@ class TestListPending:
         db_session.execute.side_effect = [total_result, urgent_result, items_result]
 
         # Using self=None pattern
-        result = await HITLController.list_pending.fn(self=None,
+        result = await HITLController.list_pending.fn(
+            self=None,
             db_session=db_session,
             type=None,
             limit=20,
@@ -445,13 +450,14 @@ class TestResolve:
         data = HITLResolveRequestSchema(action="approve", note="Looks good")
 
         # Using self=None pattern
-        result = await HITLController.resolve.fn(self=None,
+        result = await HITLController.resolve.fn(
+            self=None,
             hitl_id=item_id,
             data=data,
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert isinstance(result, HITLResolveResponseSchema)
@@ -483,13 +489,14 @@ class TestResolve:
         data = HITLResolveRequestSchema(action="reject", note="Not good enough")
 
         # Using self=None pattern
-        result = await HITLController.resolve.fn(self=None,
+        result = await HITLController.resolve.fn(
+            self=None,
             hitl_id=item_id,
             data=data,
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.resolution == "reject"
@@ -518,13 +525,14 @@ class TestResolve:
         )
 
         # Using self=None pattern
-        result = await HITLController.resolve.fn(self=None,
+        result = await HITLController.resolve.fn(
+            self=None,
             hitl_id=item_id,
             data=data,
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.resolution == "edit"
@@ -550,13 +558,14 @@ class TestResolve:
         data = HITLResolveRequestSchema(action="skip")
 
         # Using self=None pattern
-        result = await HITLController.resolve.fn(self=None,
+        result = await HITLController.resolve.fn(
+            self=None,
             hitl_id=item_id,
             data=data,
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.resolution == "skip"
@@ -578,13 +587,14 @@ class TestResolve:
         data = HITLResolveRequestSchema(action="later")
 
         # Using self=None pattern
-        result = await HITLController.resolve.fn(self=None,
+        result = await HITLController.resolve.fn(
+            self=None,
             hitl_id=item_id,
             data=data,
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.resolution == "later"
@@ -606,13 +616,14 @@ class TestResolve:
 
         with pytest.raises(NotFoundException) as exc_info:
             # Using self=None pattern
-            await HITLController.resolve.fn(self=None,
+            await HITLController.resolve.fn(
+                self=None,
                 hitl_id=item_id,
                 data=data,
                 request=mock_request,
                 db_session=db_session,
                 valkey=AsyncMock(),
-                channels=MagicMock(),
+                channels=AsyncMock(),
             )
 
         assert f"HITL item {item_id} not found" in str(exc_info.value)
@@ -634,13 +645,14 @@ class TestResolve:
 
         with pytest.raises(MASException) as exc_info:
             # Using self=None pattern
-            await HITLController.resolve.fn(self=None,
+            await HITLController.resolve.fn(
+                self=None,
                 hitl_id=item_id,
                 data=data,
                 request=mock_request,
                 db_session=db_session,
                 valkey=AsyncMock(),
-                channels=MagicMock(),
+                channels=AsyncMock(),
             )
 
         assert "already been resolved" in str(exc_info.value)
@@ -665,13 +677,14 @@ class TestResolve:
 
         with pytest.raises(MASException) as exc_info:
             # Using self=None pattern
-            await HITLController.resolve.fn(self=None,
+            await HITLController.resolve.fn(
+                self=None,
                 hitl_id=item_id,
                 data=data,
                 request=mock_request,
                 db_session=db_session,
                 valkey=AsyncMock(),
-                channels=MagicMock(),
+                channels=AsyncMock(),
             )
 
         assert "expired" in str(exc_info.value)
@@ -699,13 +712,14 @@ class TestResolve:
 
         with pytest.raises(MASException) as exc_info:
             # Using self=None pattern
-            await HITLController.resolve.fn(self=None,
+            await HITLController.resolve.fn(
+                self=None,
                 hitl_id=item_id,
                 data=data,
                 request=mock_request,
                 db_session=db_session,
                 valkey=AsyncMock(),
-                channels=MagicMock(),
+                channels=AsyncMock(),
             )
 
         assert "not available" in str(exc_info.value)
@@ -730,13 +744,14 @@ class TestResolve:
         data = HITLResolveRequestSchema(action="approve")
 
         # Using self=None pattern
-        await HITLController.resolve.fn(self=None,
+        await HITLController.resolve.fn(
+            self=None,
             hitl_id=item_id,
             data=data,
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         after_resolve = datetime.now(UTC)
@@ -762,13 +777,14 @@ class TestResolve:
         data = HITLResolveRequestSchema(action="edit", note="Just noting")
 
         # Using self=None pattern
-        await HITLController.resolve.fn(self=None,
+        await HITLController.resolve.fn(
+            self=None,
             hitl_id=item_id,
             data=data,
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         # Payload should remain unchanged
@@ -790,13 +806,14 @@ class TestResolve:
         data = HITLResolveRequestSchema(action="approve")
 
         # Using self=None pattern
-        result = await HITLController.resolve.fn(self=None,
+        result = await HITLController.resolve.fn(
+            self=None,
             hitl_id=item_id,
             data=data,
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.next_action == "code_accepted"
@@ -817,13 +834,14 @@ class TestResolve:
         data = HITLResolveRequestSchema(action="reject")
 
         # Using self=None pattern
-        result = await HITLController.resolve.fn(self=None,
+        result = await HITLController.resolve.fn(
+            self=None,
             hitl_id=item_id,
             data=data,
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.next_action == "delivery_rejected"
@@ -1219,7 +1237,7 @@ class TestResolveResumePipeline:
                     request=mock_request,
                     db_session=db_session,
                     valkey=AsyncMock(),
-                    channels=MagicMock(),
+                    channels=AsyncMock(),
                 )
 
         assert result.status == "resolved"
@@ -1258,7 +1276,7 @@ class TestResolveResumePipeline:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.status == "resolved"
@@ -1296,7 +1314,7 @@ class TestResolveResumePipeline:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.status == "resolved"
@@ -1333,7 +1351,7 @@ class TestResolveResumePipeline:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.status == "resolved"
@@ -1373,7 +1391,7 @@ class TestResolveResumePipeline:
                 request=mock_request,
                 db_session=db_session,
                 valkey=AsyncMock(),
-                channels=MagicMock(),
+                channels=AsyncMock(),
             )
 
         # Should still succeed despite resume failure

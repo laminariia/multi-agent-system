@@ -85,11 +85,15 @@ class OrchestratorController(Controller):
         logger.info("orchestrator.api.started", user=str(request.user.id))
 
         try:
-            await publish_event(channels, CHANNEL_ORCH_STATUS, {
-                "type": "orch:status",
-                "data": {"action": "started", "pid": result.get("pid")},
-            })
-        except Exception:
+            await publish_event(
+                channels,
+                CHANNEL_ORCH_STATUS,
+                {
+                    "type": "orch:status",
+                    "data": {"action": "started", "pid": result.get("pid")},
+                },
+            )
+        except (OSError, ConnectionError):
             logger.debug("orch.ws_publish_failed", exc_info=True)
 
         return OrchestratorStartResponseSchema(**result)
@@ -118,11 +122,15 @@ class OrchestratorController(Controller):
         logger.info("orchestrator.api.stopped", user=str(request.user.id))
 
         try:
-            await publish_event(channels, CHANNEL_ORCH_STATUS, {
-                "type": "orch:status",
-                "data": {"action": "stopped"},
-            })
-        except Exception:
+            await publish_event(
+                channels,
+                CHANNEL_ORCH_STATUS,
+                {
+                    "type": "orch:status",
+                    "data": {"action": "stopped"},
+                },
+            )
+        except (OSError, ConnectionError):
             logger.debug("orch.ws_publish_failed", exc_info=True)
 
         return OrchestratorStopResponseSchema(**result)
@@ -176,11 +184,15 @@ class OrchestratorController(Controller):
         logger.info("orchestrator.api.goal_added", user=str(request.user.id))
 
         try:
-            await publish_event(channels, CHANNEL_ORCH_GOAL, {
-                "type": "orch:goal",
-                "data": {"action": "added", "goal_id": result.get("id"), "title": data.title},
-            })
-        except Exception:
+            await publish_event(
+                channels,
+                CHANNEL_ORCH_GOAL,
+                {
+                    "type": "orch:goal",
+                    "data": {"action": "added", "goal_id": result.get("id"), "title": data.title},
+                },
+            )
+        except (OSError, ConnectionError):
             logger.debug("orch.ws_publish_failed", exc_info=True)
 
         return GoalAddResponseSchema(**result)
@@ -211,11 +223,15 @@ class OrchestratorController(Controller):
         logger.info("orchestrator.api.goal_deleted", user=str(request.user.id), goal_id=goal_id)
 
         try:
-            await publish_event(channels, CHANNEL_ORCH_GOAL, {
-                "type": "orch:goal",
-                "data": {"action": "deleted", "goal_id": goal_id},
-            })
-        except Exception:
+            await publish_event(
+                channels,
+                CHANNEL_ORCH_GOAL,
+                {
+                    "type": "orch:goal",
+                    "data": {"action": "deleted", "goal_id": goal_id},
+                },
+            )
+        except (OSError, ConnectionError):
             logger.debug("orch.ws_publish_failed", exc_info=True)
 
         return GoalDeleteResponseSchema(**result)
@@ -234,9 +250,7 @@ class OrchestratorController(Controller):
         return HealthReportSchema(
             overall_grade=data["overall_grade"],
             score=data["score"],
-            dimensions={
-                k: HealthDimensionSchema(**v) for k, v in data["dimensions"].items()
-            },
+            dimensions={k: HealthDimensionSchema(**v) for k, v in data["dimensions"].items()},
             problems=[HealthProblemSchema(**p) for p in data["problems"]],
         )
 

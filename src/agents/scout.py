@@ -28,7 +28,7 @@ from sqlalchemy import select
 
 from src.agents.base import ConstrainedAgent
 from src.core.database import get_db_session
-from src.core.exceptions import LLMInvalidResponseError, PlatformException
+from src.core.exceptions import LLMException, LLMInvalidResponseError, PlatformException
 from src.core.heartbeat import HeartbeatMonitor
 from src.core.json_repair import extract_json
 from src.core.llm_client import LLMClient
@@ -117,7 +117,7 @@ class ScoutAgent(ConstrainedAgent):
             batch = new_jobs[batch_start : batch_start + _MAX_JOBS_PER_BATCH]
             try:
                 scored = await self._score_jobs(batch)
-            except Exception:  # noqa: BLE001
+            except (LLMException, KeyError, ValueError):
                 logger.exception("Failed to score batch of %d jobs, marking as review", len(batch))
                 for job in batch:
                     job["match_score"] = 0.5

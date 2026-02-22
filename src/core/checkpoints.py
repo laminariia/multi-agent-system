@@ -75,7 +75,7 @@ class HybridCheckpointSaver(BaseCheckpointSaver):
             try:
                 data = json.loads(raw)  # type: ignore[arg-type]
                 return self._data_to_tuple(data, config)
-            except Exception:
+            except (OSError, ConnectionError, ValueError, KeyError):
                 logger.warning("checkpoint_valkey_deserialize_failed", thread_id=thread_id, exc_info=True)
 
         # --- PostgreSQL fallback ---
@@ -165,7 +165,9 @@ class HybridCheckpointSaver(BaseCheckpointSaver):
                         "thread_id": row["thread_id"],
                         "checkpoint_id": row["parent_checkpoint_id"],
                     },
-                } if row["parent_checkpoint_id"] else None,
+                }
+                if row["parent_checkpoint_id"]
+                else None,
             )
 
     # Synchronous variants -- not used but required by the ABC in some versions
@@ -210,7 +212,7 @@ class HybridCheckpointSaver(BaseCheckpointSaver):
         pipe.set(latest_key, serialized, ex=self._ttl_seconds)
         try:
             await pipe.execute()
-        except Exception:
+        except (OSError, ConnectionError):
             logger.warning("checkpoint_valkey_put_failed", thread_id=thread_id, exc_info=True)
 
     async def _valkey_warm(self, thread_id: str, checkpoint_id: str, data: dict[str, Any]) -> None:
@@ -225,7 +227,7 @@ class HybridCheckpointSaver(BaseCheckpointSaver):
         pipe.set(latest_key, serialized, nx=True, ex=self._ttl_seconds)
         try:
             await pipe.execute()
-        except Exception:
+        except (OSError, ConnectionError):
             logger.debug("Cache warm failed for %s:%s", thread_id, checkpoint_id)
 
     # ------------------------------------------------------------------
@@ -326,5 +328,7 @@ class HybridCheckpointSaver(BaseCheckpointSaver):
                     "thread_id": thread_id,
                     "checkpoint_id": parent_id,
                 },
-            } if parent_id else None,
+            }
+            if parent_id
+            else None,
         )

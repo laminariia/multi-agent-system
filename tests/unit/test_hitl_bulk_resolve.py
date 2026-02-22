@@ -5,6 +5,7 @@ Tests the ``HITLController.bulk_resolve`` route handler
 We test handler functions directly via ``.fn()`` to avoid needing a full
 app instance.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -112,7 +113,7 @@ class TestBulkResolveSuccess:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert isinstance(result, HITLBulkResolveResponseSchema)
@@ -157,7 +158,7 @@ class TestBulkResolvePartialFailure:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.resolved == 1
@@ -195,7 +196,7 @@ class TestBulkResolveExpired:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.resolved == 0
@@ -236,7 +237,7 @@ class TestBulkResolveInvalidAction:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.resolved == 0
@@ -274,7 +275,7 @@ class TestBulkResolveNotFound:
             request=mock_request,
             db_session=db_session,
             valkey=AsyncMock(),
-            channels=MagicMock(),
+            channels=AsyncMock(),
         )
 
         assert result.resolved == 1
@@ -332,7 +333,7 @@ class TestBulkResolveResumeTasks:
                 request=mock_request,
                 db_session=db_session,
                 valkey=AsyncMock(),
-                channels=MagicMock(),
+                channels=AsyncMock(),
             )
 
         assert result.resolved == 2
@@ -349,7 +350,7 @@ class TestBulkResolvePublishEvents:
         db_session = _create_mock_db_session()
         mock_request = _create_mock_request()
         mock_valkey = AsyncMock()
-        mock_channels = MagicMock()
+        mock_channels = AsyncMock()
 
         id1 = uuid.uuid4()
         item1 = _create_mock_hitl_item(item_id=id1)
@@ -395,7 +396,7 @@ class TestBulkResolvePublishEvents:
         db_session = _create_mock_db_session()
         mock_request = _create_mock_request()
         mock_valkey = AsyncMock()
-        mock_channels = MagicMock()
+        mock_channels = AsyncMock()
 
         # All items already resolved
         id1 = uuid.uuid4()
