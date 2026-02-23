@@ -22,7 +22,7 @@ When in doubt — match existing codebase patterns.
 | `risky` | deploy, delete, creds | ASK user | all above + user report |
 
 ### Team Mode (complex tasks)
-Spawn agents from `~/.claude/agents/`: Feature Worker (src/), Quality Worker (tests/), Research Worker (docs/), Infra Worker (docker/). Coordinate via SendMessage + TaskList. Protocol: `~/.claude/skills/master-orchestrator/SKILL.md`.
+Spawn agents from `.claude/agents/`: Feature Worker (src/), Quality Worker (tests/), Research Worker (docs/), Infra Worker (docker/), DB Migration Reviewer (read-only). Coordinate via SendMessage + TaskList.
 
 ### Git Safety
 Work ONLY on `auto/{date}/{slug}` branches. Never touch `main`/`master`. Tag before major changes. Rollback on test failure.
@@ -38,7 +38,7 @@ Work ONLY on `auto/{date}/{slug}` branches. Never touch `main`/`master`. Tag bef
 | Browser | Playwright + Stealth |
 | Frontend | Remix + shadcn/ui |
 | Embeddings | OpenAI text-embedding-3-large (3072 dim) |
-| Deploy | Docker + VPS |
+| Deploy | Railway (Docker) |
 
 Full stack details: `TECH_STACK.md`
 
@@ -89,6 +89,15 @@ docker/         — Dockerfile, docker-compose.yml
 - Upwork auto-submit is **FORBIDDEN** (ToS violation)
 - Email warm-up 6 weeks before production outreach
 
+## Current Status (Feb 2026)
+
+- **2087+ tests** passing, grade A+ (99)
+- **Pipeline A**: fully implemented — Scout, Bid, HITL, Planner, Dev, Content, Design, Critic, HITL, Packager
+- **Pipeline B**: fully implemented — GeoScout, Outreach, HITL, Email
+- **Dashboard**: Remix + shadcn/ui, all CRUD pages, WebSocket real-time, Settings with encrypted credentials
+- **Deploy**: Railway (API + Dashboard as separate services)
+- **Last major change**: code quality reflex loop — SQL injection prevention, exception narrowing, structured logging
+
 ## Documentation Index
 
 | Area | File |
@@ -108,3 +117,6 @@ docker/         — Dockerfile, docker-compose.yml
 | Env vars | `.env.example` |
 | Conventions | `RULES.md` |
 | Telegram bot | `docs/telegram_bot.md` |
+| Onboarding | `docs/ONBOARDING.md` |
+| Code patterns | `.claude/rules/patterns.md` |
+| Known gotchas | `.claude/rules/debugging.md` |
