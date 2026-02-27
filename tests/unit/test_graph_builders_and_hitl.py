@@ -234,8 +234,9 @@ def test_apply_bid_approval_edit_no_edits():
 def test_apply_bid_approval_unknown_action():
     s = _state(status="paused", requires_hitl=True)
     result = _apply_bid_approval(s, "banana", {}, "t1")
-    assert result["status"] == "active"
-    assert result["next_agent"] == "planner"
+    assert result["status"] == "failed"
+    assert result["next_agent"] is None
+    assert any("unknown bid action" in e for e in result["errors"])
 
 
 # ===== _apply_final_review ===================================================
@@ -271,7 +272,8 @@ def test_apply_final_review_edit_no_edits():
 def test_apply_final_review_unknown_action():
     s = _state(status="paused", requires_hitl=True)
     result = _apply_final_review(s, "banana", {}, "t1")
-    assert result["status"] == "completed"
+    assert result["status"] == "failed"
+    assert any("unknown final review action" in e for e in result["errors"])
 
 
 # ===== resume_from_hitl ======================================================

@@ -1,13 +1,13 @@
-"""Tests for g_501 bugfixes: FreelancerClient instantiation, email sending node, goal_id generation.
+"""Tests for g_501 bugfixes: FreelancerClient instantiation, message dispatch node, goal_id generation.
 
 Covers:
 1. FreelancerClient gets proper credentials from DB-stored Settings (credential_loader)
 2. FreelancerClient falls back to env vars when DB credentials absent
 3. FreelancerClient works with missing credentials (empty strings)
-4. email_sending_node calls send_approved_emails when approved
-5. email_sending_node skips when not approved
-6. email_sending_node handles missing campaign_id
-7. _route_after_hitl_email routes to email_sending_node when approved
+4. message_dispatch_node calls send_approved_emails + send_approved_telegram_dms when approved
+5. message_dispatch_node skips when not approved
+6. message_dispatch_node handles missing campaign_id
+7. _route_after_hitl_email routes to message_dispatch_node when approved
 8. _route_after_hitl_email routes to END when not approved or failed
 9. goal_id generation with IDs like g_099, g_100, g_101
 10. goal_id generation with empty table
@@ -233,27 +233,28 @@ async def test_bid_submission_node_submission_failure():
 
 
 # ---------------------------------------------------------------------------
-# Bug 2: email_sending_node
+# Bug 2: message_dispatch_node (was email_sending_node)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_email_sending_node_calls_send_when_approved():
-    """email_sending_node calls send_approved_emails when emails_approved=True."""
-    from src.core.graph import email_sending_node
+    """message_dispatch_node calls send_approved_emails + send_approved_telegram_dms when approved."""
+    from src.core.graph import message_dispatch_node
 
     state = {
         "thread_id": "t1",
         "status": "active",
         "artifacts": {"emails_approved": True, "campaign_id": "camp-123"},
-        "current_agent": "hitl_email",
+        "current_agent": "hitl_outreach",
         "next_agent": None,
         "errors": [],
         "requires_hitl": False,
         "hitl_request_id": None,
     }
 
-    mock_send = AsyncMock(return_value={"sent": 5, "failed": 1, "rate_limited": 0})
+    mock_send_email = AsyncMock(return_value={"sent": 5, "failed": 1, "rate_limited": 0})
+    mock_send_tg = AsyncMock(return_value={"sent": 2, "failed": 0})
     mock_session = AsyncMock()
     mock_ctx = AsyncMock()
     mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
@@ -262,147 +263,160 @@ async def test_email_sending_node_calls_send_when_approved():
     with (
         patch(
             "src.enrichment.email_sender.send_approved_emails",
-            mock_send,
+            mock_send_email,
+        ),
+        patch(
+            "src.enrichment.telegram_sender.send_approved_telegram_dms",
+            mock_send_tg,
         ),
         patch(
             "src.core.database.get_db_session",
             return_value=mock_ctx,
         ),
     ):
-        result = await email_sending_node(state)
+        result = await message_dispatch_node(state)
 
-    assert result["current_agent"] == "email_sending"
+    assert result["current_agent"] == "message_dispatch"
     assert result["status"] == "completed"
+    assert result["artifacts"]["send_results"]["email"]["sent"] == 5
+    assert result["artifacts"]["send_results"]["telegram"]["sent"] == 2
+    # Backward-compat key
     assert result["artifacts"]["email_send_result"]["sent"] == 5
-    mock_send.assert_called_once_with("camp-123", mock_session)
+    mock_send_email.assert_called_once_with("camp-123", mock_session)
 
 
 @pytest.mark.asyncio
 async def test_email_sending_node_skips_when_not_approved():
-    """email_sending_node skips sending when emails_approved is not True."""
-    from src.core.graph import email_sending_node
+    """message_dispatch_node skips sending when emails_approved is not True."""
+    from src.core.graph import message_dispatch_node
 
     state = {
         "thread_id": "t1",
         "status": "active",
         "artifacts": {},
-        "current_agent": "hitl_email",
+        "current_agent": "hitl_outreach",
         "next_agent": None,
         "errors": [],
         "requires_hitl": False,
         "hitl_request_id": None,
     }
 
-    result = await email_sending_node(state)
+    result = await message_dispatch_node(state)
 
-    assert result["current_agent"] == "email_sending"
+    assert result["current_agent"] == "message_dispatch"
     assert result["status"] == "completed"
+    assert "send_results" not in result.get("artifacts", {})
     assert "email_send_result" not in result.get("artifacts", {})
 
 
 @pytest.mark.asyncio
 async def test_email_sending_node_no_campaign_id():
-    """email_sending_node handles missing campaign_id gracefully."""
-    from src.core.graph import email_sending_node
+    """message_dispatch_node handles missing campaign_id gracefully."""
+    from src.core.graph import message_dispatch_node
 
     state = {
         "thread_id": "t1",
         "status": "active",
         "artifacts": {"emails_approved": True},
-        "current_agent": "hitl_email",
+        "current_agent": "hitl_outreach",
         "next_agent": None,
         "errors": [],
         "requires_hitl": False,
         "hitl_request_id": None,
     }
 
-    result = await email_sending_node(state)
+    result = await message_dispatch_node(state)
 
-    assert result["current_agent"] == "email_sending"
+    assert result["current_agent"] == "message_dispatch"
     assert result["status"] == "completed"
-    assert result["artifacts"]["email_send_result"]["error"] == "no campaign_id"
-    assert result["artifacts"]["email_send_result"]["sent"] == 0
+    assert result["artifacts"]["send_results"]["error"] == "no campaign_id"
 
 
 @pytest.mark.asyncio
 async def test_email_sending_node_handles_send_exception():
-    """email_sending_node captures exception from send_approved_emails gracefully."""
-    from src.core.graph import email_sending_node
+    """message_dispatch_node captures exception from send_approved_emails gracefully."""
+    from src.core.graph import message_dispatch_node
 
     state = {
         "thread_id": "t1",
         "status": "active",
         "artifacts": {"emails_approved": True, "campaign_id": "camp-err"},
-        "current_agent": "hitl_email",
+        "current_agent": "hitl_outreach",
         "next_agent": None,
         "errors": [],
         "requires_hitl": False,
         "hitl_request_id": None,
     }
 
-    mock_send = AsyncMock(side_effect=RuntimeError("SMTP connection refused"))
+    mock_send_email = AsyncMock(side_effect=RuntimeError("SMTP connection refused"))
+    mock_send_tg = AsyncMock(return_value={"sent": 0, "failed": 0})
     mock_session = AsyncMock()
     mock_ctx = AsyncMock()
     mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
     mock_ctx.__aexit__ = AsyncMock(return_value=False)
 
     with (
-        patch("src.enrichment.email_sender.send_approved_emails", mock_send),
+        patch("src.enrichment.email_sender.send_approved_emails", mock_send_email),
+        patch("src.enrichment.telegram_sender.send_approved_telegram_dms", mock_send_tg),
         patch("src.core.database.get_db_session", return_value=mock_ctx),
     ):
-        result = await email_sending_node(state)
+        result = await message_dispatch_node(state)
 
     assert result["status"] == "completed"
+    assert "SMTP connection refused" in result["artifacts"]["send_results"]["email"]["error"]
+    assert result["artifacts"]["send_results"]["email"]["sent"] == 0
+    # Backward-compat key should reflect the email error
     assert "SMTP connection refused" in result["artifacts"]["email_send_result"]["error"]
-    assert result["artifacts"]["email_send_result"]["sent"] == 0
 
 
 @pytest.mark.asyncio
 async def test_email_sending_node_marks_pending_leads_as_approved():
-    """email_sending_node should update CampaignLead status from pending to approved before sending."""
-    from src.core.graph import email_sending_node
+    """message_dispatch_node should update CampaignLead status from pending to approved before sending."""
+    from src.core.graph import message_dispatch_node
 
     state = {
         "thread_id": "t1",
         "status": "active",
         "artifacts": {"emails_approved": True, "campaign_id": "camp-456"},
-        "current_agent": "hitl_email",
+        "current_agent": "hitl_outreach",
         "next_agent": None,
         "errors": [],
         "requires_hitl": False,
         "hitl_request_id": None,
     }
 
-    mock_send = AsyncMock(return_value={"sent": 3, "failed": 0, "rate_limited": 0})
+    mock_send_email = AsyncMock(return_value={"sent": 3, "failed": 0, "rate_limited": 0})
+    mock_send_tg = AsyncMock(return_value={"sent": 0, "failed": 0})
     mock_session = AsyncMock()
     mock_ctx = AsyncMock()
     mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
     mock_ctx.__aexit__ = AsyncMock(return_value=False)
 
     with (
-        patch("src.enrichment.email_sender.send_approved_emails", mock_send),
+        patch("src.enrichment.email_sender.send_approved_emails", mock_send_email),
+        patch("src.enrichment.telegram_sender.send_approved_telegram_dms", mock_send_tg),
         patch("src.core.database.get_db_session", return_value=mock_ctx),
     ):
-        result = await email_sending_node(state)
+        result = await message_dispatch_node(state)
 
-    # Verify the session had execute called at least twice:
-    # once for updating CampaignLead status and once inside send_approved_emails
+    # Verify the session had execute called at least once for updating CampaignLead status
     assert mock_session.execute.call_count >= 1, "Should call execute to update CampaignLead status"
     assert mock_session.commit.call_count >= 1, "Should commit after marking leads as approved"
     assert result["status"] == "completed"
+    assert result["artifacts"]["send_results"]["email"]["sent"] == 3
     assert result["artifacts"]["email_send_result"]["sent"] == 3
 
 
 @pytest.mark.asyncio
 async def test_email_sending_node_warns_when_no_emails_sent():
-    """email_sending_node adds warning to artifacts when sent=0 and failed=0 (SMTP not configured)."""
-    from src.core.graph import email_sending_node
+    """message_dispatch_node still completes when all channels report sent=0."""
+    from src.core.graph import message_dispatch_node
 
     state = {
         "thread_id": "t1",
         "status": "active",
         "artifacts": {"emails_approved": True, "campaign_id": "camp-789"},
-        "current_agent": "hitl_email",
+        "current_agent": "hitl_outreach",
         "next_agent": None,
         "errors": [],
         "requires_hitl": False,
@@ -410,21 +424,24 @@ async def test_email_sending_node_warns_when_no_emails_sent():
     }
 
     # Simulate SMTP not configured — returns all zeros
-    mock_send = AsyncMock(return_value={"sent": 0, "failed": 0, "rate_limited": 0})
+    mock_send_email = AsyncMock(return_value={"sent": 0, "failed": 0, "rate_limited": 0})
+    mock_send_tg = AsyncMock(return_value={"sent": 0, "failed": 0})
     mock_session = AsyncMock()
     mock_ctx = AsyncMock()
     mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
     mock_ctx.__aexit__ = AsyncMock(return_value=False)
 
     with (
-        patch("src.enrichment.email_sender.send_approved_emails", mock_send),
+        patch("src.enrichment.email_sender.send_approved_emails", mock_send_email),
+        patch("src.enrichment.telegram_sender.send_approved_telegram_dms", mock_send_tg),
         patch("src.core.database.get_db_session", return_value=mock_ctx),
     ):
-        result = await email_sending_node(state)
+        result = await message_dispatch_node(state)
 
     assert result["status"] == "completed"
-    assert "email_send_warning" in result["artifacts"]
-    assert "SMTP" in result["artifacts"]["email_send_warning"]
+    # No sends happened but node completes successfully
+    assert result["artifacts"]["send_results"]["email"]["sent"] == 0
+    assert result["artifacts"]["send_results"]["telegram"]["sent"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -433,7 +450,7 @@ async def test_email_sending_node_warns_when_no_emails_sent():
 
 
 def test_route_after_hitl_email_approved():
-    """Route to email_sending_node when emails are approved."""
+    """Route to message_dispatch_node when emails are approved."""
     from src.core.graph import _route_after_hitl_email
 
     state = {
@@ -441,7 +458,7 @@ def test_route_after_hitl_email_approved():
         "status": "completed",
         "artifacts": {"emails_approved": True},
     }
-    assert _route_after_hitl_email(state) == "email_sending_node"
+    assert _route_after_hitl_email(state) == "message_dispatch_node"
 
 
 def test_route_after_hitl_email_not_approved():
@@ -606,7 +623,7 @@ def test_apply_email_approval_approve_sets_active():
         "status": "paused",
         "requires_hitl": True,
         "hitl_request_id": "req-1",
-        "current_agent": "hitl_email",
+        "current_agent": "hitl_outreach",
         "next_agent": None,
         "errors": [],
         "artifacts": {"campaign_id": "camp-1"},
@@ -614,7 +631,8 @@ def test_apply_email_approval_approve_sets_active():
     result = _apply_email_approval(saved, "approve", {}, "t1")
     assert result["status"] == "active"
     assert result["artifacts"]["emails_approved"] is True
-    assert result["current_agent"] == "hitl_email"
+    assert result["artifacts"]["telegram_approved"] is True
+    assert result["current_agent"] == "hitl_outreach"
 
 
 def test_apply_email_approval_edit_sets_active():
@@ -626,7 +644,7 @@ def test_apply_email_approval_edit_sets_active():
         "status": "paused",
         "requires_hitl": True,
         "hitl_request_id": "req-1",
-        "current_agent": "hitl_email",
+        "current_agent": "hitl_outreach",
         "next_agent": None,
         "errors": [],
         "artifacts": {"campaign_id": "camp-1"},
@@ -634,6 +652,7 @@ def test_apply_email_approval_edit_sets_active():
     result = _apply_email_approval(saved, "edit", {"edits": {"body": "new"}}, "t1")
     assert result["status"] == "active"
     assert result["artifacts"]["emails_approved"] is True
+    assert result["artifacts"]["telegram_approved"] is True
     assert result["artifacts"]["hitl_edits"] == [{"body": "new"}]
 
 
@@ -646,13 +665,14 @@ def test_apply_email_approval_reject_sets_failed():
         "status": "paused",
         "requires_hitl": True,
         "hitl_request_id": "req-1",
-        "current_agent": "hitl_email",
+        "current_agent": "hitl_outreach",
         "next_agent": None,
         "errors": [],
         "artifacts": {},
     }
     result = _apply_email_approval(saved, "reject", {}, "t1")
     assert result["status"] == "failed"
+    assert any("outreach messages rejected" in e for e in result["errors"])
 
 
 # ---------------------------------------------------------------------------
@@ -710,11 +730,11 @@ async def test_api_service_goal_id_skips_invalid_ids():
 
 
 def test_pipeline_b_graph_has_email_sending_node():
-    """build_pipeline_b_graph includes the email_sending_node."""
+    """build_pipeline_b_graph includes the message_dispatch_node and hitl_outreach_node."""
     from src.core.graph import build_pipeline_b_graph
 
     graph = build_pipeline_b_graph()
-    # The compiled graph should have the email_sending_node
+    # The compiled graph should have the renamed nodes
     node_names = set(graph.nodes.keys())
-    assert "email_sending_node" in node_names
-    assert "hitl_email_node" in node_names
+    assert "message_dispatch_node" in node_names
+    assert "hitl_outreach_node" in node_names

@@ -97,9 +97,10 @@ async def retrieve_user_handler(token: Token, connection: ASGIConnection) -> Use
         if is_blacklisted:
             return None
     except Exception:
-        # If Valkey is unreachable we still allow the request through to avoid
-        # total service disruption.
-        logger.warning("valkey_token_check_failed", exc_info=True)
+        # Fail closed: deny access when Valkey is unreachable to prevent
+        # blacklisted (logged-out) tokens from being accepted.
+        logger.error("valkey_token_check_failed_denying_access", exc_info=True)
+        return None
 
     return user
 

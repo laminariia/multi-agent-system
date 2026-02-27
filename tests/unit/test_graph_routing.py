@@ -373,11 +373,11 @@ def test_apply_email_approval_edit():
 
 
 def test_apply_email_approval_unknown_action():
-    """Unknown action defaults to approve with emails_approved=True."""
-    saved = {"thread_id": "t1", "status": "paused", "artifacts": {}}
+    """Unknown action fails closed — sets status='failed' with error message."""
+    saved = {"thread_id": "t1", "status": "paused", "artifacts": {}, "errors": []}
     result = _apply_email_approval(saved, "later", {}, "t1")
-    assert result["status"] == "active"
-    assert result["artifacts"]["emails_approved"] is True
+    assert result["status"] == "failed"
+    assert any("unknown outreach approval action" in e for e in result["errors"])
 
 
 # ---------------------------------------------------------------------------

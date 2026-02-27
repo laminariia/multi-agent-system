@@ -140,6 +140,10 @@ class Settings(BaseSettings):
     TELEGRAM_API_HASH: str | None = None
     TELEGRAM_SESSION_STRING: str | None = None
 
+    # ── Telegram DM Outreach ─────────────────────────────────────────
+    TELEGRAM_DM_MAX_PER_HOUR: int = 5
+    TELEGRAM_DM_MIN_INTERVAL_SECONDS: int = 720
+
     # ── Monitoring ───────────────────────────────────────────────────────
     LANGSMITH_API_KEY: str | None = None
     SENTRY_DSN: str | None = None

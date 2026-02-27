@@ -300,10 +300,12 @@ class SemanticCache:
                     SELECT id, response, 1 - (embedding <=> $1::vector) AS similarity
                     FROM semantic_cache
                     WHERE expires_at > NOW()
+                      AND query_type = $2
                     ORDER BY embedding <=> $1::vector
                     LIMIT 1
                     """,
                     json.dumps(embedding_list),
+                    query_type,
                 )
         except Exception:
             logger.warning("pg_semantic_search_failed", exc_info=True)

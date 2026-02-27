@@ -366,11 +366,20 @@ class BidAgent(ConstrainedAgent):
                 self._log.warning("bid_missing_field", field=field)
                 return None
 
-        # Ensure numeric types.
+        # Ensure numeric types and bounds.
         try:
             parsed["bid_amount"] = float(parsed["bid_amount"])
         except (TypeError, ValueError):
             self._log.warning("bid_invalid_amount", raw=parsed.get("bid_amount"))
+            return None
+
+        if parsed["bid_amount"] < 5.0 or parsed["bid_amount"] > 50000.0:
+            self._log.warning(
+                "bid_amount_out_of_bounds",
+                amount=parsed["bid_amount"],
+                min_allowed=5.0,
+                max_allowed=50000.0,
+            )
             return None
 
         try:

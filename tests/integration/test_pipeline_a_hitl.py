@@ -44,7 +44,13 @@ def _make_project() -> ProjectContext:
 
 
 def _make_paused_bid_state() -> dict[str, Any]:
-    """State paused after Bid agent requests HITL approval."""
+    """State paused after Bid agent requests HITL approval.
+
+    Note: ``_enrich_project_from_bid`` expects ``artifacts["bid"]`` to be a
+    dict (not a LangGraph channel list).  In real graph execution the channel
+    reducer keeps it as a list, but the HITL helpers are called on a
+    *checkpoint snapshot* where bid is already unwrapped.
+    """
     state = dict(create_initial_state(
         project=_make_project(),
         first_agent="scout",
@@ -55,12 +61,12 @@ def _make_paused_bid_state() -> dict[str, Any]:
     state["requires_hitl"] = True
     state["hitl_request_id"] = "hitl-bid-test-001"
     state["artifacts"] = {
-        "scout": [json.dumps({"job_id": "j1", "score": 0.92})],
-        "bid": [json.dumps({
+        "scout": {"job_id": "j1", "score": 0.92},
+        "bid": {
             "proposal": "I can build this for you.",
             "amount": 450,
             "delivery_days": 3,
-        })],
+        },
     }
     return state
 

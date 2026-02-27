@@ -495,6 +495,7 @@ class Lead(Base):
     phone: Mapped[str | None] = mapped_column(String(50))
     email: Mapped[str | None] = mapped_column(String(255))
     website: Mapped[str | None] = mapped_column(String(255))
+    telegram_username: Mapped[str | None] = mapped_column(String(100))
     social_links: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     # Enrichment
@@ -578,6 +579,7 @@ class CampaignLead(Base):
     )
 
     status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    channel_type: Mapped[str] = mapped_column(String(20), default="email", server_default="email")
     personalized_subject: Mapped[str | None] = mapped_column(Text)
     personalized_body: Mapped[str | None] = mapped_column(Text)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
