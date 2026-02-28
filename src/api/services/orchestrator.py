@@ -56,15 +56,21 @@ class OrchestratorService:
         alive, pid = is_runner_alive()
 
         # Goal counts from DB
-        pending = (await session.execute(
-            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "pending"),
-        )).scalar_one()
-        completed = (await session.execute(
-            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "completed"),
-        )).scalar_one()
-        failed = (await session.execute(
-            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "failed"),
-        )).scalar_one()
+        pending = (
+            await session.execute(
+                select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "pending"),
+            )
+        ).scalar_one()
+        completed = (
+            await session.execute(
+                select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "completed"),
+            )
+        ).scalar_one()
+        failed = (
+            await session.execute(
+                select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "failed"),
+            )
+        ).scalar_one()
 
         health = parse_health_report()
         grade = health.get("overall_grade")
@@ -119,22 +125,31 @@ class OrchestratorService:
         if not RUNNER_SCRIPT.exists():
             raise FileNotFoundError(f"Runner script not found: {RUNNER_SCRIPT}")
 
-        cmd = [
-            "powershell",
-            "-NoProfile",
-            "-ExecutionPolicy", "Bypass",
-            "-File", str(RUNNER_SCRIPT),
-            "-Mode", "self-direct",
-        ]
+        import sys
+
+        if sys.platform == "win32":
+            cmd = [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(RUNNER_SCRIPT),
+                "-Mode",
+                "self-direct",
+            ]
+            extra: dict = {
+                "creationflags": (subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP),
+            }
+        else:
+            cmd = ["bash", str(RUNNER_SCRIPT), "--mode", "self-direct"]
+            extra = {"start_new_session": True}
 
         proc = subprocess.Popen(  # noqa: S603
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=(
-                subprocess.CREATE_NO_WINDOW
-                | subprocess.CREATE_NEW_PROCESS_GROUP
-            ),
+            **extra,
         )
 
         ORCH_DIR.mkdir(parents=True, exist_ok=True)
@@ -193,15 +208,21 @@ class OrchestratorService:
         goals = [_goal_to_dict(g) for g in result.scalars().all()]
 
         # Counts always reflect all goals
-        pending = (await session.execute(
-            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "pending"),
-        )).scalar_one()
-        completed = (await session.execute(
-            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "completed"),
-        )).scalar_one()
-        failed = (await session.execute(
-            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "failed"),
-        )).scalar_one()
+        pending = (
+            await session.execute(
+                select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "pending"),
+            )
+        ).scalar_one()
+        completed = (
+            await session.execute(
+                select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "completed"),
+            )
+        ).scalar_one()
+        failed = (
+            await session.execute(
+                select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "failed"),
+            )
+        ).scalar_one()
 
         return {
             "goals": goals,

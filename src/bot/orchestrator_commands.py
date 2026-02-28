@@ -45,104 +45,120 @@ logger = structlog.get_logger(__name__)
 
 def _kb_main_menu() -> InlineKeyboardMarkup:
     """Main orchestrator dashboard keyboard."""
-    return InlineKeyboardMarkup([
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("\U0001f3af Цели", callback_data="orch:goals"),
-            InlineKeyboardButton("\U0001f4ca Health", callback_data="orch:health"),
-            InlineKeyboardButton("\U0001f3c1 Milestones", callback_data="orch:milestones"),
-        ],
-        [
-            InlineKeyboardButton("\U0001f4dc Логи", callback_data="orch:logs"),
-            InlineKeyboardButton("\U0001f504 Обновить", callback_data="orch:status"),
-        ],
-    ])
+            [
+                InlineKeyboardButton("\U0001f3af Цели", callback_data="orch:goals"),
+                InlineKeyboardButton("\U0001f4ca Health", callback_data="orch:health"),
+                InlineKeyboardButton("\U0001f3c1 Milestones", callback_data="orch:milestones"),
+            ],
+            [
+                InlineKeyboardButton("\U0001f4dc Логи", callback_data="orch:logs"),
+                InlineKeyboardButton("\U0001f504 Обновить", callback_data="orch:status"),
+            ],
+        ]
+    )
 
 
 def _kb_main_menu_with_run() -> InlineKeyboardMarkup:
     """Main menu when runner is stopped — adds Run button."""
-    return InlineKeyboardMarkup([
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("\U0001f680 Запустить", callback_data="orch:run"),
-            InlineKeyboardButton("\U0001f3af Цели", callback_data="orch:goals"),
-            InlineKeyboardButton("\U0001f4ca Health", callback_data="orch:health"),
-        ],
-        [
-            InlineKeyboardButton("\U0001f3c1 Milestones", callback_data="orch:milestones"),
-            InlineKeyboardButton("\U0001f4dc Логи", callback_data="orch:logs"),
-        ],
-    ])
+            [
+                InlineKeyboardButton("\U0001f680 Запустить", callback_data="orch:run"),
+                InlineKeyboardButton("\U0001f3af Цели", callback_data="orch:goals"),
+                InlineKeyboardButton("\U0001f4ca Health", callback_data="orch:health"),
+            ],
+            [
+                InlineKeyboardButton("\U0001f3c1 Milestones", callback_data="orch:milestones"),
+                InlineKeyboardButton("\U0001f4dc Логи", callback_data="orch:logs"),
+            ],
+        ]
+    )
 
 
 def _kb_main_menu_with_stop() -> InlineKeyboardMarkup:
     """Main menu when runner is active — adds Stop button."""
-    return InlineKeyboardMarkup([
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("\U0001f6d1 Остановить", callback_data="orch:stop"),
-            InlineKeyboardButton("\U0001f3af Цели", callback_data="orch:goals"),
-            InlineKeyboardButton("\U0001f4ca Health", callback_data="orch:health"),
-        ],
-        [
-            InlineKeyboardButton("\U0001f3c1 Milestones", callback_data="orch:milestones"),
-            InlineKeyboardButton("\U0001f4dc Логи", callback_data="orch:logs"),
-        ],
-    ])
+            [
+                InlineKeyboardButton("\U0001f6d1 Остановить", callback_data="orch:stop"),
+                InlineKeyboardButton("\U0001f3af Цели", callback_data="orch:goals"),
+                InlineKeyboardButton("\U0001f4ca Health", callback_data="orch:health"),
+            ],
+            [
+                InlineKeyboardButton("\U0001f3c1 Milestones", callback_data="orch:milestones"),
+                InlineKeyboardButton("\U0001f4dc Логи", callback_data="orch:logs"),
+            ],
+        ]
+    )
 
 
 def _kb_goals_nav() -> InlineKeyboardMarkup:
     """Navigation after /goals."""
-    return InlineKeyboardMarkup([
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("\u23f3 Pending", callback_data="orch:goals:pending"),
-            InlineKeyboardButton("\u2705 Done", callback_data="orch:goals:done"),
-            InlineKeyboardButton("\U0001f4cb Все", callback_data="orch:goals"),
-        ],
-        [
-            InlineKeyboardButton("\u2b05 Статус", callback_data="orch:status"),
-        ],
-    ])
+            [
+                InlineKeyboardButton("\u23f3 Pending", callback_data="orch:goals:pending"),
+                InlineKeyboardButton("\u2705 Done", callback_data="orch:goals:done"),
+                InlineKeyboardButton("\U0001f4cb Все", callback_data="orch:goals"),
+            ],
+            [
+                InlineKeyboardButton("\u2b05 Статус", callback_data="orch:status"),
+            ],
+        ]
+    )
 
 
 def _kb_back_to_status() -> InlineKeyboardMarkup:
     """Simple 'back' keyboard."""
-    return InlineKeyboardMarkup([
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("\u2b05 Статус", callback_data="orch:status"),
-            InlineKeyboardButton("\U0001f3af Цели", callback_data="orch:goals"),
-        ],
-    ])
+            [
+                InlineKeyboardButton("\u2b05 Статус", callback_data="orch:status"),
+                InlineKeyboardButton("\U0001f3af Цели", callback_data="orch:goals"),
+            ],
+        ]
+    )
 
 
 def _kb_logs_nav() -> InlineKeyboardMarkup:
     """Navigation for logs — show more or go back."""
-    return InlineKeyboardMarkup([
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("\U0001f4dc +20 строк", callback_data="orch:logs:20"),
-            InlineKeyboardButton("\U0001f4dc +50 строк", callback_data="orch:logs:50"),
-        ],
-        [
-            InlineKeyboardButton("\u2b05 Статус", callback_data="orch:status"),
-        ],
-    ])
+            [
+                InlineKeyboardButton("\U0001f4dc +20 строк", callback_data="orch:logs:20"),
+                InlineKeyboardButton("\U0001f4dc +50 строк", callback_data="orch:logs:50"),
+            ],
+            [
+                InlineKeyboardButton("\u2b05 Статус", callback_data="orch:status"),
+            ],
+        ]
+    )
 
 
 def _kb_after_run() -> InlineKeyboardMarkup:
     """Buttons after /run — check status or stop."""
-    return InlineKeyboardMarkup([
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("\U0001f4ca Статус", callback_data="orch:status"),
-            InlineKeyboardButton("\U0001f6d1 Остановить", callback_data="orch:stop"),
-        ],
-    ])
+            [
+                InlineKeyboardButton("\U0001f4ca Статус", callback_data="orch:status"),
+                InlineKeyboardButton("\U0001f6d1 Остановить", callback_data="orch:stop"),
+            ],
+        ]
+    )
 
 
 def _kb_after_stop() -> InlineKeyboardMarkup:
     """Buttons after /stop — check status or restart."""
-    return InlineKeyboardMarkup([
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("\U0001f4ca Статус", callback_data="orch:status"),
-            InlineKeyboardButton("\U0001f680 Запустить", callback_data="orch:run"),
-        ],
-    ])
+            [
+                InlineKeyboardButton("\U0001f4ca Статус", callback_data="orch:status"),
+                InlineKeyboardButton("\U0001f680 Запустить", callback_data="orch:run"),
+            ],
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -176,9 +192,7 @@ def _priority_emoji(priority: str) -> str:
 def _format_runner_log_line(line: str) -> str:
     """Shorten a runner log line: strip date, keep time+level+msg."""
     # Format: [2026-02-09 06:37:12] [WARN] message
-    if m := re.match(
-        r"\[\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2}):\d{2}\]\s+\[(\w+)\]\s+(.+)", line
-    ):
+    if m := re.match(r"\[\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2}):\d{2}\]\s+\[(\w+)\]\s+(.+)", line):
         return f"{m.group(1)} [{m.group(2)}] {m.group(3)}"
     return line
 
@@ -191,15 +205,21 @@ def _format_runner_log_line(line: str) -> str:
 async def _get_goal_counts() -> tuple[int, int, int]:
     """Return (pending, completed, failed) counts from DB."""
     async with get_db_session() as session:
-        pending = (await session.execute(
-            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "pending"),
-        )).scalar_one()
-        completed = (await session.execute(
-            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "completed"),
-        )).scalar_one()
-        failed = (await session.execute(
-            select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "failed"),
-        )).scalar_one()
+        pending = (
+            await session.execute(
+                select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "pending"),
+            )
+        ).scalar_one()
+        completed = (
+            await session.execute(
+                select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "completed"),
+            )
+        ).scalar_one()
+        failed = (
+            await session.execute(
+                select(func.count()).select_from(OrchestratorGoal).where(OrchestratorGoal.status == "failed"),
+            )
+        ).scalar_one()
     return pending, completed, failed
 
 
@@ -279,10 +299,7 @@ async def _build_orch_text() -> tuple[str, InlineKeyboardMarkup]:
                 if "Consecutive errors:" in line:
                     if m := re.search(r"Consecutive errors:\s*(\d+)", line):
                         errors_info = m.group(1)
-            session_info = (
-                f"\U0001f4ca Сессия: {session_count}"
-                f" | Ошибки подряд: {errors_info}\n"
-            )
+            session_info = f"\U0001f4ca Сессия: {session_count} | Ошибки подряд: {errors_info}\n"
 
         text = (
             f"\U0001f7e2 Оркестратор <b>РАБОТАЕТ</b> (PID: {pid})\n"
@@ -300,12 +317,8 @@ async def _build_orch_text() -> tuple[str, InlineKeyboardMarkup]:
             lines = _tail_file(log_path, 20)
             for line in reversed(lines):
                 if "Runner finished" in line or "Runner started" in line:
-                    if m := re.match(
-                        r"\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})", line
-                    ):
-                        last_run_info = (
-                            f"\U0001f4c5 Последний запуск: {m.group(1)}\n"
-                        )
+                    if m := re.match(r"\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})", line):
+                        last_run_info = f"\U0001f4c5 Последний запуск: {m.group(1)}\n"
                     break
 
         text = (
@@ -330,21 +343,14 @@ async def _build_goals_text(filter_status: str | None = None) -> str:
     done = [g for g in goals if g.get("status") in ("completed", "skipped")]
     failed_goals = [g for g in goals if g.get("status") == "failed"]
 
-    lines: list[str] = [
-        f"\U0001f4cb Цели ({len(pending)} pending,"
-        f" {len(done)} done, {len(failed_goals)} failed)\n"
-    ]
+    lines: list[str] = [f"\U0001f4cb Цели ({len(pending)} pending, {len(done)} done, {len(failed_goals)} failed)\n"]
 
     if filter_status != "done":
         if pending:
             lines.append("\u23f3 <b>PENDING:</b>")
             for g in pending:
                 emoji = _priority_emoji(g.get("priority", "low"))
-                lines.append(
-                    f"  {emoji} {_esc(g['id'])}:"
-                    f" {_esc(g.get('title', '?'))}"
-                    f" [{g.get('priority', '?')}]"
-                )
+                lines.append(f"  {emoji} {_esc(g['id'])}: {_esc(g.get('title', '?'))} [{g.get('priority', '?')}]")
             lines.append("")
 
     if filter_status != "pending":
@@ -355,19 +361,13 @@ async def _build_goals_text(filter_status: str | None = None) -> str:
                 ca = g.get("completed_at", "")
                 date_str = ca[:10] if ca else ""
                 date_display = f" [{date_str}]" if date_str else ""
-                lines.append(
-                    f"  \u2705 {_esc(g['id'])}:"
-                    f" {_esc(g.get('title', '?'))}{date_display}"
-                )
+                lines.append(f"  \u2705 {_esc(g['id'])}: {_esc(g.get('title', '?'))}{date_display}")
             lines.append("")
 
     if failed_goals and filter_status not in ("pending", "done"):
         lines.append("\u274c <b>FAILED:</b>")
         for g in failed_goals:
-            lines.append(
-                f"  \u274c {_esc(g['id'])}:"
-                f" {_esc(g.get('title', '?'))}"
-            )
+            lines.append(f"  \u274c {_esc(g['id'])}: {_esc(g.get('title', '?'))}")
 
     return "\n".join(lines)
 
@@ -426,10 +426,7 @@ def _build_health_text() -> str:
             emoji = severity_emoji.get(p.get("severity", "info"), "\u2753")
             desc = p.get("description", "")[:100]
             p_items.append(f"  {emoji} {_esc(desc)}")
-        problem_lines = (
-            f"\n\u26a0\ufe0f Проблемы ({len(problems)}):\n"
-            + "\n".join(p_items)
-        )
+        problem_lines = f"\n\u26a0\ufe0f Проблемы ({len(problems)}):\n" + "\n".join(p_items)
 
     return (
         f"\U0001f4ca <b>Health Report \u2014"
@@ -455,26 +452,15 @@ def _build_milestones_text(show_all: bool = False) -> str:
 
         done_count = sum(1 for m in milestones if m["done"])
         total = len(milestones)
-        status = (
-            "\u2705 COMPLETE"
-            if done_count == total and total > 0
-            else f"{done_count}/{total}"
-        )
+        status = "\u2705 COMPLETE" if done_count == total and total > 0 else f"{done_count}/{total}"
 
         if not show_all and phase.get("is_future") and done_count == 0:
-            lines.append(
-                f"\n\U0001f4cb Phase {phase['number']}"
-                f" \u2014 {_esc(phase['title'])} (NEXT)"
-            )
+            lines.append(f"\n\U0001f4cb Phase {phase['number']} \u2014 {_esc(phase['title'])} (NEXT)")
             for m in milestones:
                 lines.append(f"  \u2610 {_esc(m['text'])}")
             continue
 
-        lines.append(
-            f"\n\U0001f3af <b>Phase {phase['number']}</b>"
-            f" \u2014 {_esc(phase['title'])}\n"
-            f"Progress: {status}"
-        )
+        lines.append(f"\n\U0001f3af <b>Phase {phase['number']}</b> \u2014 {_esc(phase['title'])}\nProgress: {status}")
 
         for m in milestones:
             marker = "\u2705" if m["done"] else "\u2610"
@@ -492,11 +478,7 @@ def _build_logs_text(n: int = 10) -> str:
     raw_lines = _tail_file(log_path, n)
     formatted = [_format_runner_log_line(line) for line in raw_lines]
 
-    return (
-        f"\U0001f4dc <b>Runner Log</b>"
-        f" (последние {len(formatted)}):\n\n"
-        f"<pre>{_esc(chr(10).join(formatted))}</pre>"
-    )
+    return f"\U0001f4dc <b>Runner Log</b> (последние {len(formatted)}):\n\n<pre>{_esc(chr(10).join(formatted))}</pre>"
 
 
 # ---------------------------------------------------------------------------
@@ -504,9 +486,7 @@ def _build_logs_text(n: int = 10) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def orch_button_callback(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> bool:
+async def orch_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Handle ``orch:*`` callback queries.
 
     Returns True if handled, False if the callback wasn't for us.
@@ -551,17 +531,17 @@ async def orch_button_callback(
 
     elif action == "milestones":
         text = _build_milestones_text(show_all=arg == "all")
-        kb = InlineKeyboardMarkup([
+        kb = InlineKeyboardMarkup(
             [
-                InlineKeyboardButton(
-                    "\U0001f4cb Все фазы",
-                    callback_data="orch:milestones:all",
-                ),
-                InlineKeyboardButton(
-                    "\u2b05 Статус", callback_data="orch:status"
-                ),
-            ],
-        ])
+                [
+                    InlineKeyboardButton(
+                        "\U0001f4cb Все фазы",
+                        callback_data="orch:milestones:all",
+                    ),
+                    InlineKeyboardButton("\u2b05 Статус", callback_data="orch:status"),
+                ],
+            ]
+        )
         await query.edit_message_text(
             text=text,
             parse_mode=ParseMode.HTML,
@@ -582,9 +562,7 @@ async def orch_button_callback(
         alive, _ = _is_runner_alive()
         if alive:
             text = "\U0001f7e2 Оркестратор уже запущен."
-            await query.edit_message_text(
-                text=text, reply_markup=_kb_main_menu_with_stop()
-            )
+            await query.edit_message_text(text=text, reply_markup=_kb_main_menu_with_stop())
         elif not RUNNER_SCRIPT.exists():
             await query.edit_message_text(
                 text=f"\u274c Runner script не найден: {_esc(str(RUNNER_SCRIPT))}",
@@ -593,22 +571,32 @@ async def orch_button_callback(
             )
         else:
             pending, _, _ = await _get_goal_counts()
-            cmd = [
-                "powershell",
-                "-NoProfile",
-                "-ExecutionPolicy", "Bypass",
-                "-File", str(RUNNER_SCRIPT),
-                "-Mode", "self-direct",
-            ]
+            _is_win = hasattr(subprocess, "CREATE_NO_WINDOW")
+            cmd = (
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(RUNNER_SCRIPT),
+                    "-Mode",
+                    "self-direct",
+                ]
+                if _is_win
+                else ["bash", str(RUNNER_SCRIPT), "--mode", "self-direct"]
+            )
+            _popen_kw: dict = (
+                {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP}  # type: ignore[attr-defined]
+                if _is_win
+                else {"start_new_session": True}
+            )
             try:
                 proc = subprocess.Popen(  # noqa: S603
                     cmd,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    creationflags=(
-                        subprocess.CREATE_NO_WINDOW
-                        | subprocess.CREATE_NEW_PROCESS_GROUP
-                    ),
+                    **_popen_kw,
                 )
                 ORCH_DIR.mkdir(parents=True, exist_ok=True)
                 PID_FILE.write_text(str(proc.pid))
@@ -618,9 +606,7 @@ async def orch_button_callback(
                     f"\U0001f916 Модель: opus\n"
                     f"\U0001f4ca Pending: {pending} целей"
                 )
-                await query.edit_message_text(
-                    text=text, reply_markup=_kb_after_run()
-                )
+                await query.edit_message_text(text=text, reply_markup=_kb_after_run())
             except OSError as exc:
                 await query.edit_message_text(
                     text=f"\u274c Ошибка запуска: {_esc(str(exc))}",
@@ -632,27 +618,21 @@ async def orch_button_callback(
         alive, pid = _is_runner_alive()
         if not alive:
             text = "\U0001f534 Оркестратор не запущен."
-            await query.edit_message_text(
-                text=text, reply_markup=_kb_main_menu_with_run()
-            )
+            await query.edit_message_text(text=text, reply_markup=_kb_main_menu_with_run())
         else:
             try:
-                subprocess.run(  # noqa: S603
-                    ["taskkill", "/PID", str(pid), "/T", "/F"],  # noqa: S607
-                    capture_output=True,
-                    timeout=10,
+                _kill_cmd = (
+                    ["taskkill", "/PID", str(pid), "/T", "/F"]  # noqa: S607
+                    if hasattr(subprocess, "CREATE_NO_WINDOW")
+                    else ["kill", str(pid)]  # noqa: S607
                 )
+                subprocess.run(_kill_cmd, capture_output=True, timeout=10)  # noqa: S603
             except (subprocess.SubprocessError, OSError):
                 pass
             PID_FILE.unlink(missing_ok=True)
             pending, _, _ = await _get_goal_counts()
-            text = (
-                f"\U0001f6d1 Оркестратор остановлен\n"
-                f"\U0001f4ca Remaining: {pending} целей"
-            )
-            await query.edit_message_text(
-                text=text, reply_markup=_kb_after_stop()
-            )
+            text = f"\U0001f6d1 Оркестратор остановлен\n\U0001f4ca Remaining: {pending} целей"
+            await query.edit_message_text(text=text, reply_markup=_kb_after_stop())
 
     else:
         await query.edit_message_text(text=f"Unknown action: {_esc(action)}")
@@ -665,15 +645,12 @@ async def orch_button_callback(
 # ---------------------------------------------------------------------------
 
 
-async def run_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def run_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Start the orchestrator runner as a background process."""
     alive, _ = _is_runner_alive()
     if alive:
         await update.effective_message.reply_text(  # type: ignore[union-attr]
-            "\U0001f7e2 Оркестратор уже запущен."
-            " Используй /stop чтобы остановить.",
+            "\U0001f7e2 Оркестратор уже запущен. Используй /stop чтобы остановить.",
             reply_markup=_kb_main_menu_with_stop(),
         )
         return
@@ -686,24 +663,24 @@ async def run_command(
         return
 
     pending, _, _ = await _get_goal_counts()
-
-    cmd = [
-        "powershell",
-        "-NoProfile",
-        "-ExecutionPolicy", "Bypass",
-        "-File", str(RUNNER_SCRIPT),
-        "-Mode", "self-direct",
-    ]
+    _is_win = hasattr(subprocess, "CREATE_NO_WINDOW")
+    cmd = (
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(RUNNER_SCRIPT), "-Mode", "self-direct"]
+        if _is_win
+        else ["bash", str(RUNNER_SCRIPT), "--mode", "self-direct"]
+    )
+    _popen_kw: dict = (
+        {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP}  # type: ignore[attr-defined]
+        if _is_win
+        else {"start_new_session": True}
+    )
 
     try:
         proc = subprocess.Popen(  # noqa: S603
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=(
-                subprocess.CREATE_NO_WINDOW
-                | subprocess.CREATE_NEW_PROCESS_GROUP
-            ),
+            **_popen_kw,
         )
         ORCH_DIR.mkdir(parents=True, exist_ok=True)
         PID_FILE.write_text(str(proc.pid))
@@ -730,9 +707,7 @@ async def run_command(
 # ---------------------------------------------------------------------------
 
 
-async def stop_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Stop the running orchestrator runner."""
     alive, pid = _is_runner_alive()
     if not alive:
@@ -744,12 +719,13 @@ async def stop_command(
             PID_FILE.unlink(missing_ok=True)
         return
 
+    _kill_cmd = (
+        ["taskkill", "/PID", str(pid), "/T", "/F"]  # noqa: S607
+        if hasattr(subprocess, "CREATE_NO_WINDOW")
+        else ["kill", str(pid)]  # noqa: S607
+    )
     try:
-        subprocess.run(  # noqa: S603
-            ["taskkill", "/PID", str(pid), "/T", "/F"],  # noqa: S607
-            capture_output=True,
-            timeout=10,
-        )
+        subprocess.run(_kill_cmd, capture_output=True, timeout=10)  # noqa: S603
     except (subprocess.SubprocessError, OSError) as exc:
         logger.error("orchestrator.stop_failed", error=str(exc), pid=pid)
         await update.effective_message.reply_text(  # type: ignore[union-attr]
@@ -783,9 +759,7 @@ async def stop_command(
 # ---------------------------------------------------------------------------
 
 
-async def orch_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def orch_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show orchestrator runner status with navigation buttons."""
     text, keyboard = await _build_orch_text()
     await update.effective_message.reply_text(  # type: ignore[union-attr]
@@ -798,9 +772,7 @@ async def orch_command(
 # ---------------------------------------------------------------------------
 
 
-async def goals_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def goals_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show goals from the database, grouped by status."""
     args = context.args or []
     filter_status = args[0].lower() if args else None
@@ -815,9 +787,7 @@ async def goals_command(
 # ---------------------------------------------------------------------------
 
 
-async def health_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show the health report with dimension grades."""
     text = _build_health_text()
     await update.effective_message.reply_text(  # type: ignore[union-attr]
@@ -830,24 +800,22 @@ async def health_command(
 # ---------------------------------------------------------------------------
 
 
-async def milestones_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def milestones_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show milestone progress from vision.md."""
     args = context.args or []
     show_all = bool(args and args[0].lower() == "all")
     text = _build_milestones_text(show_all=show_all)
-    kb = InlineKeyboardMarkup([
+    kb = InlineKeyboardMarkup(
         [
-            InlineKeyboardButton(
-                "\U0001f4cb Все фазы",
-                callback_data="orch:milestones:all",
-            ),
-            InlineKeyboardButton(
-                "\u2b05 Статус", callback_data="orch:status"
-            ),
-        ],
-    ])
+            [
+                InlineKeyboardButton(
+                    "\U0001f4cb Все фазы",
+                    callback_data="orch:milestones:all",
+                ),
+                InlineKeyboardButton("\u2b05 Статус", callback_data="orch:status"),
+            ],
+        ]
+    )
     await update.effective_message.reply_text(  # type: ignore[union-attr]
         text, parse_mode=ParseMode.HTML, reply_markup=kb
     )
@@ -858,9 +826,7 @@ async def milestones_command(
 # ---------------------------------------------------------------------------
 
 
-async def logs_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show the last N lines of the runner log."""
     args = context.args or []
     n = 10
@@ -881,15 +847,12 @@ async def logs_command(
 # ---------------------------------------------------------------------------
 
 
-async def add_goal_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def add_goal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Append a new goal to the database."""
     args = context.args or []
     if not args:
         await update.effective_message.reply_text(  # type: ignore[union-attr]
-            "Usage: /add_goal <title>\n"
-            "Example: /add_goal Fix login page CSS bug",
+            "Usage: /add_goal <title>\nExample: /add_goal Fix login page CSS bug",
         )
         return
 
@@ -902,7 +865,7 @@ async def add_goal_command(
 
         await update.effective_message.reply_text(  # type: ignore[union-attr]
             f"\u2705 Цель добавлена: <b>{_esc(new_id)}</b>\n"
-            f"\U0001f4cb \"{_esc(title)}\"\n"
+            f'\U0001f4cb "{_esc(title)}"\n'
             f"\U0001f7e1 Priority: medium | Status: pending",
             parse_mode=ParseMode.HTML,
             reply_markup=_kb_goals_nav(),
