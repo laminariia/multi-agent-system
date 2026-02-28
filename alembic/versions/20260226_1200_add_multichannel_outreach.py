@@ -9,14 +9,16 @@ Revision ID: 20260226_1200
 Revises: 20260224_1200
 Create Date: 2026-02-26 12:00:00.000000+00:00
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260226_1200"
-down_revision = "20260224_1200"
+down_revision = "d4e5f6a7b8c9"
 branch_labels = None
 depends_on = None
 
