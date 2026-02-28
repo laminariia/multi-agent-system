@@ -3,6 +3,7 @@
 Tests ``src.api.guards`` — password hashing, token creation, user retrieval,
 and role guard enforcement.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -366,8 +367,8 @@ class TestRetrieveUserHandler:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_allows_if_valkey_unreachable(self) -> None:
-        """When Valkey is down, still allow the request through."""
+    async def test_denies_if_valkey_unreachable(self) -> None:
+        """When Valkey is down, deny access (fail-closed) to prevent blacklisted tokens from passing."""
         from src.api.guards import retrieve_user_handler
 
         user_id = uuid.uuid4()
@@ -399,5 +400,5 @@ class TestRetrieveUserHandler:
 
             result = await retrieve_user_handler(token, conn)
 
-        # Should still return the user despite Valkey failure
-        assert result is mock_user
+        # Fail-closed: deny access when Valkey is unreachable
+        assert result is None
