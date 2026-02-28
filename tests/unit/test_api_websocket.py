@@ -90,11 +90,12 @@ class TestPublishEvent:
     @pytest.mark.asyncio
     async def test_publishes_json_to_channel(self) -> None:
         mock_channels = AsyncMock()
+        mock_channels.publish = MagicMock()
         data = {"hitl_id": "abc-123", "action": "approve"}
 
         await publish_event(mock_channels, "hitl:resolved", data)
 
-        mock_channels.publish.assert_awaited_once()
+        mock_channels.publish.assert_called_once()
         call_args = mock_channels.publish.call_args
         # First arg is the JSON string
         payload = json.loads(call_args[0][0])
