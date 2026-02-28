@@ -67,6 +67,17 @@ def is_runner_alive() -> tuple[bool, int | None]:
         # Fallback: try os.kill with signal 0 (Unix)
         try:
             os.kill(pid, 0)
+            # os.kill(0) succeeds for zombie (defunct) processes too —
+            # check via `ps` to filter them out.
+            import subprocess as _sp
+
+            stat = _sp.run(
+                ["ps", "-p", str(pid), "-o", "stat="],
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            if stat.startswith("Z"):  # zombie
+                return False, pid
             return True, pid
         except (OSError, ProcessLookupError):
             return False, pid

@@ -142,7 +142,7 @@ class OrchestratorService:
                 "creationflags": (subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP),
             }
         else:
-            cmd = ["bash", str(RUNNER_SCRIPT), "--mode", "self-direct"]
+            cmd = ["bash", str(RUNNER_SCRIPT), "self-direct"]
             extra = {"start_new_session": True}
 
         proc = subprocess.Popen(  # noqa: S603

@@ -584,7 +584,7 @@ async def orch_button_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                     "self-direct",
                 ]
                 if _is_win
-                else ["bash", str(RUNNER_SCRIPT), "--mode", "self-direct"]
+                else ["bash", str(RUNNER_SCRIPT), "self-direct"]
             )
             _popen_kw: dict = (
                 {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP}  # type: ignore[attr-defined]
@@ -667,7 +667,7 @@ async def run_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     cmd = (
         ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(RUNNER_SCRIPT), "-Mode", "self-direct"]
         if _is_win
-        else ["bash", str(RUNNER_SCRIPT), "--mode", "self-direct"]
+        else ["bash", str(RUNNER_SCRIPT), "self-direct"]
     )
     _popen_kw: dict = (
         {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP}  # type: ignore[attr-defined]
