@@ -100,23 +100,55 @@ docker/         — Dockerfile, docker-compose.yml
 
 ## Documentation Index
 
+**Single Source of Truth:** `docs/Full_work/MASTER-VISION.md`
+**Navigation:** `docs/Full_work/MAS.md` (index of all specs)
+
 | Area | File |
 |------|------|
-| Architecture | `mas_architecture_v4.2.md`, `technical_implementation_guide.md` |
-| Agents | `docs/agent_specifications_core.md`, `docs/agent_specifications_support.md` |
-| API & Auth | `docs/api_specification.md`, `docs/auth_specification.md` |
-| Database | `docs/database_schema.md`, `docs/langgraph_state.md` |
-| Error handling | `docs/edge_cases.md` (revision flow, failure scenarios, alerts) |
-| Security | `docs/platform_policies.md`, `docs/playwright_stealth.md` |
-| Testing | `docs/testing_strategy.md`, `docs/test_inventory.md` |
-| Deploy | `docs/deployment.md`, `docs/ci_cd.md`, `docs/backup_recovery.md` |
-| Caching | `docs/semantic_cache.md`, `docs/knowledge_base.md` |
-| Business | `docs/deep_research_freelance_market.md`, `docs/legal_compliance.md` |
-| Email | `docs/email_warmup.md` |
-| GUI | `docs/gui/GUI_SPECIFICATION.md` |
+| Vision & Architecture | `docs/Full_work/MASTER-VISION.md` |
+| Agents (11) | `docs/Full_work/specs/agents-spec.md` |
+| Pipeline A (freelance) | `docs/Full_work/pipeline-a-spec.md` |
+| Pipeline B (direct sales) | `docs/Full_work/pipeline-b-spec.md` |
+| Dev Cycle Engine | `docs/Full_work/dev-cycle-spec.md` |
+| API & Auth | `docs/Full_work/specs/api-spec.md` |
+| Database | `docs/Full_work/specs/database-spec.md` |
+| Orchestration | `docs/Full_work/specs/orchestrator-spec.md` |
+| Testing | `docs/Full_work/specs/testing-spec.md` |
+| Deploy & CI/CD | `docs/Full_work/specs/deploy-spec.md` |
+| Security | `docs/Full_work/specs/security-spec.md` |
+| HITL & Approval | `docs/Full_work/specs/hitl-spec.md` |
+| Enrichment & OSINT | `docs/Full_work/specs/enrichment-spec.md` |
+| Geo Targeting | `docs/Full_work/specs/geo-scout-spec.md` |
+| Telegram Bot | `docs/Full_work/specs/telegram-bot-spec.md` |
+| Outreach | `docs/Full_work/specs/outreach-spec.md` |
+| Sales & Negotiation | `docs/Full_work/specs/sales-agent-spec.md`, `specs/negotiation-spec.md` |
+| RAG & Memory | `docs/Full_work/specs/rag-memory-spec.md` |
+| LLM Models | `docs/Full_work/specs/llm-spec.md` |
+| Platform Adapters | `docs/Full_work/specs/platform-adapters-spec.md` |
+| Legal & Compliance | `docs/Full_work/specs/legal-compliance-spec.md` |
+| Infrastructure | `docs/Full_work/specs/infrastructure-spec.md` |
+| UI/Interface | `docs/Full_work/интерфейс.md` |
+| Onboarding | `docs/Full_work/onboarding.md` |
 | Env vars | `.env.example` |
 | Conventions | `RULES.md` |
-| Telegram bot | `docs/telegram_bot.md` |
-| Onboarding | `docs/ONBOARDING.md` |
 | Code patterns | `.claude/rules/patterns.md` |
 | Known gotchas | `.claude/rules/debugging.md` |
+
+## Docs-First Development Gate
+
+**STATUS: LOCKED** — Documentation must be completed and approved before any code is written.
+
+Rules while gate is locked:
+1. Do NOT write, generate, or suggest implementation code (even in responses)
+2. Focus ALL work on `docs/` — Overview.md, TechSpec.md, feature specs
+3. When tempted to code, add it to `docs/features/` instead
+4. Check gate status: `/docs-status`
+5. Use existing skills for heavy lifting:
+   - `brainstorming-ideas` for Overview.md
+   - `architect` agent for TechSpec.md
+   - `research-analysis` for deep research on features
+   - `quality-reviewer` via `/docs-audit` for completeness check
+6. Approve docs when ready: `/docs-approve all`
+7. After unlock: use `writing-plans` skill to create PLANS/, then develop
+
+**Do NOT remove this section manually.** Use `/docs-approve` to unlock the gate.
