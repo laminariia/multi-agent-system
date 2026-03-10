@@ -37,6 +37,7 @@ from src.api.guards import jwt_auth
 from src.api.routes.agents import AgentController
 from src.api.routes.auth import AuthController
 from src.api.routes.campaigns import CampaignController
+from src.api.routes.deals import DealController
 from src.api.routes.health import health_check
 from src.api.routes.hitl import HITLController
 from src.api.routes.jobs import JobController
@@ -350,6 +351,7 @@ app = Litestar(
         health_check,
         AuthController,
         CampaignController,
+        DealController,
         HITLController,
         AgentController,
         JobController,

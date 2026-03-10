@@ -827,3 +827,36 @@ class CredentialsSummarySchema(_BaseSchema):
 
     api_keys: list[APIKeyStatusSchema] = Field(default_factory=list)
     platform_accounts: list[PlatformAccountResponseSchema] = Field(default_factory=list)
+
+
+# =============================================================================
+# Deal schemas (Pipeline B → A bridge)
+# =============================================================================
+
+_DEAL_STATUSES = ("new", "negotiating", "proposal_sent", "won", "lost", "cancelled", "in_development", "completed")
+
+
+class DealCreateSchema(_BaseSchema):
+    """Request body for creating a new deal."""
+
+    title: str = Field(..., min_length=1, max_length=255, description="Deal title")
+    agreed_scope: str = Field(..., min_length=1, description="Agreed project scope (becomes Pipeline A requirements)")
+    budget: float = Field(..., ge=0, description="Agreed budget")
+    lead_id: str | None = Field(default=None, description="UUID of originating lead (optional)")
+    deadline: datetime | None = Field(default=None, description="Project deadline")
+    client_context: dict[str, Any] | None = Field(default=None, description="Client metadata from conversations")
+    design_versions: dict[str, Any] | None = Field(default=None, description="Approved design versions")
+    conversation_history: list[dict[str, Any]] | None = Field(default=None, description="Conversation history")
+
+
+class DealUpdateSchema(_BaseSchema):
+    """Request body for updating an existing deal (all fields optional)."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    status: str | None = Field(default=None, pattern=r"^(new|negotiating|proposal_sent|won|lost|cancelled)$")
+    agreed_scope: str | None = Field(default=None)
+    budget: float | None = Field(default=None, ge=0)
+    deadline: datetime | None = Field(default=None)
+    client_context: dict[str, Any] | None = Field(default=None)
+    design_versions: dict[str, Any] | None = Field(default=None)
+    conversation_history: list[dict[str, Any]] | None = Field(default=None)

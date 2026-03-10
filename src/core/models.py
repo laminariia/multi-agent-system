@@ -853,3 +853,55 @@ class TelegramChannel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
     __table_args__ = (Index("idx_tg_channels_active", "active"),)
+
+
+# ---------------------------------------------------------------------------
+# 20. deals
+# ---------------------------------------------------------------------------
+
+
+class Deal(Base):
+    """Pipeline B deal — links a won lead to a Pipeline A development cycle."""
+
+    __tablename__ = "deals"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+
+    # Link to originating lead (optional — deals can be created manually)
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="SET NULL"),
+    )
+
+    # Deal info
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="new",
+        server_default="new",
+    )
+    agreed_scope: Mapped[str | None] = mapped_column(Text)
+    budget: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Context from Pipeline B conversations
+    client_context: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    design_versions: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    conversation_history: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+
+    # Pipeline A linkage
+    pipeline_a_thread_id: Mapped[str | None] = mapped_column(String(100))
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    # Relationships
+    lead: Mapped[Lead | None] = relationship()
+
+    __table_args__ = (
+        Index("idx_deals_status", "status"),
+        Index("idx_deals_lead_id", "lead_id"),
+    )
