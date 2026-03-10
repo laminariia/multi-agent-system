@@ -34,6 +34,11 @@ from src.core.llm_client import CallMetrics, LLMClient
 from src.core.loop_detector import LoopDetector
 from src.core.state import AgentState, append_error, increment_retry, update_state
 
+# Execution agents that support partial failure recovery (pause for HITL
+# instead of terminating the workflow).  Non-execution agents (scout, bid,
+# planner, packager) still fail hard on unrecoverable errors.
+_RECOVERABLE_AGENTS: frozenset[str] = frozenset({"dev", "content", "design"})
+
 logger = structlog.get_logger(__name__)
 
 
@@ -292,6 +297,7 @@ class ConstrainedAgent(abc.ABC):
 
             except TimeoutError:
                 elapsed = time.perf_counter() - t0
+                reason = f"{self.agent_name} timed out after {_DEFAULT_NODE_TIMEOUT_SECONDS}s"
                 self._log.error(
                     "node_timeout",
                     thread_id=state["thread_id"],
@@ -299,14 +305,10 @@ class ConstrainedAgent(abc.ABC):
                     elapsed_seconds=round(elapsed, 1),
                 )
                 self._record_metric("timeout", elapsed)
-                return update_state(
-                    append_error(
-                        state,
-                        f"{self.agent_name} timed out after {_DEFAULT_NODE_TIMEOUT_SECONDS}s",
-                    ),
-                    status="failed",
-                    next_agent=None,
-                )
+                state = append_error(state, reason)
+                if self.agent_name in _RECOVERABLE_AGENTS:
+                    return await self._pause_for_recovery(state, reason)
+                return update_state(state, status="failed", next_agent=None)
 
             except HITLRequiredError as exc:
                 self._log.info("hitl_required", thread_id=state["thread_id"], reason=str(exc))
@@ -328,6 +330,8 @@ class ConstrainedAgent(abc.ABC):
                 state = increment_retry(append_error(state, f"LLM error (attempt {attempt}): {exc}"))
                 if attempt == self.max_retries:
                     self._record_metric("failed", 0)
+                    if self.agent_name in _RECOVERABLE_AGENTS:
+                        return await self._pause_for_recovery(state, str(exc))
                     return update_state(state, status="failed", next_agent=None)
 
             except AgentException as exc:
@@ -340,28 +344,101 @@ class ConstrainedAgent(abc.ABC):
                 state = increment_retry(append_error(state, f"Agent error (attempt {attempt}): {exc}"))
                 if attempt == self.max_retries:
                     self._record_metric("failed", 0)
+                    if self.agent_name in _RECOVERABLE_AGENTS:
+                        return await self._pause_for_recovery(state, str(exc))
                     return update_state(state, status="failed", next_agent=None)
 
             except MASException as exc:
                 self._log.error("mas_error", thread_id=state["thread_id"], error=str(exc))
                 self._record_metric("failed", 0)
-                return update_state(
-                    append_error(state, f"Unrecoverable: {exc}"),
-                    status="failed",
-                    next_agent=None,
-                )
+                state = append_error(state, f"Unrecoverable: {exc}")
+                if self.agent_name in _RECOVERABLE_AGENTS:
+                    return await self._pause_for_recovery(state, str(exc))
+                return update_state(state, status="failed", next_agent=None)
 
             except Exception as exc:
                 self._log.exception("unexpected_error", thread_id=state["thread_id"])
                 self._record_metric("failed", 0)
-                return update_state(
-                    append_error(state, f"Unexpected: {type(exc).__name__}: {exc}"),
-                    status="failed",
-                    next_agent=None,
-                )
+                state = append_error(state, f"Unexpected: {type(exc).__name__}: {exc}")
+                if self.agent_name in _RECOVERABLE_AGENTS:
+                    return await self._pause_for_recovery(state, f"{type(exc).__name__}: {exc}")
+                return update_state(state, status="failed", next_agent=None)
 
         # Exhausted all retries
+        if self.agent_name in _RECOVERABLE_AGENTS:
+            return await self._pause_for_recovery(state, "Exhausted all retries")
         return update_state(state, status="failed", next_agent=None)
+
+    # ------------------------------------------------------------------
+    # Partial failure recovery
+    # ------------------------------------------------------------------
+
+    async def _pause_for_recovery(
+        self,
+        state: AgentState,
+        reason: str,
+    ) -> AgentState:
+        """Pause the workflow for HITL recovery instead of failing.
+
+        Creates an ``HITLQueue`` entry with ``type="agent_failure"`` and
+        returns the state with ``status="paused"``, ``requires_hitl=True``,
+        and failure metadata for the operator.
+        """
+        import uuid as _uuid  # noqa: PLC0415
+
+        from src.core.database import get_db_session  # noqa: PLC0415
+        from src.core.models import HITLQueue  # noqa: PLC0415
+
+        hitl_id = _uuid.uuid4()
+        project = state.get("project") or {}
+        project_id = project.get("project_id", "unknown")
+
+        self._log.warning(
+            "agent_failure_paused_for_recovery",
+            agent=self.agent_name,
+            thread_id=state["thread_id"],
+            reason=reason[:200],
+            recovery_attempted=state.get("recovery_attempted", 0),
+        )
+
+        try:
+            async with get_db_session() as session:
+                hitl = HITLQueue(
+                    id=hitl_id,
+                    type="agent_failure",
+                    priority="urgent",
+                    title=(f"Agent '{self.agent_name}' failed: {reason[:100]}"),
+                    description=(
+                        f"Execution agent '{self.agent_name}' failed in project "
+                        f"'{project_id}'. Recovery options: resume (retry), "
+                        f"skip (move to next agent), or manual (provide output)."
+                    ),
+                    payload={
+                        "failed_agent": self.agent_name,
+                        "failure_reason": reason[:500],
+                        "project_id": project_id,
+                        "thread_id": state["thread_id"],
+                        "recovery_attempted": state.get("recovery_attempted", 0),
+                        "current_sequence_index": state.get("current_sequence_index", 0),
+                        "agent_sequence": state.get("agent_sequence", []),
+                        "completed_artifacts": list((state.get("artifacts") or {}).keys()),
+                    },
+                    available_actions=["resume", "skip", "manual"],
+                    status="pending",
+                )
+                session.add(hitl)
+        except Exception:
+            self._log.exception("hitl_entry_creation_failed", agent=self.agent_name)
+
+        return update_state(
+            state,
+            status="paused",
+            requires_hitl=True,
+            hitl_request_id=str(hitl_id),
+            failed_agent=self.agent_name,
+            failure_reason=reason[:500],
+            next_agent=None,
+        )
 
     # ------------------------------------------------------------------
     # Sentry transaction helper
@@ -550,6 +627,7 @@ class ConstrainedAgent(abc.ABC):
 # ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
+
 
 def _describe_task(task: dict[str, Any] | None) -> str | None:
     """Extract a short description from a task dict for heartbeat reporting."""

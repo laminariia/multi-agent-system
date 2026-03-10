@@ -457,6 +457,7 @@ def _route_next_in_sequence(state: dict[str, Any]) -> str:
 
     sequence = state.get("agent_sequence", [])
     index = state.get("current_sequence_index", 0)
+    skipped = set(state.get("skipped_agents", []))
 
     if not sequence:
         return "packager_node"
@@ -464,6 +465,10 @@ def _route_next_in_sequence(state: dict[str, Any]) -> str:
     if index < 0:
         logger.error("negative_sequence_index", index=index)
         return END
+
+    # Advance past any skipped agents.
+    while index < len(sequence) and sequence[index] in skipped:
+        index += 1
 
     if index >= len(sequence):
         return "critic_node"
@@ -1573,6 +1578,32 @@ async def resume_from_hitl(
             )
             return resumed_state  # type: ignore[return-value]
 
+        if resolved_type == "agent_failure":
+            resumed_state = _apply_agent_failure_recovery(saved_state, action, hitl_response, thread_id)
+
+            # On resume/skip/manual, re-invoke Pipeline A so the sequence continues.
+            if resumed_state.get("status") == "active":
+                graph = build_full_pipeline_graph(checkpointer=checkpointer)
+                try:
+                    result = await asyncio.wait_for(
+                        graph.ainvoke(resumed_state, config=config),
+                        timeout=600,
+                    )
+                except TimeoutError:
+                    logger.error("hitl_resume_timed_out", thread_id=thread_id, hitl_type="agent_failure")
+                    return {"status": "failed", "error": "HITL resume timed out"}  # type: ignore[return-value]
+                logger.info(
+                    "hitl_agent_failure_resumed_pipeline_finished",
+                    thread_id=thread_id,
+                    action=action,
+                    status=result.get("status"),
+                )
+                return result  # type: ignore[return-value]
+
+            # Failed (unknown action) — just checkpoint and return.
+            await checkpointer.aput(config, resumed_state, {"source": "hitl_resume", "action": action})
+            return resumed_state  # type: ignore[return-value]
+
         # ----- unknown type -----------------------------------------------
         raise ValueError(f"Unknown hitl_type={resolved_type!r}")
 
@@ -1881,3 +1912,95 @@ def _apply_outreach_approval(
 
 # Backward-compat alias
 _apply_email_approval = _apply_outreach_approval
+
+
+def _apply_agent_failure_recovery(
+    saved_state: dict[str, Any],
+    action: str,
+    hitl_response: dict[str, Any],
+    thread_id: str,
+) -> dict[str, Any]:
+    """Apply a recovery action after an execution agent failure.
+
+    Args:
+        saved_state: The paused state with ``failed_agent`` set.
+        action: One of ``"resume"``, ``"skip"``, or ``"manual"``.
+        hitl_response: The operator's response, may contain ``manual_artifacts``.
+        thread_id: The workflow thread ID for logging.
+
+    Returns:
+        Updated state dict ready for graph re-invocation.
+    """
+    failed_agent = saved_state.get("failed_agent", "")
+
+    if action == "resume":
+        logger.info(
+            "agent_failure_resume",
+            thread_id=thread_id,
+            agent=failed_agent,
+            attempt=saved_state.get("recovery_attempted", 0) + 1,
+        )
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            status="active",
+            requires_hitl=False,
+            hitl_request_id=None,
+            recovery_attempted=saved_state.get("recovery_attempted", 0) + 1,
+            # Keep failed_agent and current_sequence_index — graph retries same agent.
+        )
+
+    if action == "skip":
+        skipped = list(saved_state.get("skipped_agents", []))
+        if failed_agent and failed_agent not in skipped:
+            skipped.append(failed_agent)
+        logger.info(
+            "agent_failure_skip",
+            thread_id=thread_id,
+            agent=failed_agent,
+            skipped_agents=skipped,
+        )
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            status="active",
+            requires_hitl=False,
+            hitl_request_id=None,
+            failed_agent=None,
+            failure_reason=None,
+            skipped_agents=skipped,
+            current_sequence_index=saved_state.get("current_sequence_index", 0) + 1,
+        )
+
+    if action == "manual":
+        manual_artifacts = hitl_response.get("manual_artifacts", {})
+        artifacts = dict(saved_state.get("artifacts") or {})
+        # Merge operator-provided artifacts for the failed agent.
+        for agent_name, agent_artifacts in manual_artifacts.items():
+            artifacts[agent_name] = agent_artifacts
+        logger.info(
+            "agent_failure_manual",
+            thread_id=thread_id,
+            agent=failed_agent,
+            manual_agents=list(manual_artifacts.keys()),
+        )
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            status="active",
+            requires_hitl=False,
+            hitl_request_id=None,
+            failed_agent=None,
+            failure_reason=None,
+            artifacts=artifacts,
+            current_sequence_index=saved_state.get("current_sequence_index", 0) + 1,
+        )
+
+    # Unknown action — fail closed.
+    logger.error("agent_failure_unknown_action", action=action, thread_id=thread_id)
+    return update_state(
+        saved_state,  # type: ignore[arg-type]
+        status="failed",
+        next_agent=None,
+        errors=[
+            *saved_state.get("errors", []),
+            f"HITL: unknown agent_failure action '{action}'",
+        ],
+    )
