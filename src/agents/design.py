@@ -14,6 +14,7 @@ layout descriptions, responsive notes) rather than actual image files.
 Role constraints: can CREATE design artefacts, CANNOT execute code, CANNOT modify code files.
 LLM: Claude Sonnet 4.5 (fallback Claude Haiku 4.5).
 """
+
 from __future__ import annotations
 
 import json
@@ -127,11 +128,13 @@ class DesignAgent(ConstrainedAgent):
             deliverable_count=len(design_result.get("deliverables", [])),
         )
 
-        # 7. Return updated state routed to critic agent.
+        # 7. Advance sequence index and let routing decide next agent.
         return update_state(
             state,
             current_agent="design",
-            next_agent="critic",
+            current_sequence_index=state.get("current_sequence_index", 0) + 1,
+            revision_target=None,
+            revision_severity=None,
             artifacts=artifacts,
             status="active",
         )
@@ -156,8 +159,7 @@ class DesignAgent(ConstrainedAgent):
 
         if "dev" in artifacts and artifacts["dev"]:
             parts.append(
-                "Code artefacts exist from the Dev Agent. "
-                "Ensure the design aligns with implemented components."
+                "Code artefacts exist from the Dev Agent. Ensure the design aligns with implemented components."
             )
 
         if "planner" in artifacts and artifacts["planner"]:
@@ -269,10 +271,7 @@ class DesignAgent(ConstrainedAgent):
                 id=uuid.uuid4(),
                 agent_name="design",
                 event_type="design_generated",
-                message=(
-                    f"Design generated: type={design_type}, "
-                    f"{deliverable_count} deliverables"
-                ),
+                message=(f"Design generated: type={design_type}, {deliverable_count} deliverables"),
                 details={
                     "thread_id": thread_id,
                     "design_type": design_type,
@@ -292,6 +291,7 @@ class DesignAgent(ConstrainedAgent):
 # ======================================================================
 # Module-level node function for LangGraph
 # ======================================================================
+
 
 async def design_node(state: AgentState) -> AgentState:
     """LangGraph node function that creates and invokes the Design Agent.

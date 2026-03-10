@@ -5,6 +5,7 @@ with mocked database dependencies.  Handler functions are tested directly
 via ``.fn(controller, ...)`` to bypass Litestar DI, following the established
 pattern from ``test_api_routes_hitl.py``.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -243,9 +244,14 @@ class TestBuildApiKeySummary:
         """All _KNOWN_API_KEYS should be present in the summary dict."""
         settings = MagicMock()
         for attr in [
-            "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
-            "OPENROUTER_API_KEY", "E2B_API_KEY", "HUNTER_API_KEY",
-            "APOLLO_API_KEY", "LANGSMITH_API_KEY",
+            "GEMINI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "OPENROUTER_API_KEY",
+            "E2B_API_KEY",
+            "HUNTER_API_KEY",
+            "APOLLO_API_KEY",
+            "LANGSMITH_API_KEY",
         ]:
             setattr(settings, attr, "")
 
@@ -263,9 +269,14 @@ def _mock_settings_obj() -> MagicMock:
     """Build a mock Settings with all API key attributes empty."""
     mock_settings = MagicMock()
     for attr in [
-        "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
-        "OPENROUTER_API_KEY", "E2B_API_KEY", "HUNTER_API_KEY",
-        "APOLLO_API_KEY", "LANGSMITH_API_KEY",
+        "GEMINI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "E2B_API_KEY",
+        "HUNTER_API_KEY",
+        "APOLLO_API_KEY",
+        "LANGSMITH_API_KEY",
     ]:
         setattr(mock_settings, attr, "")
     return mock_settings
@@ -298,8 +309,10 @@ class TestGetCredentialsOverview:
 
         db_session.execute.side_effect = [api_keys_result, accounts_result]
 
-        with patch("src.api.routes.settings.get_settings", return_value=_mock_settings_obj(), create=True), \
-             patch("src.api.routes.settings.decrypt_credentials", return_value={"key": "val1234"}):
+        with (
+            patch("src.api.routes.settings.get_settings", return_value=_mock_settings_obj(), create=True),
+            patch("src.api.routes.settings.decrypt_credentials", return_value={"key": "val1234"}),
+        ):
             result = await SettingsController.get_credentials_overview.fn(
                 _make_controller_self(),
                 request=mock_request,
@@ -323,8 +336,10 @@ class TestGetCredentialsOverview:
 
         db_session.execute.side_effect = [api_keys_result, accounts_result]
 
-        with patch("src.api.routes.settings.get_settings", return_value=_mock_settings_obj(), create=True), \
-             patch("src.api.routes.settings.decrypt_credentials", return_value={}):
+        with (
+            patch("src.api.routes.settings.get_settings", return_value=_mock_settings_obj(), create=True),
+            patch("src.api.routes.settings.decrypt_credentials", return_value={}),
+        ):
             result = await SettingsController.get_credentials_overview.fn(
                 _make_controller_self(),
                 request=mock_request,
@@ -408,12 +423,15 @@ class TestCreatePlatformAccount:
             "profile_url": "https://freelancer.com/u/my_user",
         }
 
-        with patch(
-            "src.api.routes.settings.encrypt_credentials",
-            return_value={"_encrypted": "fake_token"},  # noqa: S106
-        ), patch(
-            "src.api.routes.settings.decrypt_credentials",
-            return_value={"client_id": "abc", "client_secret": "xyz"},
+        with (
+            patch(
+                "src.api.routes.settings.encrypt_credentials",
+                return_value={"_encrypted": "fake_token"},  # noqa: S106
+            ),
+            patch(
+                "src.api.routes.settings.decrypt_credentials",
+                return_value={"client_id": "abc", "client_secret": "xyz"},
+            ),
         ):
             result = await SettingsController.create_platform_account.fn(
                 self=None,
@@ -525,12 +543,15 @@ class TestCreatePlatformAccount:
                 "credentials": {"key": "val"},
             }
 
-            with patch(
-                "src.api.routes.settings.encrypt_credentials",
-                return_value={"_encrypted": "tok"},  # noqa: S106
-            ), patch(
-                "src.api.routes.settings.decrypt_credentials",
-                return_value={"key": "val"},
+            with (
+                patch(
+                    "src.api.routes.settings.encrypt_credentials",
+                    return_value={"_encrypted": "tok"},  # noqa: S106
+                ),
+                patch(
+                    "src.api.routes.settings.decrypt_credentials",
+                    return_value={"key": "val"},
+                ),
             ):
                 result = await SettingsController.create_platform_account.fn(
                     self=None,
@@ -594,12 +615,15 @@ class TestUpdatePlatformAccount:
         new_creds = {"new_key": "new_secret"}
         data = {"credentials": new_creds}
 
-        with patch(
-            "src.api.routes.settings.encrypt_credentials",
-            return_value={"_encrypted": "new_token"},  # noqa: S106
-        ) as mock_encrypt, patch(
-            "src.api.routes.settings.decrypt_credentials",
-            return_value=new_creds,
+        with (
+            patch(
+                "src.api.routes.settings.encrypt_credentials",
+                return_value={"_encrypted": "new_token"},  # noqa: S106
+            ) as mock_encrypt,
+            patch(
+                "src.api.routes.settings.decrypt_credentials",
+                return_value=new_creds,
+            ),
         ):
             await SettingsController.update_platform_account.fn(
                 _make_controller_self(),
@@ -779,7 +803,9 @@ class TestDeletePlatformAccount:
         account_id = uuid.uuid4()
 
         account = _create_mock_account(
-            account_id=account_id, user_id=user_id, platform="upwork",
+            account_id=account_id,
+            user_id=user_id,
+            platform="upwork",
         )
 
         query_result = MagicMock()
@@ -807,7 +833,9 @@ class TestDeletePlatformAccount:
         account_id = uuid.uuid4()
 
         account = _create_mock_account(
-            account_id=account_id, user_id=other_user_id, platform="kwork",
+            account_id=account_id,
+            user_id=other_user_id,
+            platform="kwork",
         )
 
         query_result = MagicMock()
@@ -833,7 +861,9 @@ class TestDeletePlatformAccount:
         account_id = uuid.uuid4()
 
         account = _create_mock_account(
-            account_id=account_id, user_id=other_user_id, platform="fl_ru",
+            account_id=account_id,
+            user_id=other_user_id,
+            platform="fl_ru",
         )
 
         query_result = MagicMock()
@@ -858,7 +888,9 @@ class TestDeletePlatformAccount:
         account_id = uuid.uuid4()
 
         account = _create_mock_account(
-            account_id=account_id, user_id=other_user_id, platform="freelancer",
+            account_id=account_id,
+            user_id=other_user_id,
+            platform="freelancer",
         )
 
         query_result = MagicMock()
@@ -883,7 +915,9 @@ class TestDeletePlatformAccount:
         account_id = uuid.uuid4()
 
         account = _create_mock_account(
-            account_id=account_id, user_id=user_id, platform=_API_KEYS_PLATFORM,
+            account_id=account_id,
+            user_id=user_id,
+            platform=_API_KEYS_PLATFORM,
         )
 
         query_result = MagicMock()
@@ -940,12 +974,15 @@ class TestUpdateApiKeys:
 
         data = {"gemini_api_key": "gk-new-1234", "anthropic_api_key": "ak-new-5678"}
 
-        with patch(
-            "src.api.routes.settings.encrypt_credentials",
-            return_value={"_encrypted": "new_token"},  # noqa: S106
-        ), patch(
-            "src.api.routes.settings.decrypt_credentials",
-            return_value={"gemini_api_key": "gk-new-1234", "anthropic_api_key": "ak-new-5678"},
+        with (
+            patch(
+                "src.api.routes.settings.encrypt_credentials",
+                return_value={"_encrypted": "new_token"},  # noqa: S106
+            ),
+            patch(
+                "src.api.routes.settings.decrypt_credentials",
+                return_value={"gemini_api_key": "gk-new-1234", "anthropic_api_key": "ak-new-5678"},
+            ),
         ):
             result = await SettingsController.update_api_keys.fn(
                 _make_controller_self(),
@@ -983,12 +1020,15 @@ class TestUpdateApiKeys:
             {"gemini_api_key": "gk-existing-1234", "anthropic_api_key": "ak-new-5678"},
         ]
 
-        with patch(
-            "src.api.routes.settings.encrypt_credentials",
-            return_value={"_encrypted": "merged_token"},  # noqa: S106
-        ), patch(
-            "src.api.routes.settings.decrypt_credentials",
-            side_effect=decrypt_calls,
+        with (
+            patch(
+                "src.api.routes.settings.encrypt_credentials",
+                return_value={"_encrypted": "merged_token"},  # noqa: S106
+            ),
+            patch(
+                "src.api.routes.settings.decrypt_credentials",
+                side_effect=decrypt_calls,
+            ),
         ):
             result = await SettingsController.update_api_keys.fn(
                 _make_controller_self(),
@@ -1029,12 +1069,15 @@ class TestUpdateApiKeys:
 
         data = {"gemini_api_key": "gk-real-1234", "anthropic_api_key": ""}
 
-        with patch(
-            "src.api.routes.settings.encrypt_credentials",
-            return_value={"_encrypted": "tok"},  # noqa: S106
-        ) as mock_encrypt, patch(
-            "src.api.routes.settings.decrypt_credentials",
-            return_value={"gemini_api_key": "gk-real-1234"},
+        with (
+            patch(
+                "src.api.routes.settings.encrypt_credentials",
+                return_value={"_encrypted": "tok"},  # noqa: S106
+            ) as mock_encrypt,
+            patch(
+                "src.api.routes.settings.decrypt_credentials",
+                return_value={"gemini_api_key": "gk-real-1234"},
+            ),
         ):
             await SettingsController.update_api_keys.fn(
                 _make_controller_self(),
@@ -1072,12 +1115,15 @@ class TestUpdateApiKeys:
             {"anthropic_api_key": "ak-1234"},
         ]
 
-        with patch(
-            "src.api.routes.settings.encrypt_credentials",
-            return_value={"_encrypted": "updated_token"},  # noqa: S106
-        ) as mock_encrypt, patch(
-            "src.api.routes.settings.decrypt_credentials",
-            side_effect=decrypt_calls,
+        with (
+            patch(
+                "src.api.routes.settings.encrypt_credentials",
+                return_value={"_encrypted": "updated_token"},  # noqa: S106
+            ) as mock_encrypt,
+            patch(
+                "src.api.routes.settings.decrypt_credentials",
+                side_effect=decrypt_calls,
+            ),
         ):
             await SettingsController.update_api_keys.fn(
                 _make_controller_self(),
@@ -1111,12 +1157,15 @@ class TestUpdateApiKeys:
             {"gemini_api_key": "gk-fresh-1234"},  # Second call: response
         ]
 
-        with patch(
-            "src.api.routes.settings.encrypt_credentials",
-            return_value={"_encrypted": "new_token"},  # noqa: S106
-        ), patch(
-            "src.api.routes.settings.decrypt_credentials",
-            side_effect=decrypt_effects,
+        with (
+            patch(
+                "src.api.routes.settings.encrypt_credentials",
+                return_value={"_encrypted": "new_token"},  # noqa: S106
+            ),
+            patch(
+                "src.api.routes.settings.decrypt_credentials",
+                side_effect=decrypt_effects,
+            ),
         ):
             result = await SettingsController.update_api_keys.fn(
                 _make_controller_self(),
@@ -1139,12 +1188,15 @@ class TestUpdateApiKeys:
 
         data = {"gemini_api_key": "gk-1234"}
 
-        with patch(
-            "src.api.routes.settings.encrypt_credentials",
-            return_value={"_encrypted": "tok"},  # noqa: S106
-        ), patch(
-            "src.api.routes.settings.decrypt_credentials",
-            return_value={"gemini_api_key": "gk-1234"},
+        with (
+            patch(
+                "src.api.routes.settings.encrypt_credentials",
+                return_value={"_encrypted": "tok"},  # noqa: S106
+            ),
+            patch(
+                "src.api.routes.settings.decrypt_credentials",
+                return_value={"gemini_api_key": "gk-1234"},
+            ),
         ):
             result = await SettingsController.update_api_keys.fn(
                 _make_controller_self(),
@@ -1169,12 +1221,15 @@ class TestUpdateApiKeys:
 
         data = {"gemini_api_key": "gk-live-abcdef1234"}
 
-        with patch(
-            "src.api.routes.settings.encrypt_credentials",
-            return_value={"_encrypted": "tok"},  # noqa: S106
-        ), patch(
-            "src.api.routes.settings.decrypt_credentials",
-            return_value={"gemini_api_key": "gk-live-abcdef1234"},
+        with (
+            patch(
+                "src.api.routes.settings.encrypt_credentials",
+                return_value={"_encrypted": "tok"},  # noqa: S106
+            ),
+            patch(
+                "src.api.routes.settings.decrypt_credentials",
+                return_value={"gemini_api_key": "gk-live-abcdef1234"},
+            ),
         ):
             result = await SettingsController.update_api_keys.fn(
                 _make_controller_self(),
@@ -1199,12 +1254,15 @@ class TestUpdateApiKeys:
 
         data = {"gemini_api_key": "gk-1234"}
 
-        with patch(
-            "src.api.routes.settings.encrypt_credentials",
-            return_value={"_encrypted": "tok"},  # noqa: S106
-        ), patch(
-            "src.api.routes.settings.decrypt_credentials",
-            return_value={"gemini_api_key": "gk-1234"},
+        with (
+            patch(
+                "src.api.routes.settings.encrypt_credentials",
+                return_value={"_encrypted": "tok"},  # noqa: S106
+            ),
+            patch(
+                "src.api.routes.settings.decrypt_credentials",
+                return_value={"gemini_api_key": "gk-1234"},
+            ),
         ):
             result = await SettingsController.update_api_keys.fn(
                 _make_controller_self(),
@@ -1268,8 +1326,8 @@ class TestModuleConstants:
         assert _API_KEYS_PLATFORM == "__api_keys__"
 
     def test_allowed_platforms_contains_expected(self) -> None:
-        """All four freelance platforms should be in the allowed set."""
-        assert _ALLOWED_PLATFORMS == {"freelancer", "upwork", "fl_ru", "kwork"}
+        """All freelance platforms should be in the allowed set."""
+        assert _ALLOWED_PLATFORMS == {"freelancer", "upwork", "fl_ru", "kwork", "fiverr"}
 
     def test_known_api_keys_count(self) -> None:
         """Should have 8 known API key names."""

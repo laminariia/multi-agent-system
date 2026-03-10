@@ -277,6 +277,49 @@ class JobController(Controller):
         }
 
     # -----------------------------------------------------------------
+    # GET /api/v1/jobs/{job_id}/pipeline-progress
+    # -----------------------------------------------------------------
+
+    @get(
+        "/{job_id:str}/pipeline-progress",
+        summary="Get pipeline execution progress",
+        description="Returns real-time progress of Pipeline A execution for a job.",
+    )
+    async def get_pipeline_progress(
+        self,
+        job_id: str,
+        valkey: Any,
+    ) -> dict[str, Any]:
+        """Return pipeline execution progress from Valkey.
+
+        Returns an idle response when no pipeline is running or Valkey
+        is unavailable — this endpoint never raises.
+        """
+        _idle: dict[str, Any] = {
+            "thread_id": None,
+            "agent_sequence": [],
+            "current_agent": None,
+            "current_index": 0,
+            "total_agents": 0,
+            "completed_agents": [],
+            "status": "idle",
+            "started_at": None,
+            "updated_at": None,
+        }
+        try:
+            thread_id = f"pipeline-{job_id}"
+            from src.core.pipeline_progress import PipelineProgressTracker  # noqa: PLC0415
+
+            tracker = PipelineProgressTracker(valkey)
+            progress = await tracker.get_progress(thread_id)
+            if progress is None:
+                return _idle
+            return progress
+        except Exception:
+            logger.debug("pipeline_progress_read_failed", job_id=job_id, exc_info=True)
+            return _idle
+
+    # -----------------------------------------------------------------
     # POST /api/v1/jobs/{job_id}/run-pipeline
     # -----------------------------------------------------------------
 

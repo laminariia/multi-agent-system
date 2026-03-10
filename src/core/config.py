@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     SEMANTIC_CACHE_TTL_TRANSLATION: int = 604_800  # 7 d
     SEMANTIC_CACHE_TTL_DEFAULT: int = 21_600  # 6 h
 
+    # ── LLM Queue ──────────────────────────────────────────────────
+    LLM_MAX_CONCURRENT: int = 5
+
     # ── Scheduler ────────────────────────────────────────────────────
     SCOUT_INTERVAL_MINUTES: int = 5
     METRICS_INTERVAL_SECONDS: int = 60
@@ -139,6 +142,10 @@ class Settings(BaseSettings):
     TELEGRAM_API_ID: int | None = None
     TELEGRAM_API_HASH: str | None = None
     TELEGRAM_SESSION_STRING: str | None = None
+
+    # ── Telegram DM Outreach ─────────────────────────────────────────
+    TELEGRAM_DM_MAX_PER_HOUR: int = 5
+    TELEGRAM_DM_MIN_INTERVAL_SECONDS: int = 720
 
     # ── Monitoring ───────────────────────────────────────────────────────
     LANGSMITH_API_KEY: str | None = None

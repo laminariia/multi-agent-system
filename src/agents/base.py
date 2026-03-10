@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import os
 import time
 from typing import Any
 
 import structlog
 from langchain_core.messages import BaseMessage
 
+from src.core.database import get_db_session
 from src.core.exceptions import (
     AgentException,
     HITLRequiredError,
@@ -33,6 +35,11 @@ from src.core.heartbeat import HeartbeatMonitor
 from src.core.llm_client import CallMetrics, LLMClient
 from src.core.loop_detector import LoopDetector
 from src.core.state import AgentState, append_error, increment_retry, update_state
+
+# Execution agents that support partial failure recovery (pause for HITL
+# instead of terminating the workflow).  Non-execution agents (scout, bid,
+# planner, packager) still fail hard on unrecoverable errors.
+_RECOVERABLE_AGENTS: frozenset[str] = frozenset({"dev", "content", "design"})
 
 logger = structlog.get_logger(__name__)
 
@@ -162,7 +169,7 @@ ROLE_CONSTRAINTS: dict[str, dict[str, Any]] = {
 }
 
 _DEFAULT_MAX_RETRIES = 3
-_DEFAULT_NODE_TIMEOUT_SECONDS = 600  # 10 minutes per agent invocation
+_DEFAULT_NODE_TIMEOUT_SECONDS = int(os.environ.get("AGENT_TIMEOUT_SECONDS", "600"))
 
 
 class ConstrainedAgent(abc.ABC):
@@ -247,7 +254,10 @@ class ConstrainedAgent(abc.ABC):
                 # 3. Role constraints
                 self._validate_role_constraints(state)
 
-                # 4. Agent-specific logic
+                # 4. Publish pipeline progress (best-effort)
+                await self._publish_progress_start(state)
+
+                # 5. Agent-specific logic
                 self._log.info(
                     "agent_invoke_start",
                     thread_id=state["thread_id"],
@@ -279,6 +289,9 @@ class ConstrainedAgent(abc.ABC):
                 status = "hitl_paused" if result_state.get("requires_hitl") else "success"
                 self._record_metric(status, elapsed_ms / 1000)
 
+                # Publish pipeline progress (best-effort)
+                await self._publish_progress_complete(result_state)
+
                 return result_state
 
             except LoopDetectedError:
@@ -292,6 +305,7 @@ class ConstrainedAgent(abc.ABC):
 
             except TimeoutError:
                 elapsed = time.perf_counter() - t0
+                reason = f"Agent timeout: {self.agent_name} timed out after {_DEFAULT_NODE_TIMEOUT_SECONDS}s"
                 self._log.error(
                     "node_timeout",
                     thread_id=state["thread_id"],
@@ -299,17 +313,51 @@ class ConstrainedAgent(abc.ABC):
                     elapsed_seconds=round(elapsed, 1),
                 )
                 self._record_metric("timeout", elapsed)
-                return update_state(
-                    append_error(
+                state = append_error(state, reason)
+
+                # Create HITL alert for ALL agents on timeout (P3.14)
+                import uuid as _uuid  # noqa: PLC0415
+
+                hitl_id = _uuid.uuid4()
+                try:
+                    from src.core.models import HITLQueue  # noqa: PLC0415
+
+                    async with get_db_session() as session:
+                        hitl = HITLQueue(
+                            id=hitl_id,
+                            type="agent_timeout",
+                            priority="urgent",
+                            title=f"Agent '{self.agent_name}' timed out",
+                            payload={
+                                "failed_agent": self.agent_name,
+                                "failure_reason": reason[:500],
+                                "thread_id": state["thread_id"],
+                            },
+                            available_actions=["retry", "skip"],
+                            status="pending",
+                        )
+                        session.add(hitl)
+                except Exception:  # noqa: BLE001
+                    self._log.exception(
+                        "timeout_hitl_creation_failed",
+                        agent=self.agent_name,
+                    )
+
+                if self.agent_name in _RECOVERABLE_AGENTS:
+                    return update_state(
                         state,
-                        f"{self.agent_name} timed out after {_DEFAULT_NODE_TIMEOUT_SECONDS}s",
-                    ),
-                    status="failed",
-                    next_agent=None,
-                )
+                        status="paused",
+                        requires_hitl=True,
+                        hitl_request_id=str(hitl_id),
+                        failed_agent=self.agent_name,
+                        failure_reason=reason[:500],
+                        next_agent=None,
+                    )
+                return update_state(state, status="failed", next_agent=None)
 
             except HITLRequiredError as exc:
                 self._log.info("hitl_required", thread_id=state["thread_id"], reason=str(exc))
+                await self._publish_progress_status(state, "paused")
                 return update_state(
                     state,
                     requires_hitl=True,
@@ -328,6 +376,8 @@ class ConstrainedAgent(abc.ABC):
                 state = increment_retry(append_error(state, f"LLM error (attempt {attempt}): {exc}"))
                 if attempt == self.max_retries:
                     self._record_metric("failed", 0)
+                    if self.agent_name in _RECOVERABLE_AGENTS:
+                        return await self._pause_for_recovery(state, str(exc))
                     return update_state(state, status="failed", next_agent=None)
 
             except AgentException as exc:
@@ -340,28 +390,139 @@ class ConstrainedAgent(abc.ABC):
                 state = increment_retry(append_error(state, f"Agent error (attempt {attempt}): {exc}"))
                 if attempt == self.max_retries:
                     self._record_metric("failed", 0)
+                    if self.agent_name in _RECOVERABLE_AGENTS:
+                        return await self._pause_for_recovery(state, str(exc))
                     return update_state(state, status="failed", next_agent=None)
 
             except MASException as exc:
                 self._log.error("mas_error", thread_id=state["thread_id"], error=str(exc))
                 self._record_metric("failed", 0)
-                return update_state(
-                    append_error(state, f"Unrecoverable: {exc}"),
-                    status="failed",
-                    next_agent=None,
-                )
+                await self._publish_progress_status(state, "failed")
+                state = append_error(state, f"Unrecoverable: {exc}")
+                if self.agent_name in _RECOVERABLE_AGENTS:
+                    return await self._pause_for_recovery(state, str(exc))
+                return update_state(state, status="failed", next_agent=None)
 
             except Exception as exc:
                 self._log.exception("unexpected_error", thread_id=state["thread_id"])
                 self._record_metric("failed", 0)
-                return update_state(
-                    append_error(state, f"Unexpected: {type(exc).__name__}: {exc}"),
-                    status="failed",
-                    next_agent=None,
-                )
+                state = append_error(state, f"Unexpected: {type(exc).__name__}: {exc}")
+                if self.agent_name in _RECOVERABLE_AGENTS:
+                    return await self._pause_for_recovery(state, f"{type(exc).__name__}: {exc}")
+                return update_state(state, status="failed", next_agent=None)
 
         # Exhausted all retries
+        if self.agent_name in _RECOVERABLE_AGENTS:
+            return await self._pause_for_recovery(state, "Exhausted all retries")
         return update_state(state, status="failed", next_agent=None)
+
+    # ------------------------------------------------------------------
+    # Pipeline progress helpers (best-effort, never block execution)
+    # ------------------------------------------------------------------
+
+    async def _publish_progress_start(self, state: AgentState) -> None:
+        """Publish that this agent has started execution."""
+        try:
+            from src.core.pipeline_progress import get_progress_tracker  # noqa: PLC0415
+
+            tracker = get_progress_tracker()
+            if tracker:
+                await tracker.publish_agent_started(self.agent_name, state)
+        except Exception:
+            self._log.debug("progress_start_publish_failed", exc_info=True)
+
+    async def _publish_progress_complete(self, state: AgentState) -> None:
+        """Publish that this agent has completed execution."""
+        try:
+            from src.core.pipeline_progress import get_progress_tracker  # noqa: PLC0415
+
+            tracker = get_progress_tracker()
+            if tracker:
+                await tracker.publish_agent_completed(self.agent_name, state)
+        except Exception:
+            self._log.debug("progress_complete_publish_failed", exc_info=True)
+
+    async def _publish_progress_status(self, state: AgentState, status: str) -> None:
+        """Publish a status change (paused, failed)."""
+        try:
+            from src.core.pipeline_progress import get_progress_tracker  # noqa: PLC0415
+
+            tracker = get_progress_tracker()
+            if tracker:
+                await tracker.publish_status(state["thread_id"], status, self.agent_name)
+        except Exception:
+            self._log.debug("progress_status_publish_failed", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Partial failure recovery
+    # ------------------------------------------------------------------
+
+    async def _pause_for_recovery(
+        self,
+        state: AgentState,
+        reason: str,
+    ) -> AgentState:
+        """Pause the workflow for HITL recovery instead of failing.
+
+        Creates an ``HITLQueue`` entry with ``type="agent_failure"`` and
+        returns the state with ``status="paused"``, ``requires_hitl=True``,
+        and failure metadata for the operator.
+        """
+        import uuid as _uuid  # noqa: PLC0415
+
+        from src.core.database import get_db_session as _get_db  # noqa: PLC0415
+        from src.core.models import HITLQueue  # noqa: PLC0415
+
+        hitl_id = _uuid.uuid4()
+        project = state.get("project") or {}
+        project_id = project.get("project_id", "unknown")
+
+        self._log.warning(
+            "agent_failure_paused_for_recovery",
+            agent=self.agent_name,
+            thread_id=state["thread_id"],
+            reason=reason[:200],
+            recovery_attempted=state.get("recovery_attempted", 0),
+        )
+
+        try:
+            async with _get_db() as session:
+                hitl = HITLQueue(
+                    id=hitl_id,
+                    type="agent_failure",
+                    priority="urgent",
+                    title=(f"Agent '{self.agent_name}' failed: {reason[:100]}"),
+                    description=(
+                        f"Execution agent '{self.agent_name}' failed in project "
+                        f"'{project_id}'. Recovery options: resume (retry), "
+                        f"skip (move to next agent), or manual (provide output)."
+                    ),
+                    payload={
+                        "failed_agent": self.agent_name,
+                        "failure_reason": reason[:500],
+                        "project_id": project_id,
+                        "thread_id": state["thread_id"],
+                        "recovery_attempted": state.get("recovery_attempted", 0),
+                        "current_sequence_index": state.get("current_sequence_index", 0),
+                        "agent_sequence": state.get("agent_sequence", []),
+                        "completed_artifacts": list((state.get("artifacts") or {}).keys()),
+                    },
+                    available_actions=["resume", "skip", "manual"],
+                    status="pending",
+                )
+                session.add(hitl)
+        except Exception:
+            self._log.exception("hitl_entry_creation_failed", agent=self.agent_name)
+
+        return update_state(
+            state,
+            status="paused",
+            requires_hitl=True,
+            hitl_request_id=str(hitl_id),
+            failed_agent=self.agent_name,
+            failure_reason=reason[:500],
+            next_agent=None,
+        )
 
     # ------------------------------------------------------------------
     # Sentry transaction helper
@@ -424,7 +585,22 @@ class ConstrainedAgent(abc.ABC):
         temperature: float = 0.7,
         max_tokens: int | None = None,
     ) -> tuple[BaseMessage, CallMetrics]:
-        """Delegate an LLM call through the shared client, tagged with this agent's name."""
+        """Delegate an LLM call, routing through the priority queue when available."""
+        from src.core.container import get_container  # noqa: PLC0415
+
+        queue = get_container().llm_queue
+        if queue is not None:
+            from src.core.llm_queue import AGENT_PRIORITY, LLMPriority  # noqa: PLC0415
+
+            priority = AGENT_PRIORITY.get(self.agent_name, LLMPriority.NORMAL)
+            return await queue.submit(
+                priority=priority,
+                agent_name=self.agent_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+
         return await self.llm_client.call(
             self.agent_name,
             messages,
@@ -550,6 +726,7 @@ class ConstrainedAgent(abc.ABC):
 # ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
+
 
 def _describe_task(task: dict[str, Any] | None) -> str | None:
     """Extract a short description from a task dict for heartbeat reporting."""

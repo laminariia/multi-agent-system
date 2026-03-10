@@ -7,6 +7,7 @@ Tests that:
 4. HITL resolve endpoint dispatches fire-and-forget resume
 5. run_project_pipeline uses checkpointed graph for HITL pause/resume
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -44,14 +45,17 @@ def _state(**overrides: Any) -> dict[str, Any]:
 # 1. _route_after_hitl_review: plan_review approved -> dev_node
 # =====================================================================
 
+
 class TestRouteAfterHITLReview:
     """Test _route_after_hitl_review routing decisions."""
 
     def test_plan_review_approved_routes_to_dev_node(self) -> None:
-        """When hitl_type=plan_review and status=active, routes to dev_node."""
+        """When hitl_type=plan_review and status=active, routes to first agent in sequence."""
         state = _state(
             status="active",
             artifacts={"_hitl_type": "plan_review"},
+            agent_sequence=["dev", "content"],
+            current_sequence_index=0,
         )
         assert _route_after_hitl_review(state) == "dev_node"
 
@@ -80,6 +84,7 @@ class TestRouteAfterHITLReview:
 # =====================================================================
 # 2. _apply_plan_review: sets correct state and artifacts
 # =====================================================================
+
 
 class TestApplyPlanReview:
     """Test _apply_plan_review helper."""
@@ -115,6 +120,7 @@ class TestApplyPlanReview:
 # 3. _apply_email_approval: Pipeline B email approval
 # =====================================================================
 
+
 class TestApplyEmailApproval:
     """Test _apply_email_approval helper."""
 
@@ -130,7 +136,7 @@ class TestApplyEmailApproval:
         state = _state(status="paused")
         result = _apply_email_approval(state, "reject", {}, "t-resume")
         assert result["status"] == "failed"
-        assert "emails rejected" in result["errors"][-1]
+        assert "outreach messages rejected" in result["errors"][-1]
 
     def test_edit_approves_with_edits(self) -> None:
         """Edit should approve emails and store edits."""
@@ -144,6 +150,7 @@ class TestApplyEmailApproval:
 # =====================================================================
 # 4. resume_from_hitl: full integration with mocked checkpoint
 # =====================================================================
+
 
 @pytest.mark.asyncio
 class TestResumeFromHITL:
@@ -350,6 +357,7 @@ class TestResumeFromHITL:
 # 5. HITL resolve endpoint fires resume (integration-like)
 # =====================================================================
 
+
 class TestHITLResolveFiresResume:
     """Test that the resolve endpoint dispatches resume for resumable types."""
 
@@ -395,6 +403,7 @@ class TestHITLResolveFiresResume:
 # =====================================================================
 # 6. _apply_bid_approval and _apply_final_review
 # =====================================================================
+
 
 class TestApplyBidApproval:
     """Test _apply_bid_approval helper."""

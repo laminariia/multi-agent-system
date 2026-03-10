@@ -30,7 +30,7 @@ class TestEngineConfiguration:
 
     def test_engine_max_overflow(self):
         """Engine has max_overflow=20."""
-        assert database.engine.pool.overflow() == -10  # overflow tracks current, max is internal
+        assert database.engine.pool._max_overflow == 20
 
     def test_engine_pool_timeout(self):
         """Engine has pool_timeout=30."""

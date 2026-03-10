@@ -3,6 +3,7 @@
 Covers: invoke() with all exception paths, _validate_role_constraints,
 _build_system_prompt, _assert_tool_allowed, _describe_task.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -26,6 +27,7 @@ pytestmark = pytest.mark.asyncio
 # ---------------------------------------------------------------------------
 # Concrete subclass for testing the abstract ConstrainedAgent
 # ---------------------------------------------------------------------------
+
 
 class _TestAgent(ConstrainedAgent):
     """Thin concrete agent whose _execute behaviour is injected via callable."""
@@ -56,6 +58,7 @@ def infra(mock_llm_client, mock_heartbeat, mock_loop_detector):
 
 
 # ===== invoke() success =====================================================
+
 
 async def test_invoke_success(sample_state, infra):
     async def ok(state):
@@ -90,11 +93,15 @@ async def test_invoke_metrics_error_does_not_break(sample_state, infra):
 
 # ===== invoke() LoopDetectedError ===========================================
 
+
 async def test_invoke_loop_detected(sample_state, infra):
     infra["ld"] = MagicMock()
-    infra["ld"].check = AsyncMock(side_effect=LoopDetectedError(
-        thread_id=sample_state["thread_id"], iteration_count=50,
-    ))
+    infra["ld"].check = AsyncMock(
+        side_effect=LoopDetectedError(
+            thread_id=sample_state["thread_id"],
+            iteration_count=50,
+        )
+    )
 
     async def noop(s):
         return s  # pragma: no cover
@@ -105,6 +112,7 @@ async def test_invoke_loop_detected(sample_state, infra):
 
 
 # ===== invoke() HITLRequiredError ============================================
+
 
 async def test_invoke_hitl_required(sample_state, infra):
     async def raise_hitl(state):
@@ -122,6 +130,7 @@ async def test_invoke_hitl_required(sample_state, infra):
 
 
 # ===== invoke() LLMException with retries ====================================
+
 
 async def test_invoke_llm_exception_retry_then_success(sample_state, infra):
     calls = 0
@@ -153,6 +162,7 @@ async def test_invoke_llm_exception_exhausts_retries(sample_state, infra):
 
 # ===== invoke() AgentException ===============================================
 
+
 async def test_invoke_agent_exception_retry_success(sample_state, infra):
     calls = 0
 
@@ -168,16 +178,20 @@ async def test_invoke_agent_exception_retry_success(sample_state, infra):
 
 
 async def test_invoke_agent_exception_exhausts_retries(sample_state, infra):
-    async def always_fail(state):
-        raise AgentException(message="stuck", agent_name="dev", thread_id=state["thread_id"])
+    """Non-recoverable agent exhausts retries → status='failed'."""
 
-    result = await _agent(always_fail, infra, agent_name="dev",
-                          allowed_tools=["write_code"], max_retries=3).invoke(sample_state)
+    async def always_fail(state):
+        raise AgentException(message="stuck", agent_name="scout", thread_id=state["thread_id"])
+
+    result = await _agent(always_fail, infra, agent_name="scout", allowed_tools=["search_jobs"], max_retries=3).invoke(
+        sample_state
+    )
     assert result["status"] == "failed"
     assert result["retry_count"] == 3
 
 
 # ===== invoke() MASException (no retry) ======================================
+
 
 async def test_invoke_mas_exception(sample_state, infra):
     async def boom(state):
@@ -191,6 +205,7 @@ async def test_invoke_mas_exception(sample_state, infra):
 
 # ===== invoke() unexpected Exception =========================================
 
+
 async def test_invoke_unexpected_exception(sample_state, infra):
     async def boom(state):
         raise ValueError("oops")
@@ -201,6 +216,7 @@ async def test_invoke_unexpected_exception(sample_state, infra):
 
 
 # ===== _validate_role_constraints ============================================
+
 
 def test_validate_forbidden_tools_overlap(sample_state, infra):
     agent = _TestAgent(
@@ -243,10 +259,16 @@ def test_validate_clean_pass(sample_state, infra):
 
 # ===== _build_system_prompt ==================================================
 
+
 def test_build_system_prompt_scout(infra):
-    agent = _TestAgent(execute_fn=AsyncMock(), agent_name="scout",
-                       allowed_tools=[], llm_client=infra["llm"],
-                       heartbeat=infra["hb"], loop_detector=infra["ld"])
+    agent = _TestAgent(
+        execute_fn=AsyncMock(),
+        agent_name="scout",
+        allowed_tools=[],
+        llm_client=infra["llm"],
+        heartbeat=infra["hb"],
+        loop_detector=infra["ld"],
+    )
     prompt = agent._build_system_prompt()
     assert "Job Scout" in prompt
     assert "submit_proposal" in prompt
@@ -254,18 +276,28 @@ def test_build_system_prompt_scout(infra):
 
 
 def test_build_system_prompt_unknown_agent(infra):
-    agent = _TestAgent(execute_fn=AsyncMock(), agent_name="unknown_xyz",
-                       allowed_tools=[], llm_client=infra["llm"],
-                       heartbeat=infra["hb"], loop_detector=infra["ld"])
+    agent = _TestAgent(
+        execute_fn=AsyncMock(),
+        agent_name="unknown_xyz",
+        allowed_tools=[],
+        llm_client=infra["llm"],
+        heartbeat=infra["hb"],
+        loop_detector=infra["ld"],
+    )
     prompt = agent._build_system_prompt()
     assert "unknown_xyz" in prompt
     assert "- None" in prompt  # no forbidden tools
 
 
 def test_build_system_prompt_no_forbidden(infra):
-    agent = _TestAgent(execute_fn=AsyncMock(), agent_name="unknown_xyz",
-                       allowed_tools=[], llm_client=infra["llm"],
-                       heartbeat=infra["hb"], loop_detector=infra["ld"])
+    agent = _TestAgent(
+        execute_fn=AsyncMock(),
+        agent_name="unknown_xyz",
+        allowed_tools=[],
+        llm_client=infra["llm"],
+        heartbeat=infra["hb"],
+        loop_detector=infra["ld"],
+    )
     prompt = agent._build_system_prompt()
     assert "FORBIDDEN ACTIONS:" in prompt
     assert "- None" in prompt
@@ -273,30 +305,47 @@ def test_build_system_prompt_no_forbidden(infra):
 
 # ===== _assert_tool_allowed ==================================================
 
+
 def test_assert_tool_forbidden(infra):
-    agent = _TestAgent(execute_fn=AsyncMock(), agent_name="scout",
-                       allowed_tools=["search_jobs"], llm_client=infra["llm"],
-                       heartbeat=infra["hb"], loop_detector=infra["ld"])
+    agent = _TestAgent(
+        execute_fn=AsyncMock(),
+        agent_name="scout",
+        allowed_tools=["search_jobs"],
+        llm_client=infra["llm"],
+        heartbeat=infra["hb"],
+        loop_detector=infra["ld"],
+    )
     with pytest.raises(AgentException, match="forbidden"):
         agent._assert_tool_allowed("execute_code")
 
 
 def test_assert_tool_not_in_allowed(infra):
-    agent = _TestAgent(execute_fn=AsyncMock(), agent_name="scout",
-                       allowed_tools=["search_jobs"], llm_client=infra["llm"],
-                       heartbeat=infra["hb"], loop_detector=infra["ld"])
+    agent = _TestAgent(
+        execute_fn=AsyncMock(),
+        agent_name="scout",
+        allowed_tools=["search_jobs"],
+        llm_client=infra["llm"],
+        heartbeat=infra["hb"],
+        loop_detector=infra["ld"],
+    )
     with pytest.raises(AgentException, match="not permitted"):
         agent._assert_tool_allowed("unknown_tool")
 
 
 def test_assert_tool_passes(infra):
-    agent = _TestAgent(execute_fn=AsyncMock(), agent_name="scout",
-                       allowed_tools=["search_jobs"], llm_client=infra["llm"],
-                       heartbeat=infra["hb"], loop_detector=infra["ld"])
+    agent = _TestAgent(
+        execute_fn=AsyncMock(),
+        agent_name="scout",
+        allowed_tools=["search_jobs"],
+        llm_client=infra["llm"],
+        heartbeat=infra["hb"],
+        loop_detector=infra["ld"],
+    )
     agent._assert_tool_allowed("search_jobs")  # no raise
 
 
 # ===== _describe_task ========================================================
+
 
 def test_describe_task_none():
     assert _describe_task(None) is None
@@ -321,6 +370,7 @@ def test_describe_task_empty_dict():
 
 # ===== _record_metric =======================================================
 
+
 def test_record_metric_success(infra):
     """_record_metric calls get_metrics().record_agent_run on success."""
     agent = _agent(AsyncMock(), infra)
@@ -329,7 +379,9 @@ def test_record_metric_success(infra):
         gm.return_value = mi
         agent._record_metric("success", 1.5)
         mi.record_agent_run.assert_called_once_with(
-            "scout", status="success", duration_seconds=1.5,
+            "scout",
+            status="success",
+            duration_seconds=1.5,
         )
 
 
@@ -404,6 +456,7 @@ def test_sentry_transaction_falls_back_to_nullcontext(infra):
 
 async def test_invoke_creates_sentry_transaction(sample_state, infra):
     """invoke() wraps _execute in a Sentry transaction."""
+
     async def ok(state):
         return update_state(state, next_agent="bid", status="active")
 
@@ -427,6 +480,7 @@ async def test_invoke_creates_sentry_transaction(sample_state, infra):
 
 async def test_invoke_sentry_transaction_includes_agent_role(sample_state, infra):
     """invoke() passes agent_name to start_agent_transaction."""
+
     async def ok(state):
         return update_state(state, next_agent="critic", status="active")
 
@@ -513,6 +567,7 @@ async def test_load_user_credentials_logs_on_exception(sample_state, infra):
 
 async def test_invoke_loads_credentials_when_user_id_present(sample_state, infra):
     """invoke() should call _load_user_credentials when state has user_id."""
+
     async def ok(state):
         return update_state(state, next_agent="bid", status="active")
 
@@ -527,6 +582,7 @@ async def test_invoke_loads_credentials_when_user_id_present(sample_state, infra
 
 async def test_invoke_skips_credentials_when_no_user_id(sample_state, infra):
     """invoke() should NOT call _load_user_credentials when state has no user_id."""
+
     async def ok(state):
         return update_state(state, next_agent="bid", status="active")
 
@@ -540,6 +596,7 @@ async def test_invoke_skips_credentials_when_no_user_id(sample_state, infra):
 
 async def test_invoke_succeeds_despite_credential_load_failure(sample_state, infra):
     """invoke() should still succeed if _load_user_credentials raises (graceful fallback)."""
+
     async def ok(state):
         return update_state(state, next_agent="bid", status="active")
 

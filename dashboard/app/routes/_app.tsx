@@ -214,6 +214,7 @@ export default function AppLayout() {
             queryClient.invalidateQueries({ queryKey: ["jobs"] });
             queryClient.invalidateQueries({ queryKey: ["job"] });
             queryClient.invalidateQueries({ queryKey: ["job-stats"] });
+            queryClient.invalidateQueries({ queryKey: ["pipeline-progress"] });
             if (msg.data?.status) {
               const jobTitle = msg.data.title ?? "Job";
               const desc = `${jobTitle} — ${msg.data.status}`;

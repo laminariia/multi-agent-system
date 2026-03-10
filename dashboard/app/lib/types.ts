@@ -315,6 +315,14 @@ export interface CredentialsSummary {
   platform_accounts: PlatformAccount[];
 }
 
+// --- Scout Config ---
+
+export interface ScoutConfig {
+  categories_auto: string[];
+  categories_suggest: string[];
+  custom_rules: string[];
+}
+
 // --- Campaigns ---
 
 export interface EmailCampaign {
@@ -374,4 +382,16 @@ export interface TelegramChannel {
 export interface TelegramChannelListResponse {
   channels: TelegramChannel[];
   total: number;
+}
+
+export interface PipelineProgress {
+  thread_id: string | null;
+  agent_sequence: string[];
+  current_agent: string | null;
+  current_index: number;
+  total_agents: number;
+  completed_agents: string[];
+  status: "idle" | "running" | "paused" | "completed" | "failed";
+  started_at: string | null;
+  updated_at: string | null;
 }

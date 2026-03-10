@@ -14,6 +14,7 @@ The Critic Agent:
 Role constraints: can REVIEW and SCORE, CANNOT modify code directly.
 LLM: GPT-4o (fallback Claude Sonnet 4.5).
 """
+
 from __future__ import annotations
 
 import json
@@ -120,18 +121,25 @@ class CriticAgent(ConstrainedAgent):
                     findings=[f.rule_id for f in semgrep_result.findings],
                 )
                 artifacts = dict(state.get("artifacts") or {})
-                semgrep_detail = json.dumps({
-                    "verdict": "reject",
-                    "score": 0.0,
-                    "source": "semgrep_gate",
-                    "issues": [
-                        {
-                            "rule_id": f.rule_id, "severity": f.severity,
-                            "message": f.message, "path": f.path, "line": f.line,
-                        }
-                        for f in semgrep_result.findings
-                    ],
-                }, default=str, ensure_ascii=False)
+                semgrep_detail = json.dumps(
+                    {
+                        "verdict": "reject",
+                        "score": 0.0,
+                        "source": "semgrep_gate",
+                        "issues": [
+                            {
+                                "rule_id": f.rule_id,
+                                "severity": f.severity,
+                                "message": f.message,
+                                "path": f.path,
+                                "line": f.line,
+                            }
+                            for f in semgrep_result.findings
+                        ],
+                    },
+                    default=str,
+                    ensure_ascii=False,
+                )
                 artifacts["critic"] = [semgrep_detail]
                 await self._log_review_decision(
                     thread_id=state["thread_id"],
@@ -314,11 +322,13 @@ class CriticAgent(ConstrainedAgent):
                     status="active",
                 )
 
-            # Minor revision (default) -- route back to dev for auto-fix.
+            # Minor revision -- route to target agent via revision_target.
+            revision_agent = self._determine_revision_target(issues)
             self._log.info(
                 "critic_minor_revision_requested",
                 score=score,
                 revision_count=new_revision_count,
+                revision_target=revision_agent,
             )
             await self._log_review_decision(
                 thread_id=state["thread_id"],
@@ -330,7 +340,9 @@ class CriticAgent(ConstrainedAgent):
             return update_state(
                 state,
                 current_agent="critic",
-                next_agent="dev",
+                next_agent=revision_agent,
+                revision_target=revision_agent,
+                revision_severity="minor",
                 artifacts=artifacts,
                 status="active",
             )
@@ -523,6 +535,39 @@ class CriticAgent(ConstrainedAgent):
         return parsed
 
     # ------------------------------------------------------------------
+    # Revision target determination
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _determine_revision_target(issues: list[dict[str, Any]]) -> str:
+        """Determine which agent should handle minor revisions based on issues.
+
+        Inspects issue categories to route to the most appropriate agent.
+        Defaults to ``"dev"`` when no clear signal exists.
+        """
+        design_keywords = {"design", "layout", "visual", "ui", "ux", "css", "style", "color", "font"}
+        content_keywords = {"content", "copy", "text", "wording", "grammar", "tone", "spelling"}
+
+        design_hits = 0
+        content_hits = 0
+
+        for issue in issues:
+            category = (issue.get("category", "") or "").lower()
+            description = (issue.get("description", "") or "").lower()
+            combined = f"{category} {description}"
+
+            if any(kw in combined for kw in design_keywords):
+                design_hits += 1
+            if any(kw in combined for kw in content_keywords):
+                content_hits += 1
+
+        if design_hits > content_hits and design_hits > 0:
+            return "design"
+        if content_hits > design_hits and content_hits > 0:
+            return "content"
+        return "dev"
+
+    # ------------------------------------------------------------------
     # Revision count tracking
     # ------------------------------------------------------------------
 
@@ -563,9 +608,7 @@ class CriticAgent(ConstrainedAgent):
                 type="code_review",
                 priority="urgent",
                 title=title[:500],
-                description=(
-                    f"Score: {score:.2f} | Revisions: {revision_count} | Reason: {reason}"
-                ),
+                description=(f"Score: {score:.2f} | Revisions: {revision_count} | Reason: {reason}"),
                 payload={
                     "thread_id": thread_id,
                     "score": score,
@@ -631,6 +674,7 @@ class CriticAgent(ConstrainedAgent):
 # ======================================================================
 # Module-level node function for LangGraph
 # ======================================================================
+
 
 async def critic_node(state: AgentState) -> AgentState:
     """LangGraph node function that creates and invokes the Critic Agent.

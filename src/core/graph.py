@@ -58,7 +58,7 @@ from src.agents.planner import planner_node
 from src.agents.scout import scout_node
 from src.core.checkpoints import HybridCheckpointSaver
 from src.core.config import get_settings
-from src.core.state import AgentState, ProjectContext, create_initial_state, update_state
+from src.core.state import AgentState, ProjectContext, create_initial_state, update_state, validate_delivery_type
 from src.core.tracing import build_langsmith_config
 
 logger = structlog.get_logger(__name__)
@@ -106,9 +106,7 @@ async def bid_submission_node(state: dict[str, Any]) -> dict[str, Any]:
                 client_id=client_id,
                 client_secret=client_secret,
             )
-            project_id = bid_data.get("project_id") or (
-                state.get("project") or {}
-            ).get("job_id", "")
+            project_id = bid_data.get("project_id") or (state.get("project") or {}).get("job_id", "")
             description = bid_data.get("proposal", "")
             amount = bid_data.get("amount", 0)
 
@@ -116,6 +114,7 @@ async def bid_submission_node(state: dict[str, Any]) -> dict[str, Any]:
                 project_id=project_id,
                 description=description,
                 amount=amount,
+                period=int(bid_data.get("delivery_days", 7)),
             )
             artifacts["bid_submitted"] = True
             artifacts["bid_submission_result"] = result
@@ -160,10 +159,7 @@ async def bid_submission_node(state: dict[str, Any]) -> dict[str, Any]:
                     type="manual_action",
                     priority="urgent",
                     title=f"Manual bid submission on {platform}: {project_title[:200]}",
-                    description=(
-                        f"Bid approved but {platform} requires manual submission. "
-                        f"Submit via the platform."
-                    ),
+                    description=(f"Bid approved but {platform} requires manual submission. Submit via the platform."),
                     payload={
                         "thread_id": state["thread_id"],
                         "platform": platform,
@@ -194,6 +190,7 @@ async def bid_submission_node(state: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # HITL node functions
 # ---------------------------------------------------------------------------
+
 
 async def hitl_bid_node(state: dict[str, Any]) -> dict[str, Any]:
     """HITL interrupt node for bid approval.
@@ -248,14 +245,14 @@ async def hitl_review_node(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
-async def hitl_email_node(state: dict[str, Any]) -> dict[str, Any]:
-    """HITL interrupt node for email batch approval.
+async def hitl_outreach_node(state: dict[str, Any]) -> dict[str, Any]:
+    """HITL interrupt node for outreach batch approval (email + telegram).
 
     Pauses the workflow so a human can review and approve/reject
-    the generated cold emails before they are sent.
+    the generated outreach messages before they are sent.
     """
     logger.info(
-        "hitl_email_node_entered",
+        "hitl_outreach_node_entered",
         thread_id=state["thread_id"],
         hitl_request_id=state.get("hitl_request_id"),
         status=state["status"],
@@ -266,35 +263,38 @@ async def hitl_email_node(state: dict[str, Any]) -> dict[str, Any]:
             state,
             status="paused",
             requires_hitl=True,
-            current_agent="hitl_email",
+            current_agent="hitl_outreach",
         )
 
     return state
 
 
+# Backward-compat alias
+hitl_email_node = hitl_outreach_node
+
+
 # ---------------------------------------------------------------------------
-# Email sending node (Pipeline B)
+# Message dispatch node (Pipeline B — multi-channel)
 # ---------------------------------------------------------------------------
 
 
-async def email_sending_node(state: dict[str, Any]) -> dict[str, Any]:
-    """Send approved outreach emails after HITL approval.
+async def message_dispatch_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Send approved outreach messages across all channels after HITL approval.
 
-    Checks ``artifacts["emails_approved"]`` and, when ``True``, calls
-    :func:`~src.enrichment.email_sender.send_approved_emails` with the
-    campaign ID from artifacts.  Results are stored back in artifacts.
+    Dispatches both email and Telegram DMs based on ``channel_type`` of each
+    CampaignLead.  Replaces the single-channel ``email_sending_node``.
     """
     artifacts = dict(state.get("artifacts") or {})
 
     if not artifacts.get("emails_approved"):
         logger.info(
-            "email_sending_skipped",
+            "message_dispatch_skipped",
             thread_id=state["thread_id"],
-            reason="emails_not_approved",
+            reason="messages_not_approved",
         )
         return update_state(
             state,
-            current_agent="email_sending",
+            current_agent="message_dispatch",
             next_agent=None,
             status="completed",
             artifacts=artifacts,
@@ -303,28 +303,28 @@ async def email_sending_node(state: dict[str, Any]) -> dict[str, Any]:
     campaign_id = artifacts.get("campaign_id")
     if not campaign_id:
         logger.warning(
-            "email_sending_no_campaign",
+            "message_dispatch_no_campaign",
             thread_id=state["thread_id"],
         )
-        artifacts["email_send_result"] = {"sent": 0, "failed": 0, "error": "no campaign_id"}
+        artifacts["send_results"] = {"error": "no campaign_id"}
         return update_state(
             state,
-            current_agent="email_sending",
+            current_agent="message_dispatch",
             next_agent=None,
             status="completed",
             artifacts=artifacts,
         )
+
+    results: dict[str, Any] = {}
 
     try:
         from sqlalchemy import update as sa_update  # noqa: PLC0415
 
         from src.core.database import get_db_session  # noqa: PLC0415
         from src.core.models import CampaignLead  # noqa: PLC0415
-        from src.enrichment.email_sender import send_approved_emails  # noqa: PLC0415
 
         async with get_db_session() as session:
-            # Mark all pending campaign leads as "approved" so
-            # send_approved_emails() can pick them up for delivery.
+            # Mark all pending campaign leads as "approved".
             await session.execute(
                 sa_update(CampaignLead)
                 .where(
@@ -335,47 +335,68 @@ async def email_sending_node(state: dict[str, Any]) -> dict[str, Any]:
             )
             await session.commit()
 
-            result = await send_approved_emails(campaign_id, session)
+            # Send emails
+            try:
+                from src.enrichment.email_sender import send_approved_emails  # noqa: PLC0415
 
-        artifacts["email_send_result"] = result
+                results["email"] = await send_approved_emails(campaign_id, session)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("email_dispatch_failed", error=str(exc), exc_info=True)
+                results["email"] = {"sent": 0, "failed": 0, "error": str(exc)}
 
-        # Warn if SMTP not configured — emails were approved but couldn't send
-        if result.get("sent", 0) == 0 and result.get("failed", 0) == 0:
+            # Send Telegram DMs
+            try:
+                from src.enrichment.telegram_sender import send_approved_telegram_dms  # noqa: PLC0415
+
+                results["telegram"] = await send_approved_telegram_dms(campaign_id, session)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("telegram_dispatch_failed", error=str(exc), exc_info=True)
+                results["telegram"] = {"sent": 0, "failed": 0, "error": str(exc)}
+
+        artifacts["send_results"] = results
+        # Keep backward-compat key
+        artifacts["email_send_result"] = results.get("email", {})
+
+        total_sent = sum(r.get("sent", 0) for r in results.values() if isinstance(r, dict))
+        if total_sent == 0:
             logger.warning(
-                "email_sending_no_emails_sent",
+                "message_dispatch_no_sends",
                 thread_id=state["thread_id"],
                 campaign_id=str(campaign_id),
-                reason="SMTP may not be configured or no approved leads found",
             )
-            artifacts["email_send_warning"] = "No emails sent — check SMTP configuration in Settings"
         else:
             logger.info(
-                "email_sending_complete",
+                "message_dispatch_complete",
                 thread_id=state["thread_id"],
                 campaign_id=str(campaign_id),
-                sent=result.get("sent", 0),
-                failed=result.get("failed", 0),
+                results=results,
             )
+
     except Exception as exc:  # noqa: BLE001
         logger.error(
-            "email_sending_failed",
+            "message_dispatch_failed",
             thread_id=state["thread_id"],
             error=str(exc),
         )
-        artifacts["email_send_result"] = {"sent": 0, "failed": 0, "error": str(exc)}
+        artifacts["send_results"] = {"error": str(exc)}
 
     return update_state(
         state,
-        current_agent="email_sending",
+        current_agent="message_dispatch",
         next_agent=None,
         status="completed",
         artifacts=artifacts,
     )
 
 
+# Backward-compat alias
+email_sending_node = message_dispatch_node
+
+
 # ---------------------------------------------------------------------------
 # Legacy HITL node (kept for backward compatibility with build_scout_bid_graph)
 # ---------------------------------------------------------------------------
+
 
 async def hitl_node(state: dict[str, Any]) -> dict[str, Any]:
     """Generic HITL interrupt node (legacy, Scout -> Bid pipeline only).
@@ -398,8 +419,85 @@ async def hitl_node(state: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Dynamic routing -- unified execution-phase routing
+# ---------------------------------------------------------------------------
+
+# Valid execution agent nodes for sequence routing.
+_VALID_EXECUTION_NODES = frozenset({"dev_node", "content_node", "design_node"})
+
+
+def _route_next_in_sequence(state: dict[str, Any]) -> str:
+    """Unified routing function for the execution phase.
+
+    Replaces individual ``_route_after_dev``, ``_route_after_content``,
+    ``_route_after_design``.  Called after each execution agent and after
+    Planner (via ``_route_after_planner`` delegation).
+
+    Priority order:
+        1. status == "failed" → END
+        2. requires_hitl → hitl_review_node
+        3. revision_target set → target agent node
+        4. Empty sequence → packager_node (consulting)
+        5. index >= len(sequence) → critic_node
+        6. sequence[index] → next agent node
+    """
+    if state.get("status") == "failed":
+        return END
+
+    if state.get("requires_hitl"):
+        return "hitl_review_node"
+
+    revision_target = state.get("revision_target")
+    if revision_target:
+        target_node = f"{revision_target}_node"
+        if target_node in _VALID_EXECUTION_NODES:
+            return target_node
+        logger.error("invalid_revision_target", target=revision_target)
+        return END
+
+    sequence = state.get("agent_sequence", [])
+    index = state.get("current_sequence_index", 0)
+    skipped = set(state.get("skipped_agents", []))
+
+    if not sequence:
+        return "packager_node"
+
+    if index < 0:
+        logger.error("negative_sequence_index", index=index)
+        return END
+
+    # Advance past any skipped agents.
+    while index < len(sequence) and sequence[index] in skipped:
+        index += 1
+
+    if index >= len(sequence):
+        return "critic_node"
+
+    agent = sequence[index]
+    node_name = f"{agent}_node"
+    if node_name not in _VALID_EXECUTION_NODES:
+        logger.error("invalid_agent_in_sequence", agent=agent, index=index, sequence=sequence)
+        return END
+
+    return node_name
+
+
+# All possible targets from _route_next_in_sequence (used in graph edge maps).
+_SEQUENCE_EDGE_MAP: dict[str, str] = {
+    "dev_node": "dev_node",
+    "content_node": "content_node",
+    "design_node": "design_node",
+    "critic_node": "critic_node",
+    "packager_node": "packager_node",
+    "hitl_review_node": "hitl_review_node",
+    END: END,
+}
+
+
+# ---------------------------------------------------------------------------
 # Routing functions -- Scout/Bid (shared between legacy and full pipeline)
 # ---------------------------------------------------------------------------
+
 
 def _route_after_scout(state: dict[str, Any]) -> str:
     """Determine the next node after the Scout Agent completes.
@@ -448,6 +546,7 @@ def _route_after_bid(state: dict[str, Any]) -> str:
 # Routing functions -- legacy (Scout -> Bid -> HITL only)
 # ---------------------------------------------------------------------------
 
+
 def _route_after_bid_legacy(state: dict[str, Any]) -> str:
     """Route after Bid in the legacy Scout -> Bid -> HITL graph."""
     if state.get("status") == "failed":
@@ -469,6 +568,7 @@ def _route_after_bid_legacy(state: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 # Routing functions -- Full pipeline
 # ---------------------------------------------------------------------------
+
 
 def _route_after_hitl_bid(state: dict[str, Any]) -> str:
     """Route after the bid-approval HITL node.
@@ -506,9 +606,13 @@ def _route_after_bid_submission(state: dict[str, Any]) -> str:
 def _route_after_planner(state: dict[str, Any]) -> str:
     """Route after the Planner Agent.
 
+    Delegates to ``_route_next_in_sequence`` for dynamic execution-phase
+    routing.  HITL plan_review check is done first.
+
     Returns:
-        ``"dev_node"`` to begin implementation,
-        ``"hitl_review_node"`` if HITL plan review is requested (optional),
+        First agent in ``agent_sequence`` (dynamic),
+        ``"hitl_review_node"`` if HITL plan review is requested,
+        ``"packager_node"`` for consulting (empty sequence),
         ``END`` on failure.
     """
     if state.get("status") == "failed":
@@ -519,12 +623,10 @@ def _route_after_planner(state: dict[str, Any]) -> str:
         logger.info("planner_route_to_hitl_review", thread_id=state["thread_id"])
         return "hitl_review_node"
 
-    if state.get("next_agent") == "dev":
-        logger.info("planner_route_to_dev", thread_id=state["thread_id"])
-        return "dev_node"
-
-    logger.warning("planner_route_to_end_no_next", thread_id=state["thread_id"])
-    return END
+    # Delegate to unified routing
+    result = _route_next_in_sequence(state)
+    logger.info("planner_route_dynamic", thread_id=state["thread_id"], target=result)
+    return result
 
 
 def _route_after_dev(state: dict[str, Any]) -> str:
@@ -589,14 +691,15 @@ def _route_after_critic(state: dict[str, Any]) -> str:
 
     The Critic may:
     - Approve and forward to Packager (``next_agent == "packager"``)
-    - Request minor revisions from Dev (``next_agent == "dev"``, max 3 cycles)
+    - Request minor revisions via ``revision_target`` (any execution agent)
+    - Request minor revisions via ``next_agent == "dev"`` (legacy compat)
     - Request major revisions from Planner (``next_agent == "planner"``)
     - Escalate to HITL review (``requires_hitl`` — reject or scope_creep)
     - Fail / terminate (fallback)
 
     Returns:
         ``"packager_node"`` on approval,
-        ``"dev_node"`` on minor revision (up to ``MAX_REVISION_CYCLES``),
+        ``"{revision_target}_node"`` on minor revision (any execution agent),
         ``"planner_node"`` on major revision (re-decomposition),
         ``"hitl_review_node"`` when human review is needed,
         ``END`` on failure or when revision limit is exceeded.
@@ -604,6 +707,11 @@ def _route_after_critic(state: dict[str, Any]) -> str:
     if state.get("status") == "failed":
         logger.warning("critic_route_to_end_failed", thread_id=state["thread_id"])
         return END
+
+    # HITL escalation requested by Critic (reject or scope_creep)
+    if state.get("requires_hitl"):
+        logger.info("critic_route_to_hitl_review", thread_id=state["thread_id"])
+        return "hitl_review_node"
 
     # APPROVED -- forward to Packager
     if state.get("next_agent") == "packager":
@@ -618,32 +726,53 @@ def _route_after_critic(state: dict[str, Any]) -> str:
         )
         return "planner_node"
 
-    # MINOR REVISION -- send back to Dev, respecting the cycle limit
+    # --- Revision limit check (shared by revision_target and legacy next_agent=dev) ---
+    artifacts = state.get("artifacts") or {}
+    count_data = artifacts.get("_critic_revision_count", [])
+    revision_count = 0
+    if isinstance(count_data, list) and count_data:
+        try:
+            revision_count = int(count_data[0])
+        except (ValueError, TypeError):
+            pass
+    elif isinstance(count_data, (int, float)):
+        revision_count = int(count_data)
+
+    # MINOR REVISION via revision_target (new dynamic routing)
+    revision_target = state.get("revision_target")
+    if revision_target:
+        target_node = f"{revision_target}_node"
+        if target_node in _VALID_EXECUTION_NODES:
+            if revision_count < MAX_REVISION_CYCLES:
+                logger.info(
+                    "critic_route_to_revision_target",
+                    thread_id=state["thread_id"],
+                    target=revision_target,
+                    revision_count=revision_count,
+                )
+                return target_node
+            logger.warning(
+                "critic_revision_limit_exceeded",
+                thread_id=state["thread_id"],
+                revision_count=revision_count,
+            )
+            return "hitl_review_node"
+
+    # MINOR REVISION via next_agent=dev (legacy compat)
     if state.get("next_agent") == "dev":
-        artifacts = state.get("artifacts") or {}
-        revision_count = artifacts.get("_critic_revision_count", 0)
         if revision_count < MAX_REVISION_CYCLES:
-            # Increment the revision counter so the limit is enforced.
-            artifacts["_critic_revision_count"] = revision_count + 1
-            state["artifacts"] = artifacts
             logger.info(
                 "critic_route_to_dev_revision",
                 thread_id=state["thread_id"],
-                revision_count=revision_count + 1,
+                revision_count=revision_count,
                 max_revisions=MAX_REVISION_CYCLES,
             )
             return "dev_node"
-        # Exceeded revision limit -- escalate to HITL
         logger.warning(
             "critic_revision_limit_exceeded",
             thread_id=state["thread_id"],
             revision_count=revision_count,
         )
-        return "hitl_review_node"
-
-    # HITL escalation requested by Critic (reject or scope_creep)
-    if state.get("requires_hitl"):
-        logger.info("critic_route_to_hitl_review", thread_id=state["thread_id"])
         return "hitl_review_node"
 
     logger.warning("critic_route_to_end_no_next", thread_id=state["thread_id"])
@@ -679,28 +808,31 @@ def _route_after_packager(state: dict[str, Any]) -> str:
 def _route_after_hitl_review(state: dict[str, Any]) -> str:
     """Route after the HITL review node.
 
-    For plan_review approvals, routes to ``"dev_node"`` so the pipeline
-    continues with implementation.  For final_review or rejections,
+    For plan_review approvals, delegates to ``_route_next_in_sequence``
+    so the pipeline continues with the first agent in the dynamic
+    sequence (not hardcoded to dev).  For final_review or rejections,
     terminates the graph.
 
     The ``_hitl_type`` artifact is set by ``resume_from_hitl`` to
     distinguish between plan_review and final_review contexts.
 
     Returns:
-        ``"dev_node"`` when a plan_review was approved,
+        First agent in ``agent_sequence`` when plan_review approved,
         ``END`` otherwise.
     """
     artifacts = state.get("artifacts") or {}
     hitl_type = artifacts.get("_hitl_type", "")
     status = state.get("status")
 
-    # Plan review approved -> continue to dev
+    # Plan review approved -> delegate to dynamic routing
     if hitl_type == "plan_review" and status == "active":
+        result = _route_next_in_sequence(state)
         logger.info(
-            "hitl_review_route_to_dev_plan_approved",
+            "hitl_review_route_plan_approved",
             thread_id=state["thread_id"],
+            target=result,
         )
-        return "dev_node"
+        return result
 
     logger.info(
         "hitl_review_route_to_end",
@@ -726,28 +858,33 @@ def _route_after_geo_scout(state: dict[str, Any]) -> str:
 
 
 def _route_after_outreach(state: dict[str, Any]) -> str:
-    """Route after Outreach: HITL email approval or END."""
+    """Route after Outreach: HITL outreach approval or END."""
     if state.get("status") == "failed":
         return END
     if state.get("requires_hitl"):
-        return "hitl_email_node"
-    # No emails drafted -- completed without HITL
+        return "hitl_outreach_node"
+    # No messages drafted -- completed without HITL
     return END
 
 
-def _route_after_hitl_email(state: dict[str, Any]) -> str:
-    """Route after email HITL: send emails if approved, else END."""
+def _route_after_hitl_outreach(state: dict[str, Any]) -> str:
+    """Route after outreach HITL: dispatch messages if approved, else END."""
     if state.get("status") == "failed":
         return END
     artifacts = state.get("artifacts") or {}
     if artifacts.get("emails_approved"):
-        return "email_sending_node"
+        return "message_dispatch_node"
     return END
+
+
+# Backward-compat alias
+_route_after_hitl_email = _route_after_hitl_outreach
 
 
 # ---------------------------------------------------------------------------
 # Graph builders
 # ---------------------------------------------------------------------------
+
 
 def build_full_pipeline_graph(checkpointer: Any | None = None) -> CompiledGraph:
     """Build and compile the full Phase 1 pipeline graph.
@@ -826,54 +963,30 @@ def build_full_pipeline_graph(checkpointer: Any | None = None) -> CompiledGraph:
         },
     )
 
-    # Planner -> Dev | HITL(review) | END
+    # Planner -> dynamic sequence | HITL(plan_review) | Packager (consulting) | END
     graph.add_conditional_edges(
         "planner_node",
         _route_after_planner,
-        {
-            "dev_node": "dev_node",
-            "hitl_review_node": "hitl_review_node",
-            END: END,
-        },
+        _SEQUENCE_EDGE_MAP,
     )
 
-    # Dev -> Content | END
-    graph.add_conditional_edges(
-        "dev_node",
-        _route_after_dev,
-        {
-            "content_node": "content_node",
-            END: END,
-        },
-    )
+    # Execution agents -> dynamic sequence (unified routing)
+    for agent_node in ("dev_node", "content_node", "design_node"):
+        graph.add_conditional_edges(
+            agent_node,
+            _route_next_in_sequence,
+            _SEQUENCE_EDGE_MAP,
+        )
 
-    # Content -> Design | END
-    graph.add_conditional_edges(
-        "content_node",
-        _route_after_content,
-        {
-            "design_node": "design_node",
-            END: END,
-        },
-    )
-
-    # Design -> Critic | END
-    graph.add_conditional_edges(
-        "design_node",
-        _route_after_design,
-        {
-            "critic_node": "critic_node",
-            END: END,
-        },
-    )
-
-    # Critic -> Packager | Dev (minor revision) | Planner (major revision) | HITL(review) | END
+    # Critic -> Packager | revision_target | Planner (major) | HITL | END
     graph.add_conditional_edges(
         "critic_node",
         _route_after_critic,
         {
             "packager_node": "packager_node",
             "dev_node": "dev_node",
+            "content_node": "content_node",
+            "design_node": "design_node",
             "planner_node": "planner_node",
             "hitl_review_node": "hitl_review_node",
             END: END,
@@ -890,14 +1003,11 @@ def build_full_pipeline_graph(checkpointer: Any | None = None) -> CompiledGraph:
         },
     )
 
-    # HITL(review) -> Dev (plan_review approved) | END
+    # HITL(review) -> dynamic sequence (plan_review) | END
     graph.add_conditional_edges(
         "hitl_review_node",
         _route_after_hitl_review,
-        {
-            "dev_node": "dev_node",
-            END: END,
-        },
+        _SEQUENCE_EDGE_MAP,
     )
 
     # -- Compile ------------------------------------------------------------
@@ -961,7 +1071,7 @@ def build_scout_bid_graph(checkpointer: Any | None = None) -> CompiledGraph:
 def build_pipeline_b_graph(checkpointer: Any | None = None) -> CompiledGraph:
     """Build and compile the Pipeline B (Outreach) graph.
 
-    Flow: GeoScout -> Outreach -> [HITL email approval] -> END
+    Flow: GeoScout -> Outreach -> [HITL outreach approval] -> Message Dispatch -> END
 
     Args:
         checkpointer: Optional checkpoint saver for persistence.
@@ -974,8 +1084,8 @@ def build_pipeline_b_graph(checkpointer: Any | None = None) -> CompiledGraph:
     # Nodes
     graph.add_node("geo_scout_node", geo_scout_node)
     graph.add_node("outreach_node", outreach_node)
-    graph.add_node("hitl_email_node", hitl_email_node)
-    graph.add_node("email_sending_node", email_sending_node)
+    graph.add_node("hitl_outreach_node", hitl_outreach_node)
+    graph.add_node("message_dispatch_node", message_dispatch_node)
 
     # Entry point
     graph.set_entry_point("geo_scout_node")
@@ -989,14 +1099,14 @@ def build_pipeline_b_graph(checkpointer: Any | None = None) -> CompiledGraph:
     graph.add_conditional_edges(
         "outreach_node",
         _route_after_outreach,
-        {"hitl_email_node": "hitl_email_node", END: END},
+        {"hitl_outreach_node": "hitl_outreach_node", END: END},
     )
     graph.add_conditional_edges(
-        "hitl_email_node",
-        _route_after_hitl_email,
-        {"email_sending_node": "email_sending_node", END: END},
+        "hitl_outreach_node",
+        _route_after_hitl_outreach,
+        {"message_dispatch_node": "message_dispatch_node", END: END},
     )
-    graph.add_edge("email_sending_node", END)
+    graph.add_edge("message_dispatch_node", END)
 
     compiled = graph.compile(checkpointer=checkpointer)
     logger.info("pipeline_b_graph_compiled", has_checkpointer=checkpointer is not None)
@@ -1031,38 +1141,38 @@ def build_planner_pipeline_graph(checkpointer: Any | None = None) -> CompiledGra
     graph.set_entry_point("planner_node")
 
     graph.add_conditional_edges(
-        "planner_node", _route_after_planner,
-        {"dev_node": "dev_node", "hitl_review_node": "hitl_review_node", END: END},
+        "planner_node",
+        _route_after_planner,
+        _SEQUENCE_EDGE_MAP,
     )
+    for agent_node in ("dev_node", "content_node", "design_node"):
+        graph.add_conditional_edges(
+            agent_node,
+            _route_next_in_sequence,
+            _SEQUENCE_EDGE_MAP,
+        )
     graph.add_conditional_edges(
-        "dev_node", _route_after_dev,
-        {"content_node": "content_node", END: END},
-    )
-    graph.add_conditional_edges(
-        "content_node", _route_after_content,
-        {"design_node": "design_node", END: END},
-    )
-    graph.add_conditional_edges(
-        "design_node", _route_after_design,
-        {"critic_node": "critic_node", END: END},
-    )
-    graph.add_conditional_edges(
-        "critic_node", _route_after_critic,
+        "critic_node",
+        _route_after_critic,
         {
             "packager_node": "packager_node",
             "dev_node": "dev_node",
+            "content_node": "content_node",
+            "design_node": "design_node",
             "planner_node": "planner_node",
             "hitl_review_node": "hitl_review_node",
             END: END,
         },
     )
     graph.add_conditional_edges(
-        "packager_node", _route_after_packager,
+        "packager_node",
+        _route_after_packager,
         {"hitl_review_node": "hitl_review_node", END: END},
     )
     graph.add_conditional_edges(
-        "hitl_review_node", _route_after_hitl_review,
-        {"dev_node": "dev_node", END: END},
+        "hitl_review_node",
+        _route_after_hitl_review,
+        _SEQUENCE_EDGE_MAP,
     )
 
     compiled = graph.compile(checkpointer=checkpointer)
@@ -1073,6 +1183,7 @@ def build_planner_pipeline_graph(checkpointer: Any | None = None) -> CompiledGra
 # ---------------------------------------------------------------------------
 # Persistence helper
 # ---------------------------------------------------------------------------
+
 
 def create_graph_with_persistence(
     valkey: AsyncRedis,
@@ -1110,6 +1221,7 @@ def create_graph_with_persistence(
 # ---------------------------------------------------------------------------
 # Convenience runners
 # ---------------------------------------------------------------------------
+
 
 async def run_full_pipeline(
     project_context: ProjectContext,
@@ -1259,6 +1371,7 @@ async def run_pipeline_b(
 # HITL resume
 # ---------------------------------------------------------------------------
 
+
 async def resume_from_hitl(
     thread_id: str,
     hitl_response: dict[str, Any],
@@ -1339,8 +1452,8 @@ async def resume_from_hitl(
                 resolved_type = "bid_approval"
             elif current_agent == "hitl_review":
                 resolved_type = "final_review"
-            elif current_agent == "hitl_email":
-                resolved_type = "email_approval"
+            elif current_agent in ("hitl_email", "hitl_outreach"):
+                resolved_type = "outreach_approval"
             else:
                 # Fall back to legacy behaviour (Phase 1 Scout -> Bid only).
                 resolved_type = "bid_approval"
@@ -1368,7 +1481,8 @@ async def resume_from_hitl(
                 graph = build_full_pipeline_graph(checkpointer=checkpointer)
                 try:
                     result: AgentState = await asyncio.wait_for(
-                        graph.ainvoke(resumed_state, config=config), timeout=300,
+                        graph.ainvoke(resumed_state, config=config),
+                        timeout=300,
                     )
                 except TimeoutError:
                     logger.error("hitl_resume_timed_out", thread_id=thread_id, hitl_type="bid_approval")
@@ -1381,9 +1495,7 @@ async def resume_from_hitl(
                 return result
 
             # Rejection / edit without continuation -- save and return.
-            await checkpointer.aput(
-                config, resumed_state, {"source": "hitl_resume", "action": action}
-            )
+            await checkpointer.aput(config, resumed_state, {"source": "hitl_resume", "action": action})
             return resumed_state  # type: ignore[return-value]
 
         # ----- plan_review ------------------------------------------------
@@ -1396,7 +1508,8 @@ async def resume_from_hitl(
                 graph = build_full_pipeline_graph(checkpointer=checkpointer)
                 try:
                     result = await asyncio.wait_for(
-                        graph.ainvoke(resumed_state, config=config), timeout=300,
+                        graph.ainvoke(resumed_state, config=config),
+                        timeout=300,
                     )
                 except TimeoutError:
                     logger.error("hitl_resume_timed_out", thread_id=thread_id, hitl_type="plan_review")
@@ -1408,9 +1521,7 @@ async def resume_from_hitl(
                 )
                 return result  # type: ignore[return-value]
 
-            await checkpointer.aput(
-                config, resumed_state, {"source": "hitl_resume", "action": action}
-            )
+            await checkpointer.aput(config, resumed_state, {"source": "hitl_resume", "action": action})
 
             logger.info(
                 "hitl_plan_review_resumed",
@@ -1424,9 +1535,7 @@ async def resume_from_hitl(
         if resolved_type == "final_review":
             resumed_state = _apply_final_review(saved_state, action, hitl_response, thread_id)
 
-            await checkpointer.aput(
-                config, resumed_state, {"source": "hitl_resume", "action": action}
-            )
+            await checkpointer.aput(config, resumed_state, {"source": "hitl_resume", "action": action})
 
             logger.info(
                 "hitl_review_resumed",
@@ -1436,40 +1545,63 @@ async def resume_from_hitl(
             )
             return resumed_state  # type: ignore[return-value]
 
-        # ----- email_approval (Pipeline B) -----------------------------------
-        if resolved_type == "email_approval":
-            resumed_state = _apply_email_approval(
-                saved_state, action, hitl_response, thread_id
-            )
+        # ----- outreach_approval (Pipeline B, email + telegram) ---------------
+        if resolved_type in ("email_approval", "outreach_approval"):
+            resumed_state = _apply_outreach_approval(saved_state, action, hitl_response, thread_id)
 
-            # On approval, re-invoke Pipeline B graph so the email_sending_node
-            # runs and actually sends the approved emails.
+            # On approval, re-invoke Pipeline B graph so the message_dispatch_node
+            # runs and actually sends the approved messages.
             if action in ("approve", "edit"):
                 graph = build_pipeline_b_graph(checkpointer=checkpointer)
                 try:
                     result = await asyncio.wait_for(
-                        graph.ainvoke(resumed_state, config=config), timeout=300,
+                        graph.ainvoke(resumed_state, config=config),
+                        timeout=300,
                     )
                 except TimeoutError:
-                    logger.error("hitl_resume_timed_out", thread_id=thread_id, hitl_type="email_approval")
+                    logger.error("hitl_resume_timed_out", thread_id=thread_id, hitl_type="outreach_approval")
                     return {"status": "failed", "error": "HITL resume timed out"}  # type: ignore[return-value]
                 logger.info(
-                    "hitl_email_resumed_pipeline_finished",
+                    "hitl_outreach_resumed_pipeline_finished",
                     thread_id=thread_id,
                     status=result.get("status"),
                 )
                 return result  # type: ignore[return-value]
 
-            await checkpointer.aput(
-                config, resumed_state, {"source": "hitl_resume", "action": action}
-            )
+            await checkpointer.aput(config, resumed_state, {"source": "hitl_resume", "action": action})
 
             logger.info(
-                "hitl_email_resumed",
+                "hitl_outreach_resumed",
                 thread_id=thread_id,
                 action=action,
                 new_status=resumed_state["status"],
             )
+            return resumed_state  # type: ignore[return-value]
+
+        if resolved_type == "agent_failure":
+            resumed_state = _apply_agent_failure_recovery(saved_state, action, hitl_response, thread_id)
+
+            # On resume/skip/manual, re-invoke Pipeline A so the sequence continues.
+            if resumed_state.get("status") == "active":
+                graph = build_full_pipeline_graph(checkpointer=checkpointer)
+                try:
+                    result = await asyncio.wait_for(
+                        graph.ainvoke(resumed_state, config=config),
+                        timeout=600,
+                    )
+                except TimeoutError:
+                    logger.error("hitl_resume_timed_out", thread_id=thread_id, hitl_type="agent_failure")
+                    return {"status": "failed", "error": "HITL resume timed out"}  # type: ignore[return-value]
+                logger.info(
+                    "hitl_agent_failure_resumed_pipeline_finished",
+                    thread_id=thread_id,
+                    action=action,
+                    status=result.get("status"),
+                )
+                return result  # type: ignore[return-value]
+
+            # Failed (unknown action) — just checkpoint and return.
+            await checkpointer.aput(config, resumed_state, {"source": "hitl_resume", "action": action})
             return resumed_state  # type: ignore[return-value]
 
         # ----- unknown type -----------------------------------------------
@@ -1568,17 +1700,18 @@ def _apply_bid_approval(
             project=project,
         )
 
-    # Unknown action -- treat as approve with a warning.
-    logger.warning("hitl_bid_unknown_action", action=action, thread_id=thread_id)
-    project = _enrich_project_from_bid(saved_state)
+    # Unknown action -- fail closed to prevent accidental approval.
+    logger.error("hitl_bid_unknown_action", action=action, thread_id=thread_id)
     return update_state(
         saved_state,  # type: ignore[arg-type]
         requires_hitl=False,
         hitl_request_id=None,
-        status="active",
-        next_agent="planner",
-        current_agent="planner",
-        project=project,
+        status="failed",
+        next_agent=None,
+        errors=[
+            *saved_state.get("errors", []),
+            f"HITL: unknown bid action '{action}' — rejected for safety",
+        ],
     )
 
 
@@ -1621,8 +1754,36 @@ def _apply_plan_review(
 
     if action == "edit":
         edits = hitl_response.get("edits", {})
+        overrides: dict[str, Any] = {}
+
         if edits:
             artifacts["hitl_edits"] = [edits] if not isinstance(edits, list) else edits
+
+            # --- Apply agent_sequence edit ---
+            if "agent_sequence" in edits:
+                valid_agents = {n.removesuffix("_node") for n in _VALID_EXECUTION_NODES}
+                original_seq = list(saved_state.get("agent_sequence") or [])
+                artifacts["_original_sequence"] = [original_seq]
+
+                raw_seq = edits["agent_sequence"]
+                if isinstance(raw_seq, list):
+                    filtered = [a for a in raw_seq if a in valid_agents]
+                    if len(filtered) != len(raw_seq):
+                        logger.warning(
+                            "plan_edit_invalid_agents_removed",
+                            original=raw_seq,
+                            filtered=filtered,
+                            thread_id=thread_id,
+                        )
+                    overrides["agent_sequence"] = filtered
+                    overrides["current_sequence_index"] = 0
+
+            # --- Apply delivery_type edit ---
+            if "delivery_type" in edits:
+                overrides["delivery_type"] = validate_delivery_type(edits["delivery_type"])
+
+            artifacts["_plan_edit_applied"] = [True]
+
         return update_state(
             saved_state,  # type: ignore[arg-type]
             requires_hitl=False,
@@ -1631,18 +1792,22 @@ def _apply_plan_review(
             next_agent="dev",
             current_agent="hitl_review",
             artifacts=artifacts,
+            **overrides,
         )
 
-    # Unknown action -- treat as approve with a warning.
-    logger.warning("hitl_plan_review_unknown_action", action=action, thread_id=thread_id)
+    # Unknown action -- fail closed to prevent accidental approval.
+    logger.error("hitl_plan_review_unknown_action", action=action, thread_id=thread_id)
     return update_state(
         saved_state,  # type: ignore[arg-type]
         requires_hitl=False,
         hitl_request_id=None,
-        status="active",
-        next_agent="dev",
-        current_agent="hitl_review",
+        status="failed",
+        next_agent=None,
         artifacts=artifacts,
+        errors=[
+            *saved_state.get("errors", []),
+            f"HITL: unknown plan review action '{action}' — rejected for safety",
+        ],
     )
 
 
@@ -1689,37 +1854,42 @@ def _apply_final_review(
             artifacts=artifacts,
         )
 
-    # Unknown action -- treat as approve with a warning.
-    logger.warning("hitl_review_unknown_action", action=action, thread_id=thread_id)
+    # Unknown action -- fail closed to prevent accidental approval.
+    logger.error("hitl_review_unknown_action", action=action, thread_id=thread_id)
     return update_state(
         saved_state,  # type: ignore[arg-type]
         requires_hitl=False,
         hitl_request_id=None,
-        status="completed",
+        status="failed",
         next_agent=None,
+        errors=[
+            *saved_state.get("errors", []),
+            f"HITL: unknown final review action '{action}' — rejected for safety",
+        ],
     )
 
 
-def _apply_email_approval(
+def _apply_outreach_approval(
     saved_state: dict[str, Any],
     action: str,
     hitl_response: dict[str, Any],
     thread_id: str,
 ) -> AgentState:
-    """Apply the human's email-approval decision to the saved state.
+    """Apply the human's outreach-approval decision to the saved state.
 
-    On **approve** the emails are marked as approved for sending.
+    On **approve** all channels (email + telegram) are marked approved.
     On **reject** the campaign is cancelled.
     """
     if action == "approve":
         artifacts = dict(saved_state.get("artifacts") or {})
         artifacts["emails_approved"] = True
+        artifacts["telegram_approved"] = True
         return update_state(
             saved_state,  # type: ignore[arg-type]
             requires_hitl=False,
             hitl_request_id=None,
             status="active",
-            current_agent="hitl_email",
+            current_agent="hitl_outreach",
             next_agent=None,
             artifacts=artifacts,
         )
@@ -1733,7 +1903,7 @@ def _apply_email_approval(
             next_agent=None,
             errors=[
                 *saved_state.get("errors", []),
-                "HITL: outreach emails rejected by human",
+                "HITL: outreach messages rejected by human",
             ],
         )
 
@@ -1741,6 +1911,7 @@ def _apply_email_approval(
         edits = hitl_response.get("edits", {})
         artifacts = dict(saved_state.get("artifacts") or {})
         artifacts["emails_approved"] = True
+        artifacts["telegram_approved"] = True
         if edits:
             artifacts["hitl_edits"] = [edits] if not isinstance(edits, list) else edits
         return update_state(
@@ -1748,21 +1919,117 @@ def _apply_email_approval(
             requires_hitl=False,
             hitl_request_id=None,
             status="active",
-            current_agent="hitl_email",
+            current_agent="hitl_outreach",
             next_agent=None,
             artifacts=artifacts,
         )
 
-    # Unknown action -- treat as approve with a warning.
-    logger.warning("hitl_email_unknown_action", action=action, thread_id=thread_id)
-    artifacts = dict(saved_state.get("artifacts") or {})
-    artifacts["emails_approved"] = True
+    # Unknown action -- fail closed to prevent accidental approval.
+    logger.error("hitl_outreach_unknown_action", action=action, thread_id=thread_id)
     return update_state(
         saved_state,  # type: ignore[arg-type]
         requires_hitl=False,
         hitl_request_id=None,
-        status="active",
-        current_agent="hitl_email",
+        status="failed",
         next_agent=None,
-        artifacts=artifacts,
+        errors=[
+            *saved_state.get("errors", []),
+            f"HITL: unknown outreach approval action '{action}' — rejected for safety",
+        ],
+    )
+
+
+# Backward-compat alias
+_apply_email_approval = _apply_outreach_approval
+
+
+def _apply_agent_failure_recovery(
+    saved_state: dict[str, Any],
+    action: str,
+    hitl_response: dict[str, Any],
+    thread_id: str,
+) -> dict[str, Any]:
+    """Apply a recovery action after an execution agent failure.
+
+    Args:
+        saved_state: The paused state with ``failed_agent`` set.
+        action: One of ``"resume"``, ``"skip"``, or ``"manual"``.
+        hitl_response: The operator's response, may contain ``manual_artifacts``.
+        thread_id: The workflow thread ID for logging.
+
+    Returns:
+        Updated state dict ready for graph re-invocation.
+    """
+    failed_agent = saved_state.get("failed_agent", "")
+
+    if action == "resume":
+        logger.info(
+            "agent_failure_resume",
+            thread_id=thread_id,
+            agent=failed_agent,
+            attempt=saved_state.get("recovery_attempted", 0) + 1,
+        )
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            status="active",
+            requires_hitl=False,
+            hitl_request_id=None,
+            recovery_attempted=saved_state.get("recovery_attempted", 0) + 1,
+            # Keep failed_agent and current_sequence_index — graph retries same agent.
+        )
+
+    if action == "skip":
+        skipped = list(saved_state.get("skipped_agents", []))
+        if failed_agent and failed_agent not in skipped:
+            skipped.append(failed_agent)
+        logger.info(
+            "agent_failure_skip",
+            thread_id=thread_id,
+            agent=failed_agent,
+            skipped_agents=skipped,
+        )
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            status="active",
+            requires_hitl=False,
+            hitl_request_id=None,
+            failed_agent=None,
+            failure_reason=None,
+            skipped_agents=skipped,
+            current_sequence_index=saved_state.get("current_sequence_index", 0) + 1,
+        )
+
+    if action == "manual":
+        manual_artifacts = hitl_response.get("manual_artifacts", {})
+        artifacts = dict(saved_state.get("artifacts") or {})
+        # Merge operator-provided artifacts for the failed agent.
+        for agent_name, agent_artifacts in manual_artifacts.items():
+            artifacts[agent_name] = agent_artifacts
+        logger.info(
+            "agent_failure_manual",
+            thread_id=thread_id,
+            agent=failed_agent,
+            manual_agents=list(manual_artifacts.keys()),
+        )
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            status="active",
+            requires_hitl=False,
+            hitl_request_id=None,
+            failed_agent=None,
+            failure_reason=None,
+            artifacts=artifacts,
+            current_sequence_index=saved_state.get("current_sequence_index", 0) + 1,
+        )
+
+    # Unknown action — fail closed.
+    logger.error("agent_failure_unknown_action", action=action, thread_id=thread_id)
+    return update_state(
+        saved_state,  # type: ignore[arg-type]
+        status="failed",
+        next_agent=None,
+        errors=[
+            *saved_state.get("errors", []),
+            f"HITL: unknown agent_failure action '{action}'",
+        ],
     )

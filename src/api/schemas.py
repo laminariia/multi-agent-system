@@ -6,6 +6,7 @@ Field examples are provided for OpenAPI documentation generation.
 Convention: SQLAlchemy models (``src.core.models``) have NO suffix;
             Pydantic schemas here have the ``Schema`` suffix.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -13,7 +14,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 # =============================================================================
 # Base configuration shared by all schemas
@@ -76,7 +77,7 @@ class RegisterRequestSchema(_BaseSchema):
 class LoginRequestSchema(_BaseSchema):
     """Credentials submitted during login."""
 
-    email: EmailStr = Field(..., examples=["user@example.com"], description="User email address")
+    email: str = Field(..., max_length=254, examples=["user@example.com"], description="User email address")
     password: str = Field(..., min_length=6, max_length=128, examples=["secret123"], description="Account password")
 
 
@@ -88,7 +89,8 @@ class UserResponseSchema(_BaseSchema):
     name: str | None = Field(default=None, examples=["John"])
     role: str = Field(..., examples=["owner"], description="User role: owner | co_owner | viewer | moderator")
     status: str = Field(
-        default="active", examples=["active"],
+        default="active",
+        examples=["active"],
         description="Account status: active | pending_approval | rejected | suspended",
     )
     telegram_chat_id: int | None = Field(default=None, description="Linked Telegram chat ID")
@@ -180,7 +182,8 @@ class HITLItemSchema(_BaseSchema):
 
     id: uuid.UUID
     type: str = Field(
-        ..., examples=["bid_approval"],
+        ...,
+        examples=["bid_approval"],
         description="bid_approval | code_review | delivery | revision | alert",
     )
     priority: str = Field(default="normal", examples=["urgent"], description="urgent | normal | low")
@@ -317,7 +320,8 @@ class AgentStatusListSchema(_BaseSchema):
     """Aggregated agent status report."""
 
     system_health: str = Field(
-        ..., examples=["healthy"],
+        ...,
+        examples=["healthy"],
         description="Overall system health: healthy | degraded | critical",
     )
     last_check: datetime
@@ -657,12 +661,14 @@ class CredentialTestResponseSchema(_BaseSchema):
         description="Human-readable result",
     )
     latency_ms: int | None = Field(
-        default=None, description="Response time in milliseconds",
+        default=None,
+        description="Response time in milliseconds",
     )
 
 
 class PlatformAccountCreateSchema(_BaseSchema):
     """Create a new platform account with encrypted credentials."""
+
     platform: str = Field(
         ...,
         pattern=r"^(freelancer|upwork|fl_ru|kwork)$",
@@ -680,6 +686,7 @@ class PlatformAccountCreateSchema(_BaseSchema):
 
 class PlatformAccountUpdateSchema(_BaseSchema):
     """Update an existing platform account."""
+
     username: str | None = Field(default=None, max_length=255)
     credentials: dict[str, Any] | None = Field(
         default=None,
@@ -694,6 +701,7 @@ class PlatformAccountUpdateSchema(_BaseSchema):
 
 class PlatformAccountResponseSchema(_BaseSchema):
     """Platform account with masked credentials."""
+
     id: uuid.UUID
     platform: str = Field(..., examples=["freelancer"])
     username: str | None = None
@@ -707,6 +715,7 @@ class PlatformAccountResponseSchema(_BaseSchema):
 
 class PlatformAccountListResponseSchema(_BaseSchema):
     """List of platform accounts."""
+
     accounts: list[PlatformAccountResponseSchema]
     total: int = Field(default=0, ge=0)
 
@@ -739,10 +748,12 @@ class CampaignCreateSchema(_BaseSchema):
         description="Email body template (supports {{var}} placeholders)",
     )
     target_cities: list[str] | None = Field(
-        default=None, examples=[["Berlin", "Munich"]],
+        default=None,
+        examples=[["Berlin", "Munich"]],
     )
     target_categories: list[str] | None = Field(
-        default=None, examples=[["restaurant", "cafe"]],
+        default=None,
+        examples=[["restaurant", "cafe"]],
     )
 
 
@@ -788,6 +799,7 @@ class CampaignListResponseSchema(_BaseSchema):
 
 class APIKeyStatusSchema(_BaseSchema):
     """Status of a single API key (never exposes the actual key)."""
+
     key_name: str = Field(..., examples=["gemini_api_key"])
     display_name: str = Field(..., examples=["Gemini API"])
     configured: bool = Field(default=False)
@@ -796,6 +808,7 @@ class APIKeyStatusSchema(_BaseSchema):
 
 class APIKeySaveSchema(_BaseSchema):
     """Save/update API keys. Only non-null fields are updated."""
+
     openrouter_api_key: str | None = Field(default=None, max_length=500)
     gemini_api_key: str | None = Field(default=None, max_length=500)
     anthropic_api_key: str | None = Field(default=None, max_length=500)
@@ -811,5 +824,93 @@ class APIKeySaveSchema(_BaseSchema):
 
 class CredentialsSummarySchema(_BaseSchema):
     """Overall credentials status for the settings page."""
+
     api_keys: list[APIKeyStatusSchema] = Field(default_factory=list)
     platform_accounts: list[PlatformAccountResponseSchema] = Field(default_factory=list)
+
+
+# =============================================================================
+# Deal schemas (Pipeline B → A bridge)
+# =============================================================================
+
+_DEAL_STATUSES = ("new", "negotiating", "proposal_sent", "won", "lost", "cancelled", "in_development", "completed")
+
+
+class DealCreateSchema(_BaseSchema):
+    """Request body for creating a new deal."""
+
+    title: str = Field(..., min_length=1, max_length=255, description="Deal title")
+    agreed_scope: str = Field(..., min_length=1, description="Agreed project scope (becomes Pipeline A requirements)")
+    budget: float = Field(..., ge=0, description="Agreed budget")
+    lead_id: str | None = Field(default=None, description="UUID of originating lead (optional)")
+    deadline: datetime | None = Field(default=None, description="Project deadline")
+    client_context: dict[str, Any] | None = Field(default=None, description="Client metadata from conversations")
+    design_versions: dict[str, Any] | None = Field(default=None, description="Approved design versions")
+    conversation_history: list[dict[str, Any]] | None = Field(default=None, description="Conversation history")
+
+
+class PipelineProgressSchema(_BaseSchema):
+    """Pipeline execution progress for dashboard display."""
+
+    thread_id: str | None = Field(default=None, description="Pipeline thread ID")
+    agent_sequence: list[str] = Field(default_factory=list, description="Dynamic agent sequence")
+    current_agent: str | None = Field(default=None, description="Currently executing agent")
+    current_index: int = Field(default=0, description="Current position in sequence")
+    total_agents: int = Field(default=0, description="Total agents in pipeline")
+    completed_agents: list[str] = Field(default_factory=list, description="Agents that finished")
+    status: str = Field(default="idle", description="Pipeline status: idle|running|paused|completed|failed")
+    started_at: str | None = Field(default=None, description="ISO timestamp of pipeline start")
+    updated_at: str | None = Field(default=None, description="ISO timestamp of last update")
+
+
+# Default scout categories
+_SCOUT_AUTO_CATEGORIES = ["landings", "bots", "api_backend", "design", "content", "small_fixes"]
+_SCOUT_SUGGEST_CATEGORIES = ["mobile_apps", "ml_ai", "devops", "consulting", "ecommerce", "system_integration"]
+
+
+class ScoutConfigSchema(_BaseSchema):
+    """Scout agent category configuration and custom rules."""
+
+    categories_auto: list[str] = Field(
+        default_factory=lambda: list(_SCOUT_AUTO_CATEGORIES),
+        description="Categories the Scout agent takes automatically",
+    )
+    categories_suggest: list[str] = Field(
+        default_factory=lambda: list(_SCOUT_SUGGEST_CATEGORIES),
+        description="Categories routed to HITL for human review",
+    )
+    custom_rules: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description="Free-text custom rules for Scout LLM (max 50)",
+    )
+
+    @field_validator("custom_rules")
+    @classmethod
+    def _validate_rule_length(cls, v: list[str]) -> list[str]:
+        for rule in v:
+            if len(rule) > 500:
+                msg = f"Custom rule exceeds 500 characters: {len(rule)}"
+                raise ValueError(msg)
+        return v
+
+    @model_validator(mode="after")
+    def _validate_no_overlap(self) -> ScoutConfigSchema:
+        overlap = set(self.categories_auto) & set(self.categories_suggest)
+        if overlap:
+            msg = f"Categories cannot be in both auto and suggest: {overlap}"
+            raise ValueError(msg)
+        return self
+
+
+class DealUpdateSchema(_BaseSchema):
+    """Request body for updating an existing deal (all fields optional)."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    status: str | None = Field(default=None, pattern=r"^(new|negotiating|proposal_sent|won|lost|cancelled)$")
+    agreed_scope: str | None = Field(default=None)
+    budget: float | None = Field(default=None, ge=0)
+    deadline: datetime | None = Field(default=None)
+    client_context: dict[str, Any] | None = Field(default=None)
+    design_versions: dict[str, Any] | None = Field(default=None)
+    conversation_history: list[dict[str, Any]] | None = Field(default=None)

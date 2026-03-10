@@ -2,6 +2,7 @@
 
 All LLM calls and database operations are mocked.
 """
+
 from __future__ import annotations
 
 import json
@@ -32,7 +33,9 @@ def _build_state(**overrides: Any) -> AgentState:
         "deadline": datetime(2026, 3, 15, tzinfo=UTC),
     }
     state = create_initial_state(
-        project=project, first_agent="planner", thread_id="thread-planner-test",
+        project=project,
+        first_agent="planner",
+        thread_id="thread-planner-test",
     )
     state.update(overrides)  # type: ignore[typeddict-item]
     return state
@@ -113,10 +116,12 @@ async def test_planner_generates_plan_routes_to_dev(
 ):
     """LLM returns valid plan JSON -> next_agent='dev', artifacts['planner'] exists."""
     plan_json = _make_plan_json()
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=plan_json),
-        CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=plan_json),
+            CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
+        )
+    )
 
     agent = PlannerAgent(
         llm_client=mock_llm_client,
@@ -129,7 +134,8 @@ async def test_planner_generates_plan_routes_to_dev(
     with patch.object(agent, "_log_planning_action", new_callable=AsyncMock):
         result = await agent._execute(state)
 
-    assert result["next_agent"] == "dev"
+    assert result["agent_sequence"] == ["dev", "content"]  # extracted from plan tasks
+    assert result["current_sequence_index"] == 0
     assert "planner" in result["artifacts"]
     assert len(result["artifacts"]["planner"]) == 1
 
@@ -167,7 +173,8 @@ async def test_planner_empty_requirements_handles_gracefully(
     with patch.object(agent, "_log_planning_action", new_callable=AsyncMock):
         result = await agent._execute(state)
 
-    assert result["next_agent"] == "dev"
+    assert result["agent_sequence"] == ["dev"]  # fallback plan has only dev task
+    assert result["current_sequence_index"] == 0
     assert "planner" in result["artifacts"]
     assert len(result["artifacts"]["planner"]) == 1
 
@@ -214,27 +221,29 @@ def test_planner_parse_response_valid_json(
         loop_detector=mock_loop_detector,
     )
 
-    valid_json = json.dumps({
-        "project_id": "proj-001",
-        "phases": [
-            {
-                "name": "Phase 1",
-                "tasks": [
-                    {
-                        "id": "task_1",
-                        "description": "Setup project",
-                        "assigned_to": "dev",
-                        "estimated_hours": 2.0,
-                        "dependencies": [],
-                        "deliverables": ["repo"],
-                    },
-                ],
-            },
-        ],
-        "total_estimated_hours": 2.0,
-        "critical_path": ["task_1"],
-        "risks": ["None identified"],
-    })
+    valid_json = json.dumps(
+        {
+            "project_id": "proj-001",
+            "phases": [
+                {
+                    "name": "Phase 1",
+                    "tasks": [
+                        {
+                            "id": "task_1",
+                            "description": "Setup project",
+                            "assigned_to": "dev",
+                            "estimated_hours": 2.0,
+                            "dependencies": [],
+                            "deliverables": ["repo"],
+                        },
+                    ],
+                },
+            ],
+            "total_estimated_hours": 2.0,
+            "critical_path": ["task_1"],
+            "risks": ["None identified"],
+        }
+    )
 
     result = agent._parse_plan_response(valid_json)
 
@@ -275,13 +284,15 @@ def test_planner_parse_response_code_fenced_json(
         loop_detector=mock_loop_detector,
     )
 
-    inner = json.dumps({
-        "project_id": "proj-fenced",
-        "phases": [],
-        "total_estimated_hours": 0,
-        "critical_path": [],
-        "risks": [],
-    })
+    inner = json.dumps(
+        {
+            "project_id": "proj-fenced",
+            "phases": [],
+            "total_estimated_hours": 0,
+            "critical_path": [],
+            "risks": [],
+        }
+    )
     fenced = f"```json\n{inner}\n```"
 
     result = agent._parse_plan_response(fenced)
@@ -317,10 +328,12 @@ async def test_planner_llm_failure_returns_error(
     mock_loop_detector: Any,
 ):
     """When LLM returns garbage, the planner should add an error and not crash."""
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content="Sorry, I cannot help with that."),
-        CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content="Sorry, I cannot help with that."),
+            CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
+        )
+    )
 
     agent = PlannerAgent(
         llm_client=mock_llm_client,
@@ -363,10 +376,12 @@ async def test_planner_determines_content_as_first_agent(
         "risks": [],
     }
 
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=json.dumps(plan)),
-        CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=json.dumps(plan)),
+            CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
+        )
+    )
 
     agent = PlannerAgent(
         llm_client=mock_llm_client,
@@ -379,7 +394,7 @@ async def test_planner_determines_content_as_first_agent(
     with patch.object(agent, "_log_planning_action", new_callable=AsyncMock):
         result = await agent._execute(state)
 
-    assert result["next_agent"] == "content"
+    assert result["agent_sequence"] == ["content"]  # content-first project
 
 
 # ---------------------------------------------------------------------------
@@ -395,10 +410,12 @@ async def test_planner_complex_plan_triggers_hitl(
     """Plans exceeding the hours threshold should require HITL review."""
     # Create a plan with hours above the threshold.
     plan_json = _make_plan_json(total_hours=_HITL_PLAN_REVIEW_HOURS_THRESHOLD + 5.0)
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=plan_json),
-        CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=plan_json),
+            CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
+        )
+    )
 
     agent = PlannerAgent(
         llm_client=mock_llm_client,
@@ -413,8 +430,8 @@ async def test_planner_complex_plan_triggers_hitl(
     assert result["requires_hitl"] is True
     assert result["status"] == "paused"
     assert result["hitl_request_id"] is not None
-    # The next_agent should still be set for after HITL approval.
-    assert result["next_agent"] == "dev"
+    # agent_sequence should be set for after HITL approval.
+    assert result["agent_sequence"] == ["dev", "content"]  # from plan tasks
 
 
 async def test_planner_major_revision_triggers_hitl(
@@ -424,10 +441,12 @@ async def test_planner_major_revision_triggers_hitl(
 ):
     """Re-plans triggered by Critic major revision should require HITL review."""
     plan_json = _make_plan_json(total_hours=5.0)  # Below threshold.
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=plan_json),
-        CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=plan_json),
+            CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
+        )
+    )
 
     agent = PlannerAgent(
         llm_client=mock_llm_client,
@@ -452,10 +471,12 @@ async def test_planner_simple_plan_no_hitl(
 ):
     """Simple plans (below threshold, no major revision) should NOT trigger HITL."""
     plan_json = _make_plan_json(total_hours=8.0)  # Well below threshold.
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=plan_json),
-        CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=plan_json),
+            CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
+        )
+    )
 
     agent = PlannerAgent(
         llm_client=mock_llm_client,
@@ -469,7 +490,8 @@ async def test_planner_simple_plan_no_hitl(
 
     assert result["requires_hitl"] is False
     assert result["status"] == "active"
-    assert result["next_agent"] == "dev"
+    assert result["agent_sequence"] == ["dev", "content"]  # from plan tasks
+    assert result["current_sequence_index"] == 0
 
 
 async def test_planner_minor_revision_no_hitl(
@@ -479,10 +501,12 @@ async def test_planner_minor_revision_no_hitl(
 ):
     """Minor revisions from Critic should NOT trigger plan review HITL."""
     plan_json = _make_plan_json(total_hours=5.0)
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=plan_json),
-        CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=plan_json),
+            CallMetrics(agent_name="planner", model_id="claude-opus-4-6", provider="anthropic"),
+        )
+    )
 
     agent = PlannerAgent(
         llm_client=mock_llm_client,
@@ -497,4 +521,5 @@ async def test_planner_minor_revision_no_hitl(
 
     assert result["requires_hitl"] is False
     assert result["status"] == "active"
-    assert result["next_agent"] == "dev"
+    assert result["agent_sequence"] == ["dev", "content"]  # from plan tasks
+    assert result["current_sequence_index"] == 0

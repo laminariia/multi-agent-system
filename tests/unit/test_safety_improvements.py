@@ -364,7 +364,7 @@ class _SlowAgent(ConstrainedAgent):
 
 @pytest.mark.asyncio
 async def test_agent_timeout_returns_failed():
-    """Agent should return failed status when _execute exceeds timeout."""
+    """Non-recoverable agent should return failed status when _execute exceeds timeout."""
     mock_llm = MagicMock(spec=["call"])
     mock_heartbeat = MagicMock()
     mock_heartbeat.ping = AsyncMock()
@@ -373,7 +373,7 @@ async def test_agent_timeout_returns_failed():
 
     agent = _SlowAgent(
         sleep_time=2.0,  # Will sleep 2 seconds
-        agent_name="dev",
+        agent_name="scout",
         allowed_tools=[],
         llm_client=mock_llm,
         heartbeat=mock_heartbeat,

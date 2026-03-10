@@ -33,6 +33,8 @@ import type {
   CreateCampaignPayload,
   TelegramChannel,
   TelegramChannelListResponse,
+  PipelineProgress,
+  ScoutConfig,
 } from "./types";
 
 declare global {
@@ -565,6 +567,17 @@ export async function saveAPIKeys(keys: Record<string, string>): Promise<{ api_k
   });
 }
 
+export async function fetchScoutConfig(): Promise<ScoutConfig> {
+  return apiFetch<ScoutConfig>("/settings/scout-config");
+}
+
+export async function saveScoutConfig(config: ScoutConfig): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>("/settings/scout-config", {
+    method: "PUT",
+    body: JSON.stringify(config),
+  });
+}
+
 export async function testCredential(keyName: string): Promise<CredentialTestResult> {
   return apiFetch<CredentialTestResult>("/settings/test-credential", {
     method: "POST",
@@ -673,4 +686,10 @@ export async function deleteTelegramChannel(id: number): Promise<{ status: strin
   return apiFetch<{ status: string; id: number }>(`/telegram-channels/${id}`, {
     method: "DELETE",
   });
+}
+
+// --- Pipeline Progress ---
+
+export async function fetchPipelineProgress(jobId: string): Promise<PipelineProgress> {
+  return apiFetch<PipelineProgress>(`/jobs/${jobId}/pipeline-progress`);
 }

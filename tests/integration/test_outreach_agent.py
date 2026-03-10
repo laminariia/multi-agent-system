@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import AIMessage
 
+from src.core.exceptions import LLMException, MASException
 from src.core.models import EmailCampaign, Lead
 from src.core.state import AgentState, ProjectContext, create_initial_state
 from src.enrichment.osint import EnrichmentResult
@@ -70,6 +71,7 @@ def _make_mock_leads(count: int, with_email: bool = False) -> list[MagicMock]:
         lead.phone = f"+4930{i:07d}" if i % 3 == 0 else None
         lead.osm_id = 100000 + i
         lead.status = "new"
+        lead.telegram_username = None
         leads.append(lead)
     return leads
 
@@ -200,7 +202,7 @@ async def test_outreach_generates_email_via_llm():
     mock_response = AIMessage(content='{"subject": "Custom Subject", "body": "Custom Body"}')
     agent._call_llm = AsyncMock(return_value=(mock_response, MagicMock()))
 
-    subject, body = await agent._draft_email_for_lead(lead)
+    subject, body = await agent._draft_message_for_lead(lead, "email")
 
     assert subject == "Custom Subject"
     assert body == "Custom Body"
@@ -220,9 +222,9 @@ async def test_outreach_fallback_template_on_llm_failure():
     )
 
     # LLM raises an error
-    agent._call_llm = AsyncMock(side_effect=Exception("LLM timeout"))
+    agent._call_llm = AsyncMock(side_effect=LLMException("LLM timeout"))
 
-    subject, body = await agent._draft_email_for_lead(lead)
+    subject, body = await agent._draft_message_for_lead(lead, "email")
 
     assert "Test Cafe" in subject
     assert "Test Cafe" in body
@@ -245,7 +247,7 @@ async def test_outreach_fallback_template_on_empty_body():
     mock_response = AIMessage(content='{"subject": "Hi", "body": ""}')
     agent._call_llm = AsyncMock(return_value=(mock_response, MagicMock()))
 
-    subject, body = await agent._draft_email_for_lead(lead)
+    subject, body = await agent._draft_message_for_lead(lead, "email")
 
     assert "Empty Body Biz" in subject
     assert len(body) > 0  # Fallback provides non-empty body
@@ -417,7 +419,7 @@ async def test_outreach_enrichment_error_handled():
 
     waterfall = AsyncMock()
     waterfall.total_cost = Decimal("0")
-    waterfall.enrich = AsyncMock(side_effect=RuntimeError("Hunter API down"))
+    waterfall.enrich = AsyncMock(side_effect=MASException("Hunter API down"))
 
     with patch("src.agents.outreach.get_db_session", return_value=_mock_db_session()[0]):
         from src.agents.outreach import OutreachAgent

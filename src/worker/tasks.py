@@ -3,15 +3,24 @@
 Each task function receives a payload dict and executes the corresponding
 pipeline step.
 """
+
 from __future__ import annotations
 
+import asyncio
+import os
 from typing import Any
 
+import asyncpg
 import structlog
 
+from src.core.config import get_settings
+from src.core.database import get_db_session, get_valkey
+from src.core.graph import create_graph_with_persistence
 from src.core.state import ProjectContext, create_initial_state
 
 logger = structlog.get_logger(__name__)
+
+_PIPELINE_TIMEOUT_SECONDS = int(os.environ.get("PIPELINE_TIMEOUT_SECONDS", "1800"))
 
 
 async def run_scout_cycle(payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -19,7 +28,7 @@ async def run_scout_cycle(payload: dict[str, Any] | None = None) -> dict[str, An
 
     Returns a summary dict with job IDs found.
     """
-    from src.agents.scout import scout_node
+    from src.agents.scout import scout_node  # noqa: PLC0415
 
     user_id = payload.get("user_id") if payload else None
     state = create_initial_state(
@@ -58,12 +67,6 @@ async def run_project_pipeline(payload: dict[str, Any]) -> dict[str, Any]:
 
     Expects payload with: project_id, job_id, platform, requirements, budget.
     """
-    import asyncpg  # noqa: PLC0415
-
-    from src.core.config import get_settings  # noqa: PLC0415
-    from src.core.database import get_valkey  # noqa: PLC0415
-    from src.core.graph import create_graph_with_persistence  # noqa: PLC0415
-
     project = ProjectContext(
         project_id=payload["project_id"],
         job_id=payload.get("job_id", ""),
@@ -88,10 +91,54 @@ async def run_project_pipeline(payload: dict[str, Any]) -> dict[str, Any]:
 
     try:
         graph = create_graph_with_persistence(
-            valkey=valkey, db_pool=db_pool, planner_pipeline=True,
+            valkey=valkey,
+            db_pool=db_pool,
+            planner_pipeline=True,
         )
         config = {"configurable": {"thread_id": thread_id}}
-        result = await graph.ainvoke(state, config=config)
+
+        try:
+            result = await asyncio.wait_for(
+                graph.ainvoke(state, config=config),
+                timeout=_PIPELINE_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.error(
+                "pipeline_timeout",
+                project_id=project["project_id"],
+                thread_id=thread_id,
+                timeout_seconds=_PIPELINE_TIMEOUT_SECONDS,
+            )
+            # Create HITL alert for pipeline timeout (P3.14)
+            try:
+                import uuid as _uuid  # noqa: PLC0415
+
+                from src.core.models import HITLQueue  # noqa: PLC0415
+
+                async with get_db_session() as session:
+                    hitl = HITLQueue(
+                        id=_uuid.uuid4(),
+                        type="pipeline_timeout",
+                        priority="urgent",
+                        title=f"Pipeline timed out for project {project['project_id']}",
+                        payload={
+                            "project_id": project["project_id"],
+                            "thread_id": thread_id,
+                            "timeout_seconds": _PIPELINE_TIMEOUT_SECONDS,
+                        },
+                        available_actions=["retry", "cancel"],
+                        status="pending",
+                    )
+                    session.add(hitl)
+            except Exception:  # noqa: BLE001
+                logger.exception("pipeline_timeout_hitl_creation_failed")
+
+            return {
+                "task": "project_pipeline",
+                "project_id": project["project_id"],
+                "thread_id": thread_id,
+                "status": "timeout",
+            }
     finally:
         await db_pool.close()
 
@@ -103,6 +150,9 @@ async def run_project_pipeline(payload: dict[str, Any]) -> dict[str, Any]:
         status=final_status,
     )
 
+    # P3.13: Record decision pattern for terminal pipeline states.
+    await _record_decision_pattern(result)
+
     return {
         "task": "project_pipeline",
         "project_id": project["project_id"],
@@ -111,12 +161,40 @@ async def run_project_pipeline(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _record_decision_pattern(result: dict[str, Any]) -> None:
+    """Record a decision pattern from a completed pipeline (P3.13).
+
+    Best-effort: errors are logged and swallowed so they never
+    affect the pipeline result returned to the caller.
+    """
+    try:
+        from src.core.container import get_container  # noqa: PLC0415
+        from src.core.decision_memory import extract_pattern_from_state  # noqa: PLC0415
+
+        dm = get_container().decision_memory
+        if dm is None:
+            return
+
+        pattern = extract_pattern_from_state(result)
+        if pattern is None:
+            return  # Non-terminal status — nothing to record.
+
+        await dm.record_outcome(pattern)
+        logger.info(
+            "decision_pattern_recorded",
+            project_type=pattern.project_type,
+            outcome=pattern.outcome,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("decision_pattern_recording_failed", exc_info=True)
+
+
 async def run_bid_generation(payload: dict[str, Any]) -> dict[str, Any]:
     """Generate bids for a list of qualified job IDs.
 
     Expects payload with: job_ids (list of UUID strings).
     """
-    from src.agents.bid import bid_node
+    from src.agents.bid import bid_node  # noqa: PLC0415
 
     state = create_initial_state(
         project=ProjectContext(

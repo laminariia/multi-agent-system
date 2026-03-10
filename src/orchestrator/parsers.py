@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,7 @@ from typing import Any
 # Paths
 # ---------------------------------------------------------------------------
 
-_HOME = Path(os.environ.get("USERPROFILE", os.path.expanduser("~")))
+_HOME = Path.home()
 
 ORCH_DIR = _HOME / ".claude" / "orchestrator"
 LOG_DIR = _HOME / ".claude" / "logs"
@@ -28,7 +29,8 @@ SCRIPTS_DIR = _HOME / ".claude" / "scripts"
 HEALTH_REPORT_FILE = ORCH_DIR / "health-report.yaml"
 VISION_FILE = ORCH_DIR / "vision.md"
 PID_FILE = ORCH_DIR / "runner.pid"
-RUNNER_SCRIPT = SCRIPTS_DIR / "orchestrator-runner.ps1"
+_RUNNER_EXT = ".ps1" if sys.platform == "win32" else ".sh"
+RUNNER_SCRIPT = SCRIPTS_DIR / f"orchestrator-runner{_RUNNER_EXT}"
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +67,17 @@ def is_runner_alive() -> tuple[bool, int | None]:
         # Fallback: try os.kill with signal 0 (Unix)
         try:
             os.kill(pid, 0)
+            # os.kill(0) succeeds for zombie (defunct) processes too —
+            # check via `ps` to filter them out.
+            import subprocess as _sp
+
+            stat = _sp.run(
+                ["ps", "-p", str(pid), "-o", "stat="],
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            if stat.startswith("Z"):  # zombie
+                return False, pid
             return True, pid
         except (OSError, ProcessLookupError):
             return False, pid
@@ -190,9 +203,7 @@ def parse_vision_md(path: Path | None = None) -> list[dict[str, Any]]:
             }
 
         # Milestones: - [x] or - [ ]
-        elif current_phase is not None and (
-            m := re.match(r"^-\s+\[([ xX])\]\s+(.+)$", line)
-        ):
+        elif current_phase is not None and (m := re.match(r"^-\s+\[([ xX])\]\s+(.+)$", line)):
             done = m.group(1).lower() == "x"
             current_phase["milestones"].append({"text": m.group(2).strip(), "done": done})
 
@@ -200,5 +211,3 @@ def parse_vision_md(path: Path | None = None) -> list[dict[str, Any]]:
         phases.append(current_phase)
 
     return phases
-
-

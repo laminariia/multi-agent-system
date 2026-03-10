@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Device Mockup</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 40px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  /* MacBook frame */
+  .macbook {
+    position: relative;
+    max-width: 960px;
+    width: 100%;
+  }
+  .macbook-screen {
+    background: #1a1a1a;
+    border-radius: 12px 12px 0 0;
+    padding: 24px 24px 0;
+    position: relative;
+  }
+  .macbook-screen::before {
+    content: '';
+    display: block;
+    width: 8px;
+    height: 8px;
+    background: #333;
+    border-radius: 50%;
+    margin: 0 auto 12px;
+  }
+  .macbook-screen img {
+    width: 100%;
+    display: block;
+    border-radius: 2px;
+  }
+  .macbook-bottom {
+    background: #c4c4c4;
+    height: 18px;
+    border-radius: 0 0 2px 2px;
+    position: relative;
+  }
+  .macbook-bottom::before {
+    content: '';
+    display: block;
+    width: 120px;
+    height: 6px;
+    background: #b0b0b0;
+    border-radius: 0 0 4px 4px;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    top: 0;
+  }
+  .macbook-base {
+    background: #d4d4d4;
+    height: 8px;
+    border-radius: 0 0 8px 8px;
+    margin: 0 -20px;
+  }
+
+  /* iPhone frame */
+  .iphone {
+    position: absolute;
+    right: -60px;
+    bottom: 40px;
+    width: 200px;
+    filter: drop-shadow(0 20px 40px rgba(0,0,0,0.3));
+  }
+  .iphone-frame {
+    background: #1a1a1a;
+    border-radius: 28px;
+    padding: 12px 8px;
+    position: relative;
+  }
+  .iphone-frame::before {
+    content: '';
+    display: block;
+    width: 80px;
+    height: 4px;
+    background: #333;
+    border-radius: 2px;
+    margin: 0 auto 8px;
+  }
+  .iphone-frame img {
+    width: 100%;
+    display: block;
+    border-radius: 4px;
+  }
+
+  /* Shadow under MacBook */
+  .macbook {
+    filter: drop-shadow(0 30px 60px rgba(0,0,0,0.25));
+  }
+</style>
+</head>
+<body>
+  <div class="macbook">
+    <div class="macbook-screen">
+      <img src="{{DESKTOP_SCREENSHOT}}" alt="Desktop view">
+    </div>
+    <div class="macbook-bottom"></div>
+    <div class="macbook-base"></div>
+
+    <div class="iphone">
+      <div class="iphone-frame">
+        <img src="{{MOBILE_SCREENSHOT}}" alt="Mobile view">
+      </div>
+    </div>
+  </div>
+</body>
+</html>

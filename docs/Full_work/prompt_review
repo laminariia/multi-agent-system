@@ -1,0 +1,39 @@
+Act as: Principal System Architect & Staff Technical Writer
+
+Контекст:
+Мы провели масштабный Gap-анализ нашей MAS-документации и выявили 14 CRITICAL и ряд HIGH пробелов. Моя цель сейчас — полностью переписать/дописать Markdown-спецификации, чтобы они стали на 100% готовы к передаче разработчикам (Single Source of Truth).
+
+Правила написания спецификаций (Golden Rules):
+
+NO PLACEHOLDERS: Никаких // ... add logic here. Если описываешь State Machine — дай все состояния и переходы. Если описываешь БД — дай SQL/Prisma/Pydantic схему. Если API — дай JSON payload.
+
+Technical Depth: Для каждого компонента указывай обработку ошибок (edge cases), таймауты, структуру данных (TypedDict/Pydantic) и механизмы retry/recovery.
+
+Consistency: Следи за тем, чтобы новые спеки не ломали старые (например, если меняем AgentState, то он должен работать и для старых нодов).
+
+План работ (Iterative Execution):
+Поскольку объем текста огромен, мы будем закрывать пробелы строго по итерациям. Не пытайся написать всё сразу!
+
+Iteration 1: Core Graph & Routing (Закрываем Gaps 1, 4, 5).
+Написание идеального dev-cycle-spec.md и обновление структуры AgentState в agents-spec.md. Включает динамический роутинг (agent_sequence), новые поля стейта и встраивание HITL #2 (dev_launch).
+
+Iteration 2: Negotiation Engine & Platform Comms (Закрываем Gaps 2, 3, 11).
+Создание с нуля negotiation-spec.md (State machine переговоров, DB таблицы client_messages и negotiations, структура WebSocket чата для оператора).
+
+Iteration 3: Pipeline B Expansion (Закрываем Gaps 7, 8, 12, 13).
+Создание sales-agent-spec.md, описание Business Analyzer, формул Lead Scorer и Touch Sequence Manager (стейт-машина фоллоу-апов).
+
+Iteration 4: Infrastructure & Resilience (Закрываем Gaps 6, 9, 10, 14).
+Полный каталог WebSocket events, механизмы Concurrency control (Locking), Crash recovery (LangGraph checkpoint resume) и спецификация Capability Report для Scout Agent.
+
+Твоя текущая задача — выполнить ТОЛЬКО Iteration 1.
+
+Выдай мне готовые куски Markdown-кода для:
+
+Обновленной структуры AgentState (на Python/TypedDict) со всеми необходимыми полями для роутинга (agent_sequence, delivery_type, current_sequence_index и т.д.).
+
+Спецификации динамического роутера (как именно граф решает, куда идти дальше, вместо хардкода).
+
+Спецификации HITL #2 "Запустить разработку?" (Где он стоит в графе, какой у него payload, как оператор его аппрувит).
+
+В конце ответа спроси: "Iteration 1 завершена. Готов ли ты двигаться к Iteration 2 (Negotiation Engine)?". Жду тексты спеков.

@@ -16,8 +16,31 @@ from langchain_core.messages import BaseMessage
 # Sub-schemas
 # ---------------------------------------------------------------------------
 
-Platform = Literal["freelancer", "upwork", "flru", "kwork"]
+Platform = Literal["freelancer", "upwork", "flru", "kwork", "internal", "outreach"]
 Status = Literal["active", "paused", "completed", "failed"]
+
+# Valid delivery types for project packaging.
+VALID_DELIVERY_TYPES: frozenset[str] = frozenset(
+    {
+        "files",  # Code, design, content -> archive (ZIP / GitHub repo)
+        "credentials",  # Configured service + access credentials + instructions
+        "deploy",  # Deployed to hosting -> URL + settings
+        "instructions",  # Documentation + guides (consulting/audit)
+        "mixed",  # Combination of files + credentials + deploy + instructions
+    }
+)
+
+
+def validate_delivery_type(value: str) -> str:
+    """Return validated delivery_type or ``'files'`` as fallback.
+
+    Args:
+        value: The delivery_type string to validate.
+
+    Returns:
+        The same string if it is a valid delivery type, otherwise ``'files'``.
+    """
+    return value if value in VALID_DELIVERY_TYPES else "files"
 
 
 class ProjectContext(TypedDict):
@@ -35,6 +58,7 @@ class ProjectContext(TypedDict):
 # ---------------------------------------------------------------------------
 # Core state
 # ---------------------------------------------------------------------------
+
 
 class AgentState(TypedDict):
     """Full execution state for a multi-agent workflow instance.
@@ -65,6 +89,25 @@ class AgentState(TypedDict):
     requires_hitl: bool
     hitl_request_id: str | None
 
+    # Dynamic routing (Dev Cycle)
+    agent_sequence: list[str]
+    current_sequence_index: int
+    delivery_type: str
+    revision_target: str | None
+    revision_severity: str | None
+
+    # Execution cloaking (Time-Value Arbitrage)
+    real_hours: float | None
+    proposed_days: int | None
+    min_delivery_at: datetime | None
+    scheduled_messages: list[dict[str, Any]]
+
+    # Partial failure recovery
+    failed_agent: str | None
+    failure_reason: str | None
+    recovery_attempted: int
+    skipped_agents: list[str]
+
     # Error handling
     retry_count: int
     errors: list[str]
@@ -78,6 +121,7 @@ class AgentState(TypedDict):
 # ---------------------------------------------------------------------------
 # Factory helpers
 # ---------------------------------------------------------------------------
+
 
 def create_initial_state(
     *,
@@ -111,6 +155,19 @@ def create_initial_state(
         "next_agent": None,
         "requires_hitl": False,
         "hitl_request_id": None,
+        "agent_sequence": [],
+        "current_sequence_index": 0,
+        "delivery_type": "files",
+        "revision_target": None,
+        "revision_severity": None,
+        "real_hours": None,
+        "proposed_days": None,
+        "min_delivery_at": None,
+        "scheduled_messages": [],
+        "failed_agent": None,
+        "failure_reason": None,
+        "recovery_attempted": 0,
+        "skipped_agents": [],
         "retry_count": 0,
         "errors": [],
         "created_at": now,
@@ -196,4 +253,21 @@ def mark_failed(state: AgentState, reason: str) -> AgentState:
         status="failed",
         next_agent=None,
         errors=[*state["errors"], reason],
+    )
+
+
+def clear_failure(state: AgentState) -> AgentState:
+    """Reset failure-related fields after HITL recovery decision.
+
+    Clears ``failed_agent``, ``failure_reason``, sets ``status`` back to
+    ``"active"`` and ``requires_hitl`` to ``False``.  Does NOT reset
+    ``recovery_attempted`` or ``skipped_agents`` — those accumulate.
+    """
+    return update_state(
+        state,
+        failed_agent=None,
+        failure_reason=None,
+        status="active",
+        requires_hitl=False,
+        hitl_request_id=None,
     )

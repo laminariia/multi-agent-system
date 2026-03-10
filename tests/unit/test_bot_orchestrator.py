@@ -337,6 +337,8 @@ class TestRunCommand:
 
     @pytest.mark.anyio()
     async def test_successful_start(self, tmp_path: Path) -> None:
+        import subprocess as _sp
+
         update = _make_update()
         ctx = _make_context()
 
@@ -348,22 +350,36 @@ class TestRunCommand:
         mock_proc = MagicMock()
         mock_proc.pid = 9999
 
-        with (
-            patch(f"{BOT_MOD}._is_runner_alive", return_value=(False, None)),
-            patch(f"{BOT_MOD}.RUNNER_SCRIPT", script),
-            patch(f"{BOT_MOD}.PID_FILE", pid_file),
-            patch(f"{BOT_MOD}.ORCH_DIR", orch_dir),
-            patch(f"{BOT_MOD}._get_goal_counts", new_callable=AsyncMock, return_value=(1, 1, 0)),
-            patch("subprocess.Popen", return_value=mock_proc),
-        ):
-            await run_command(update, ctx)
+        # Ensure Windows-only constants exist on non-Windows platforms.
+        _cnw = getattr(_sp, "CREATE_NO_WINDOW", None)
+        _cnpg = getattr(_sp, "CREATE_NEW_PROCESS_GROUP", None)
+        if _cnw is None:
+            _sp.CREATE_NO_WINDOW = 0x08000000
+        if _cnpg is None:
+            _sp.CREATE_NEW_PROCESS_GROUP = 0x00000200
 
-        reply = update.effective_message.reply_text
-        reply.assert_awaited_once()
-        text = reply.call_args[0][0]
-        assert "запущен" in text
-        assert "agent-driven" in text
-        assert "1 целей" in text
+        try:
+            with (
+                patch(f"{BOT_MOD}._is_runner_alive", return_value=(False, None)),
+                patch(f"{BOT_MOD}.RUNNER_SCRIPT", script),
+                patch(f"{BOT_MOD}.PID_FILE", pid_file),
+                patch(f"{BOT_MOD}.ORCH_DIR", orch_dir),
+                patch(f"{BOT_MOD}._get_goal_counts", new_callable=AsyncMock, return_value=(1, 1, 0)),
+                patch("subprocess.Popen", return_value=mock_proc),
+            ):
+                await run_command(update, ctx)
+
+            reply = update.effective_message.reply_text
+            reply.assert_awaited_once()
+            text = reply.call_args[0][0]
+            assert "запущен" in text
+            assert "agent-driven" in text
+            assert "1 целей" in text
+        finally:
+            if _cnw is None:
+                del _sp.CREATE_NO_WINDOW
+            if _cnpg is None:
+                del _sp.CREATE_NEW_PROCESS_GROUP
 
 
 class TestStopCommand:

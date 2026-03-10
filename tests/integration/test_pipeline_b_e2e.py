@@ -260,10 +260,10 @@ async def test_e2e_no_enriched_leads_completes_without_hitl():
     assert result["artifacts"]["_outreach_results"]["emails_drafted"] == 0
 
 
-async def test_e2e_email_sending_after_hitl_approval():
-    """E2E: After HITL approval, email_sending_node runs and completes."""
+async def test_e2e_message_dispatch_after_hitl_approval():
+    """E2E: After HITL approval, message_dispatch_node runs and completes."""
 
-    async def _hitl_email_approves(state: dict[str, Any]) -> dict[str, Any]:
+    async def _hitl_outreach_approves(state: dict[str, Any]) -> dict[str, Any]:
         """Simulate HITL approval -- set emails_approved."""
         artifacts = dict(state.get("artifacts") or {})
         artifacts["emails_approved"] = True
@@ -272,25 +272,25 @@ async def test_e2e_email_sending_after_hitl_approval():
             "artifacts": artifacts,
             "requires_hitl": False,
             "status": "active",
-            "current_agent": "hitl_email",
+            "current_agent": "hitl_outreach",
         }
 
-    async def _email_sending_succeeds(state: dict[str, Any]) -> dict[str, Any]:
-        """Simulate successful email sending."""
+    async def _message_dispatch_succeeds(state: dict[str, Any]) -> dict[str, Any]:
+        """Simulate successful message dispatch."""
         artifacts = dict(state.get("artifacts") or {})
         artifacts["email_send_result"] = {"sent": 15, "failed": 0, "rate_limited": 0}
         return {
             **state,
             "artifacts": artifacts,
-            "current_agent": "email_sending",
+            "current_agent": "message_dispatch",
             "next_agent": None,
             "status": "completed",
         }
 
     with patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_with_leads), \
          patch("src.core.graph.outreach_node", side_effect=_outreach_enriches_and_drafts), \
-         patch("src.core.graph.hitl_email_node", side_effect=_hitl_email_approves), \
-         patch("src.core.graph.email_sending_node", side_effect=_email_sending_succeeds):
+         patch("src.core.graph.hitl_outreach_node", side_effect=_hitl_outreach_approves), \
+         patch("src.core.graph.message_dispatch_node", side_effect=_message_dispatch_succeeds):
         from src.core.graph import build_pipeline_b_graph
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_pipeline_b_state())
