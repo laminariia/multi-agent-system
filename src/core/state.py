@@ -36,6 +36,7 @@ class ProjectContext(TypedDict):
 # Core state
 # ---------------------------------------------------------------------------
 
+
 class AgentState(TypedDict):
     """Full execution state for a multi-agent workflow instance.
 
@@ -65,6 +66,13 @@ class AgentState(TypedDict):
     requires_hitl: bool
     hitl_request_id: str | None
 
+    # Dynamic routing (Dev Cycle)
+    agent_sequence: list[str]
+    current_sequence_index: int
+    delivery_type: str
+    revision_target: str | None
+    revision_severity: str | None
+
     # Error handling
     retry_count: int
     errors: list[str]
@@ -78,6 +86,7 @@ class AgentState(TypedDict):
 # ---------------------------------------------------------------------------
 # Factory helpers
 # ---------------------------------------------------------------------------
+
 
 def create_initial_state(
     *,
@@ -111,6 +120,11 @@ def create_initial_state(
         "next_agent": None,
         "requires_hitl": False,
         "hitl_request_id": None,
+        "agent_sequence": [],
+        "current_sequence_index": 0,
+        "delivery_type": "files",
+        "revision_target": None,
+        "revision_severity": None,
         "retry_count": 0,
         "errors": [],
         "created_at": now,

@@ -55,13 +55,15 @@ def _make_code_response(
                 "language": "css",
             },
         ]
-    return json.dumps({
-        "files": files,
-        "dependencies": dependencies or ["react", "tailwindcss"],
-        "build_commands": ["npm install", "npm run build"],
-        "test_commands": ["npm test"],
-        "deployment_notes": "Deploy to Vercel with `vercel --prod`.",
-    })
+    return json.dumps(
+        {
+            "files": files,
+            "dependencies": dependencies or ["react", "tailwindcss"],
+            "build_commands": ["npm install", "npm run build"],
+            "test_commands": ["npm test"],
+            "deployment_notes": "Deploy to Vercel with `vercel --prod`.",
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -76,10 +78,12 @@ async def test_dev_generates_code_routes_to_content(
 ):
     """When LLM returns valid code JSON, next_agent should be 'content' and artifacts['dev'] should exist."""
     code_response = _make_code_response()
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=code_response),
-        CallMetrics(agent_name="dev", model_id="claude-opus-4-6", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=code_response),
+            CallMetrics(agent_name="dev", model_id="claude-opus-4-6", provider="anthropic"),
+        )
+    )
 
     agent = DevAgent(
         llm_client=mock_llm_client,
@@ -91,7 +95,7 @@ async def test_dev_generates_code_routes_to_content(
     with patch.object(agent, "_log_code_generated", new_callable=AsyncMock):
         result = await agent._execute(state)
 
-    assert result["next_agent"] == "content"
+    assert result["current_sequence_index"] == 1  # advanced from default 0
     assert "dev" in result["artifacts"]
     assert len(result["artifacts"]["dev"]) == 2  # artifact_id + serialized JSON
 
@@ -103,10 +107,12 @@ async def test_dev_with_plan_context(
 ):
     """When artifacts['planner'] exists, the agent uses plan context in LLM call."""
     code_response = _make_code_response()
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=code_response),
-        CallMetrics(agent_name="dev", model_id="claude-opus-4-6", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=code_response),
+            CallMetrics(agent_name="dev", model_id="claude-opus-4-6", provider="anthropic"),
+        )
+    )
 
     agent = DevAgent(
         llm_client=mock_llm_client,
@@ -115,27 +121,29 @@ async def test_dev_with_plan_context(
     )
 
     # Include planner artifacts with a plan.
-    plan = json.dumps({
-        "phases": [
-            {
-                "name": "Development",
-                "tasks": [
-                    {
-                        "id": "task_1",
-                        "description": "Build hero section with React",
-                        "assigned_to": "dev",
-                        "estimated_hours": 2.0,
-                    }
-                ],
-            }
-        ],
-    })
+    plan = json.dumps(
+        {
+            "phases": [
+                {
+                    "name": "Development",
+                    "tasks": [
+                        {
+                            "id": "task_1",
+                            "description": "Build hero section with React",
+                            "assigned_to": "dev",
+                            "estimated_hours": 2.0,
+                        }
+                    ],
+                }
+            ],
+        }
+    )
     state = _build_state(artifacts={"planner": [plan]})
 
     with patch.object(agent, "_log_code_generated", new_callable=AsyncMock):
         result = await agent._execute(state)
 
-    assert result["next_agent"] == "content"
+    assert result["current_sequence_index"] == 1  # advanced from default 0
     assert "dev" in result["artifacts"]
 
     # Verify the LLM was called with plan context in the messages.
@@ -157,19 +165,21 @@ def test_dev_parse_response_valid(
         loop_detector=mock_loop_detector,
     )
 
-    valid_json = json.dumps({
-        "files": [
-            {
-                "path": "index.html",
-                "content": "<html><body>Hello</body></html>",
-                "language": "html",
-            }
-        ],
-        "dependencies": [],
-        "build_commands": [],
-        "test_commands": [],
-        "deployment_notes": "Open index.html in a browser.",
-    })
+    valid_json = json.dumps(
+        {
+            "files": [
+                {
+                    "path": "index.html",
+                    "content": "<html><body>Hello</body></html>",
+                    "language": "html",
+                }
+            ],
+            "dependencies": [],
+            "build_commands": [],
+            "test_commands": [],
+            "deployment_notes": "Open index.html in a browser.",
+        }
+    )
 
     result = agent._parse_code_response(valid_json)
     assert result is not None
@@ -225,13 +235,15 @@ def test_dev_parse_response_strips_markdown_fences(
         loop_detector=mock_loop_detector,
     )
 
-    inner = json.dumps({
-        "files": [{"path": "app.py", "content": "print('hello')", "language": "python"}],
-        "dependencies": ["flask"],
-        "build_commands": [],
-        "test_commands": [],
-        "deployment_notes": "",
-    })
+    inner = json.dumps(
+        {
+            "files": [{"path": "app.py", "content": "print('hello')", "language": "python"}],
+            "dependencies": ["flask"],
+            "build_commands": [],
+            "test_commands": [],
+            "deployment_notes": "",
+        }
+    )
     fenced = f"```json\n{inner}\n```"
 
     result = agent._parse_code_response(fenced)

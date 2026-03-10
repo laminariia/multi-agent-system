@@ -34,6 +34,7 @@ from src.core.graph import (
 # Scout routing tests
 # ---------------------------------------------------------------------------
 
+
 def test_route_after_scout_to_bid():
     """Scout routes to bid_node when next_agent=bid."""
     state = {"thread_id": "t1", "status": "active", "next_agent": "bid"}
@@ -59,6 +60,7 @@ def test_route_after_scout_no_jobs():
 # Bid routing tests
 # ---------------------------------------------------------------------------
 
+
 def test_route_after_bid_to_hitl():
     """Bid routes to hitl_bid_node when requires_hitl=True (normal path)."""
     state = {"thread_id": "t1", "status": "active", "requires_hitl": True}
@@ -81,6 +83,7 @@ def test_route_after_bid_no_hitl():
 # HITL Bid routing tests
 # ---------------------------------------------------------------------------
 
+
 def test_route_after_hitl_bid_approved():
     """HITL bid routes to bid_submission_node when not failed (approved)."""
     state = {"thread_id": "t1", "status": "active"}
@@ -97,9 +100,15 @@ def test_route_after_hitl_bid_rejected():
 # Planner routing tests
 # ---------------------------------------------------------------------------
 
+
 def test_route_after_planner_to_dev():
-    """Planner routes to dev_node when next_agent=dev (normal path)."""
-    state = {"thread_id": "t1", "status": "active", "next_agent": "dev"}
+    """Planner routes to dev_node via dynamic sequence (normal path)."""
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "agent_sequence": ["dev", "content", "design"],
+        "current_sequence_index": 0,
+    }
     assert _route_after_planner(state) == "dev_node"
 
 
@@ -116,14 +125,15 @@ def test_route_after_planner_failed():
 
 
 def test_route_after_planner_no_next():
-    """Planner routes to END when next_agent is missing."""
+    """Planner routes to packager when no sequence (consulting)."""
     state = {"thread_id": "t1", "status": "active"}
-    assert _route_after_planner(state) == END
+    assert _route_after_planner(state) == "packager_node"
 
 
 # ---------------------------------------------------------------------------
 # Dev routing tests
 # ---------------------------------------------------------------------------
+
 
 def test_route_after_dev_to_content():
     """Dev routes to content_node when next_agent=content."""
@@ -147,6 +157,7 @@ def test_route_after_dev_no_next():
 # Content routing tests
 # ---------------------------------------------------------------------------
 
+
 def test_route_after_content_to_design():
     """Content routes to design_node when next_agent=design."""
     state = {"thread_id": "t1", "status": "active", "next_agent": "design"}
@@ -163,6 +174,7 @@ def test_route_after_content_failed():
 # Design routing tests
 # ---------------------------------------------------------------------------
 
+
 def test_route_after_design_to_critic():
     """Design routes to critic_node when next_agent=critic."""
     state = {"thread_id": "t1", "status": "active", "next_agent": "critic"}
@@ -178,6 +190,7 @@ def test_route_after_design_failed():
 # ---------------------------------------------------------------------------
 # Critic routing tests (most complex routing point)
 # ---------------------------------------------------------------------------
+
 
 def test_route_after_critic_approved():
     """Critic routes to packager_node when next_agent=packager (approved)."""
@@ -256,6 +269,7 @@ def test_route_after_critic_no_next():
 # Packager routing tests
 # ---------------------------------------------------------------------------
 
+
 def test_route_after_packager_to_hitl():
     """Packager routes to hitl_review_node when requires_hitl=True (normal)."""
     state = {"thread_id": "t1", "status": "active", "requires_hitl": True}
@@ -278,6 +292,7 @@ def test_route_after_packager_no_hitl():
 # HITL Review routing tests
 # ---------------------------------------------------------------------------
 
+
 def test_route_after_hitl_review_always_end():
     """HITL review always routes to END (Phase 1)."""
     state = {"thread_id": "t1", "status": "completed"}
@@ -294,6 +309,7 @@ def test_route_after_hitl_review_always_end():
 # Edge cases and complex scenarios
 # ---------------------------------------------------------------------------
 
+
 def test_route_after_critic_revision_count_missing():
     """Critic treats missing retry_count as 0 (first revision)."""
     state = {
@@ -307,9 +323,7 @@ def test_route_after_critic_revision_count_missing():
 
 def test_route_after_critic_hitl_takes_precedence_over_dev():
     """Critic routes to HITL when both requires_hitl and next_agent=dev."""
-    # This shouldn't happen in practice, but test precedence order.
-    # Looking at the code, requires_hitl check comes AFTER next_agent checks,
-    # so next_agent takes precedence unless revision limit is hit.
+    # HITL escalation is checked BEFORE next_agent — safety-first priority.
     state = {
         "thread_id": "t1",
         "status": "active",
@@ -317,10 +331,10 @@ def test_route_after_critic_hitl_takes_precedence_over_dev():
         "requires_hitl": True,
         "retry_count": 0,
     }
-    # next_agent=dev is checked first, so it should route to dev_node
-    assert _route_after_critic(state) == "dev_node"
+    # HITL always takes precedence over next_agent
+    assert _route_after_critic(state) == "hitl_review_node"
 
-    # But if revision count >= MAX, HITL takes precedence
+    # Same with revision count >= MAX
     state2 = {
         "thread_id": "t2",
         "status": "active",
@@ -335,6 +349,7 @@ def test_route_after_critic_hitl_takes_precedence_over_dev():
 # Pipeline B: email HITL routing
 # ---------------------------------------------------------------------------
 
+
 def test_route_after_hitl_email_always_ends():
     """hitl_email always routes to END (emails sent after resume, not continuation)."""
     state = {"thread_id": "t1", "status": "paused"}
@@ -344,6 +359,7 @@ def test_route_after_hitl_email_always_ends():
 # ---------------------------------------------------------------------------
 # _apply_email_approval tests
 # ---------------------------------------------------------------------------
+
 
 def test_apply_email_approval_approve():
     """Approve sets emails_approved=True and status=active for pipeline re-invocation."""
@@ -383,6 +399,7 @@ def test_apply_email_approval_unknown_action():
 # ---------------------------------------------------------------------------
 # create_graph_with_persistence Pipeline B option
 # ---------------------------------------------------------------------------
+
 
 @patch("src.core.graph.HybridCheckpointSaver")
 @patch("src.core.graph.build_pipeline_b_graph")

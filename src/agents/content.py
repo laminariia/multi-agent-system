@@ -11,6 +11,7 @@ The Content Agent:
 Role constraints: can WRITE text, CANNOT execute code, CANNOT submit proposals.
 LLM: Claude Haiku 4.5 (fallback GPT-4o-mini).
 """
+
 from __future__ import annotations
 
 import json
@@ -125,11 +126,13 @@ class ContentAgent(ConstrainedAgent):
             word_count=content_result.get("word_count", 0),
         )
 
-        # 7. Return updated state routed to design agent.
+        # 7. Advance sequence index and let routing decide next agent.
         return update_state(
             state,
             current_agent="content",
-            next_agent="design",
+            current_sequence_index=state.get("current_sequence_index", 0) + 1,
+            revision_target=None,
+            revision_severity=None,
             artifacts=artifacts,
             status="active",
         )
@@ -273,8 +276,7 @@ class ContentAgent(ConstrainedAgent):
                 agent_name="content",
                 event_type="content_generated",
                 message=(
-                    f"Content generated: type={content_type}, "
-                    f"{deliverable_count} deliverables, {word_count} words"
+                    f"Content generated: type={content_type}, {deliverable_count} deliverables, {word_count} words"
                 ),
                 details={
                     "thread_id": thread_id,
@@ -297,6 +299,7 @@ class ContentAgent(ConstrainedAgent):
 # ======================================================================
 # Module-level node function for LangGraph
 # ======================================================================
+
 
 async def content_node(state: AgentState) -> AgentState:
     """LangGraph node function that creates and invokes the Content Agent.

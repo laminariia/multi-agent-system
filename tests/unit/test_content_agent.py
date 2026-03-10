@@ -44,18 +44,22 @@ def _make_content_json(
     """Build a valid content JSON response string."""
     deliverables = []
     for i in range(deliverable_count):
-        deliverables.append({
-            "name": f"deliverable_{i+1}",
-            "content": f"Sample content for deliverable {i+1}",
-            "alternatives": [f"Alt A for {i+1}", f"Alt B for {i+1}"],
-            "notes": f"This deliverable works because of reason {i+1}.",
-        })
-    return json.dumps({
-        "content_type": content_type,
-        "deliverables": deliverables,
-        "word_count": 150,
-        "reading_time_seconds": 45,
-    })
+        deliverables.append(
+            {
+                "name": f"deliverable_{i + 1}",
+                "content": f"Sample content for deliverable {i + 1}",
+                "alternatives": [f"Alt A for {i + 1}", f"Alt B for {i + 1}"],
+                "notes": f"This deliverable works because of reason {i + 1}.",
+            }
+        )
+    return json.dumps(
+        {
+            "content_type": content_type,
+            "deliverables": deliverables,
+            "word_count": 150,
+            "reading_time_seconds": 45,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -70,10 +74,12 @@ async def test_content_generates_copy_routes_to_design(
 ):
     """LLM returns valid content JSON -> next_agent='design', artifacts['content'] exists."""
     content_response = _make_content_json("landing_page", 3)
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=content_response),
-        CallMetrics(agent_name="content", model_id="claude-haiku-4-5", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=content_response),
+            CallMetrics(agent_name="content", model_id="claude-haiku-4-5", provider="anthropic"),
+        )
+    )
 
     agent = ContentAgent(
         llm_client=mock_llm_client,
@@ -85,7 +91,7 @@ async def test_content_generates_copy_routes_to_design(
     with patch.object(agent, "_log_content_generated", new_callable=AsyncMock):
         result = await agent._execute(state)
 
-    assert result["next_agent"] == "design"
+    assert result["current_sequence_index"] == 1  # advanced from default 0
     assert "content" in result["artifacts"]
     assert len(result["artifacts"]["content"]) == 1
 
@@ -102,10 +108,12 @@ async def test_content_with_dev_context(
 ):
     """When artifacts['dev'] exists, the agent uses dev context in its prompt."""
     content_response = _make_content_json("documentation", 1)
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=content_response),
-        CallMetrics(agent_name="content", model_id="claude-haiku-4-5", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=content_response),
+            CallMetrics(agent_name="content", model_id="claude-haiku-4-5", provider="anthropic"),
+        )
+    )
 
     agent = ContentAgent(
         llm_client=mock_llm_client,
@@ -121,7 +129,7 @@ async def test_content_with_dev_context(
     with patch.object(agent, "_log_content_generated", new_callable=AsyncMock):
         result = await agent._execute(state)
 
-    assert result["next_agent"] == "design"
+    assert result["current_sequence_index"] == 1  # advanced from default 0
     assert "content" in result["artifacts"]
     # Dev artefacts should still be present.
     assert "dev" in result["artifacts"]
@@ -155,10 +163,12 @@ async def test_content_llm_returns_invalid_json(
     mock_loop_detector: Any,
 ):
     """When the LLM returns non-JSON, the agent should return next_agent=None gracefully."""
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content="This is not valid JSON at all."),
-        CallMetrics(agent_name="content", model_id="claude-haiku-4-5", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content="This is not valid JSON at all."),
+            CallMetrics(agent_name="content", model_id="claude-haiku-4-5", provider="anthropic"),
+        )
+    )
 
     agent = ContentAgent(
         llm_client=mock_llm_client,
@@ -185,25 +195,27 @@ def test_content_parse_response_valid(
         loop_detector=mock_loop_detector,
     )
 
-    valid_json = json.dumps({
-        "content_type": "email",
-        "deliverables": [
-            {
-                "name": "subject_line",
-                "content": "Unlock Your Growth Potential",
-                "alternatives": ["Transform Your Business Today", "Discover What You're Missing"],
-                "notes": "Uses curiosity gap technique.",
-            },
-            {
-                "name": "body_copy",
-                "content": "Hi {{name}}, I noticed your business...",
-                "alternatives": ["Dear {{name}},", "Hello {{name}},"],
-                "notes": "Personalized opening with specific reference.",
-            },
-        ],
-        "word_count": 85,
-        "reading_time_seconds": 25,
-    })
+    valid_json = json.dumps(
+        {
+            "content_type": "email",
+            "deliverables": [
+                {
+                    "name": "subject_line",
+                    "content": "Unlock Your Growth Potential",
+                    "alternatives": ["Transform Your Business Today", "Discover What You're Missing"],
+                    "notes": "Uses curiosity gap technique.",
+                },
+                {
+                    "name": "body_copy",
+                    "content": "Hi {{name}}, I noticed your business...",
+                    "alternatives": ["Dear {{name}},", "Hello {{name}},"],
+                    "notes": "Personalized opening with specific reference.",
+                },
+            ],
+            "word_count": 85,
+            "reading_time_seconds": 25,
+        }
+    )
 
     result = agent._parse_content_response(valid_json)
 
@@ -261,12 +273,14 @@ def test_content_parse_response_code_fenced_json(
         loop_detector=mock_loop_detector,
     )
 
-    inner = json.dumps({
-        "content_type": "landing_page",
-        "deliverables": [{"name": "hero", "content": "Go Big", "alternatives": [], "notes": "test"}],
-        "word_count": 2,
-        "reading_time_seconds": 1,
-    })
+    inner = json.dumps(
+        {
+            "content_type": "landing_page",
+            "deliverables": [{"name": "hero", "content": "Go Big", "alternatives": [], "notes": "test"}],
+            "word_count": 2,
+            "reading_time_seconds": 1,
+        }
+    )
     raw = f"```json\n{inner}\n```"
 
     result = agent._parse_content_response(raw)

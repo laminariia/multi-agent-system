@@ -44,23 +44,27 @@ def _make_design_json(
     """Build a valid design JSON response string."""
     deliverables = []
     for i in range(deliverable_count):
-        deliverables.append({
-            "name": f"page_{i+1}_desktop",
-            "format": "spec",
-            "dimensions": "1440x900",
-            "specs": {
-                "colors": ["#3B82F6", "#1E293B", "#F8FAFC"],
-                "fonts": ["Inter"],
-                "components_used": ["hero_section", "features_grid"],
-                "layout": f"Layout description for deliverable {i+1}",
-                "responsive_notes": "Tablet: stack; Mobile: full-width",
-                "dark_mode": "Invert background to #0F172A",
-            },
-        })
-    return json.dumps({
-        "design_type": design_type,
-        "deliverables": deliverables,
-    })
+        deliverables.append(
+            {
+                "name": f"page_{i + 1}_desktop",
+                "format": "spec",
+                "dimensions": "1440x900",
+                "specs": {
+                    "colors": ["#3B82F6", "#1E293B", "#F8FAFC"],
+                    "fonts": ["Inter"],
+                    "components_used": ["hero_section", "features_grid"],
+                    "layout": f"Layout description for deliverable {i + 1}",
+                    "responsive_notes": "Tablet: stack; Mobile: full-width",
+                    "dark_mode": "Invert background to #0F172A",
+                },
+            }
+        )
+    return json.dumps(
+        {
+            "design_type": design_type,
+            "deliverables": deliverables,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -75,10 +79,12 @@ async def test_design_generates_specs_routes_to_critic(
 ):
     """LLM returns valid design JSON -> next_agent='critic', artifacts['design'] exists."""
     design_response = _make_design_json("ui_mockup", 2)
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=design_response),
-        CallMetrics(agent_name="design", model_id="claude-sonnet-4-5", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=design_response),
+            CallMetrics(agent_name="design", model_id="claude-sonnet-4-5", provider="anthropic"),
+        )
+    )
 
     agent = DesignAgent(
         llm_client=mock_llm_client,
@@ -90,7 +96,7 @@ async def test_design_generates_specs_routes_to_critic(
     with patch.object(agent, "_log_design_generated", new_callable=AsyncMock):
         result = await agent._execute(state)
 
-    assert result["next_agent"] == "critic"
+    assert result["current_sequence_index"] == 1  # advanced from default 0
     assert "design" in result["artifacts"]
     assert len(result["artifacts"]["design"]) == 1
 
@@ -107,10 +113,12 @@ async def test_design_with_content_context(
 ):
     """When artifacts['content'] exists, the agent uses content context in its prompt."""
     design_response = _make_design_json("ui_mockup", 1)
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=design_response),
-        CallMetrics(agent_name="design", model_id="claude-sonnet-4-5", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=design_response),
+            CallMetrics(agent_name="design", model_id="claude-sonnet-4-5", provider="anthropic"),
+        )
+    )
 
     agent = DesignAgent(
         llm_client=mock_llm_client,
@@ -119,12 +127,14 @@ async def test_design_with_content_context(
     )
 
     # Pre-populate content artefacts in the state.
-    content_artifact = json.dumps({
-        "content_type": "landing_page",
-        "deliverables": [{"name": "hero_headline", "content": "Transform Your Business"}],
-        "word_count": 50,
-        "reading_time_seconds": 15,
-    })
+    content_artifact = json.dumps(
+        {
+            "content_type": "landing_page",
+            "deliverables": [{"name": "hero_headline", "content": "Transform Your Business"}],
+            "word_count": 50,
+            "reading_time_seconds": 15,
+        }
+    )
     state = _build_state(
         artifacts={"content": [content_artifact]},
     )
@@ -132,7 +142,7 @@ async def test_design_with_content_context(
     with patch.object(agent, "_log_design_generated", new_callable=AsyncMock):
         result = await agent._execute(state)
 
-    assert result["next_agent"] == "critic"
+    assert result["current_sequence_index"] == 1  # advanced from default 0
     assert "design" in result["artifacts"]
     # Content artefacts should still be present.
     assert "content" in result["artifacts"]
@@ -165,10 +175,12 @@ async def test_design_llm_returns_invalid_json(
     mock_loop_detector: Any,
 ):
     """When the LLM returns non-JSON, the agent should return next_agent=None gracefully."""
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content="I cannot generate a valid design spec right now."),
-        CallMetrics(agent_name="design", model_id="claude-sonnet-4-5", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content="I cannot generate a valid design spec right now."),
+            CallMetrics(agent_name="design", model_id="claude-sonnet-4-5", provider="anthropic"),
+        )
+    )
 
     agent = DesignAgent(
         llm_client=mock_llm_client,
@@ -195,37 +207,39 @@ def test_design_parse_response_valid(
         loop_detector=mock_loop_detector,
     )
 
-    valid_json = json.dumps({
-        "design_type": "ui_mockup",
-        "deliverables": [
-            {
-                "name": "homepage_desktop",
-                "format": "spec",
-                "dimensions": "1440x900",
-                "specs": {
-                    "colors": ["#3B82F6", "#1E293B"],
-                    "fonts": ["Inter"],
-                    "components_used": ["hero_section", "features_grid", "cta_section"],
-                    "layout": "Full-width hero with centered text, 3-column features grid below.",
-                    "responsive_notes": "Tablet: 2-column grid; Mobile: single column stacked.",
-                    "dark_mode": "Invert background to #0F172A, text to #F1F5F9.",
+    valid_json = json.dumps(
+        {
+            "design_type": "ui_mockup",
+            "deliverables": [
+                {
+                    "name": "homepage_desktop",
+                    "format": "spec",
+                    "dimensions": "1440x900",
+                    "specs": {
+                        "colors": ["#3B82F6", "#1E293B"],
+                        "fonts": ["Inter"],
+                        "components_used": ["hero_section", "features_grid", "cta_section"],
+                        "layout": "Full-width hero with centered text, 3-column features grid below.",
+                        "responsive_notes": "Tablet: 2-column grid; Mobile: single column stacked.",
+                        "dark_mode": "Invert background to #0F172A, text to #F1F5F9.",
+                    },
                 },
-            },
-            {
-                "name": "homepage_mobile",
-                "format": "spec",
-                "dimensions": "375x812",
-                "specs": {
-                    "colors": ["#3B82F6", "#1E293B"],
-                    "fonts": ["Inter"],
-                    "components_used": ["hero_section", "features_stack", "cta_section"],
-                    "layout": "Single column, full-width sections stacked vertically.",
-                    "responsive_notes": "This is the mobile variant.",
-                    "dark_mode": "Same dark palette as desktop variant.",
+                {
+                    "name": "homepage_mobile",
+                    "format": "spec",
+                    "dimensions": "375x812",
+                    "specs": {
+                        "colors": ["#3B82F6", "#1E293B"],
+                        "fonts": ["Inter"],
+                        "components_used": ["hero_section", "features_stack", "cta_section"],
+                        "layout": "Single column, full-width sections stacked vertically.",
+                        "responsive_notes": "This is the mobile variant.",
+                        "dark_mode": "Same dark palette as desktop variant.",
+                    },
                 },
-            },
-        ],
-    })
+            ],
+        }
+    )
 
     result = agent._parse_design_response(valid_json)
 
@@ -281,22 +295,26 @@ def test_design_parse_response_code_fenced_json(
         loop_detector=mock_loop_detector,
     )
 
-    inner = json.dumps({
-        "design_type": "graphic",
-        "deliverables": [{
-            "name": "logo_primary",
-            "format": "spec",
-            "dimensions": "512x512",
-            "specs": {
-                "colors": ["#3B82F6"],
-                "fonts": ["Inter"],
-                "components_used": [],
-                "layout": "Circular logo with stylized initials.",
-                "responsive_notes": "N/A for logo.",
-                "dark_mode": "White variant on dark backgrounds.",
-            },
-        }],
-    })
+    inner = json.dumps(
+        {
+            "design_type": "graphic",
+            "deliverables": [
+                {
+                    "name": "logo_primary",
+                    "format": "spec",
+                    "dimensions": "512x512",
+                    "specs": {
+                        "colors": ["#3B82F6"],
+                        "fonts": ["Inter"],
+                        "components_used": [],
+                        "layout": "Circular logo with stylized initials.",
+                        "responsive_notes": "N/A for logo.",
+                        "dark_mode": "White variant on dark backgrounds.",
+                    },
+                }
+            ],
+        }
+    )
     raw = f"```json\n{inner}\n```"
 
     result = agent._parse_design_response(raw)

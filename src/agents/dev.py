@@ -12,6 +12,7 @@ Role constraints: can WRITE code/tests/docs, CANNOT access external networks,
 CANNOT submit proposals.
 LLM: Claude Opus 4.6 (fallback Claude Sonnet 4.5).
 """
+
 from __future__ import annotations
 
 import json
@@ -177,11 +178,13 @@ class DevAgent(ConstrainedAgent):
             dependencies=parsed.get("dependencies", []),
         )
 
-        # 7. Route to content agent (next in pipeline).
+        # 7. Advance sequence index and let routing decide next agent.
         return update_state(
             state,
             current_agent="dev",
-            next_agent="content",
+            current_sequence_index=state.get("current_sequence_index", 0) + 1,
+            revision_target=None,
+            revision_severity=None,
             artifacts=artifacts,
             status="active",
         )
@@ -509,6 +512,7 @@ class DevAgent(ConstrainedAgent):
 # ======================================================================
 # Module-level node function for LangGraph
 # ======================================================================
+
 
 async def dev_node(state: AgentState) -> AgentState:
     """LangGraph node function that creates and invokes the Dev Agent.

@@ -11,6 +11,7 @@ The Planner Agent:
 Role constraints: can PLAN tasks, CANNOT execute code, CANNOT submit proposals.
 LLM: Claude Opus 4.6 (fallback Claude Sonnet 4.5).
 """
+
 from __future__ import annotations
 
 import json
@@ -111,10 +112,13 @@ class PlannerAgent(ConstrainedAgent):
                 note="Empty requirements -- minimal plan generated",
             )
 
+            agent_sequence = self._build_agent_sequence(minimal_plan)
             return update_state(
                 state,
                 current_agent="planner",
-                next_agent="dev",
+                agent_sequence=agent_sequence,
+                current_sequence_index=0,
+                delivery_type="files",
                 artifacts=artifacts,
                 status="active",
             )
@@ -185,11 +189,16 @@ class PlannerAgent(ConstrainedAgent):
             needs_hitl=needs_hitl,
         )
 
+        # Build agent sequence from plan (fallback to default pipeline).
+        agent_sequence = self._build_agent_sequence(plan)
+
         if needs_hitl:
             return update_state(
                 state,
                 current_agent="planner",
-                next_agent=first_agent,
+                agent_sequence=agent_sequence,
+                current_sequence_index=0,
+                delivery_type=plan.get("delivery_type", "files"),
                 artifacts=artifacts,
                 requires_hitl=True,
                 hitl_request_id=str(uuid.uuid4()),
@@ -199,7 +208,9 @@ class PlannerAgent(ConstrainedAgent):
         return update_state(
             state,
             current_agent="planner",
-            next_agent=first_agent,
+            agent_sequence=agent_sequence,
+            current_sequence_index=0,
+            delivery_type=plan.get("delivery_type", "files"),
             artifacts=artifacts,
             status="active",
         )
@@ -217,12 +228,14 @@ class PlannerAgent(ConstrainedAgent):
 
         messages = [
             SystemMessage(content=PLANNER_SYSTEM_PROMPT),
-            HumanMessage(content=(
-                "Decompose the following project into a structured plan.\n\n"
-                f"Project:\n{project_text}\n\n"
-                "Return a single JSON object matching the output format specified "
-                "in your instructions."
-            )),
+            HumanMessage(
+                content=(
+                    "Decompose the following project into a structured plan.\n\n"
+                    f"Project:\n{project_text}\n\n"
+                    "Return a single JSON object matching the output format specified "
+                    "in your instructions."
+                )
+            ),
         ]
 
         response_msg, _metrics = await self._call_llm(messages, temperature=0.3)
@@ -309,6 +322,27 @@ class PlannerAgent(ConstrainedAgent):
 
         return "dev"
 
+    @staticmethod
+    def _build_agent_sequence(plan: dict[str, Any]) -> list[str]:
+        """Build ordered execution agent sequence from plan tasks.
+
+        Extracts unique execution agents (dev, content, design) in the order
+        they first appear in the plan phases/tasks.
+
+        Falls back to ``["dev", "content", "design"]`` when the plan has no
+        recognisable execution agents (backward compatibility).
+        """
+        valid_execution = {"dev", "content", "design"}
+        seen: list[str] = []
+
+        for phase in plan.get("phases", []):
+            for task in phase.get("tasks", []):
+                assigned = task.get("assigned_to", "")
+                if assigned in valid_execution and assigned not in seen:
+                    seen.append(assigned)
+
+        return seen if seen else ["dev", "content", "design"]
+
     # ------------------------------------------------------------------
     # Helper: HITL plan review gate
     # ------------------------------------------------------------------
@@ -356,7 +390,7 @@ class PlannerAgent(ConstrainedAgent):
                         {
                             "id": "task_clarify",
                             "description": "Requirements are empty or unclear. "
-                                           "Clarify with the client before proceeding.",
+                            "Clarify with the client before proceeding.",
                             "assigned_to": "dev",
                             "estimated_hours": 0.5,
                             "dependencies": [],
@@ -385,10 +419,7 @@ class PlannerAgent(ConstrainedAgent):
         note: str = "",
     ) -> None:
         """Write an audit log entry for the generated plan."""
-        total_tasks = sum(
-            len(phase.get("tasks", []))
-            for phase in plan.get("phases", [])
-        )
+        total_tasks = sum(len(phase.get("tasks", [])) for phase in plan.get("phases", []))
 
         message = (
             f"Plan generated for project '{project_id}': "
@@ -427,6 +458,7 @@ class PlannerAgent(ConstrainedAgent):
 # ======================================================================
 # Module-level node function for LangGraph
 # ======================================================================
+
 
 async def planner_node(state: AgentState) -> AgentState:
     """LangGraph node function that creates and invokes the Planner Agent.
