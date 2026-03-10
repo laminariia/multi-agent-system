@@ -96,6 +96,12 @@ class AgentState(TypedDict):
     revision_target: str | None
     revision_severity: str | None
 
+    # Execution cloaking (Time-Value Arbitrage)
+    real_hours: float | None
+    proposed_days: int | None
+    min_delivery_at: datetime | None
+    scheduled_messages: list[dict[str, Any]]
+
     # Partial failure recovery
     failed_agent: str | None
     failure_reason: str | None
@@ -154,6 +160,10 @@ def create_initial_state(
         "delivery_type": "files",
         "revision_target": None,
         "revision_severity": None,
+        "real_hours": None,
+        "proposed_days": None,
+        "min_delivery_at": None,
+        "scheduled_messages": [],
         "failed_agent": None,
         "failure_reason": None,
         "recovery_attempted": 0,

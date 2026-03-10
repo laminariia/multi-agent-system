@@ -114,6 +114,7 @@ class BidAgent(ConstrainedAgent):
         # Process each job: RAG lookup -> LLM proposal -> DB persist -> HITL queue.
         created_bid_ids: list[str] = []
         hitl_request_ids: list[str] = []
+        last_delivery_days: int | None = None
 
         for job_dict in qualified_jobs:
             # 2. Fetch similar won bids from knowledge_base (RAG).
@@ -127,6 +128,12 @@ class BidAgent(ConstrainedAgent):
 
             # CRITICAL: Enforce requires_hitl invariant.
             proposal["requires_hitl"] = True
+
+            # Track delivery_days for execution cloaking.
+            try:
+                last_delivery_days = int(proposal.get("delivery_days", 7))
+            except (TypeError, ValueError):
+                last_delivery_days = 7
 
             # 4. Create Bid record in DB.
             bid_id = await self._store_bid(job_dict, proposal)
@@ -147,6 +154,17 @@ class BidAgent(ConstrainedAgent):
         # Use the last HITL request ID as the state's hitl_request_id.
         final_hitl_id = hitl_request_ids[-1] if hitl_request_ids else str(uuid.uuid4())
 
+        # 8. Execution cloaking: proposed_days + min_delivery_at.
+        cloaking: dict[str, Any] = {}
+        if last_delivery_days is not None:
+            from datetime import UTC, timedelta  # noqa: PLC0415
+            from datetime import datetime as _dt
+
+            proposed = max(last_delivery_days, 1)  # minimum 1 day
+            created_at = state.get("created_at") or _dt.now(tz=UTC)
+            cloaking["proposed_days"] = proposed
+            cloaking["min_delivery_at"] = created_at + timedelta(days=proposed * 0.7)
+
         return update_state(
             state,
             current_agent="bid",
@@ -155,6 +173,7 @@ class BidAgent(ConstrainedAgent):
             requires_hitl=True,
             hitl_request_id=final_hitl_id,
             status="paused",
+            **cloaking,
         )
 
     # ------------------------------------------------------------------

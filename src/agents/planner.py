@@ -265,6 +265,9 @@ class PlannerAgent(ConstrainedAgent):
         # Build agent sequence from plan (fallback to default pipeline).
         agent_sequence = self._build_agent_sequence(plan)
 
+        # Extract real_hours for execution cloaking.
+        real_hours = float(plan.get("total_estimated_hours", 0) or 0)
+
         if needs_hitl:
             return update_state(
                 state,
@@ -272,6 +275,7 @@ class PlannerAgent(ConstrainedAgent):
                 agent_sequence=agent_sequence,
                 current_sequence_index=0,
                 delivery_type=delivery_type,
+                real_hours=real_hours,
                 artifacts=artifacts,
                 requires_hitl=True,
                 hitl_request_id=str(uuid.uuid4()),
@@ -284,6 +288,7 @@ class PlannerAgent(ConstrainedAgent):
             agent_sequence=agent_sequence,
             current_sequence_index=0,
             delivery_type=delivery_type,
+            real_hours=real_hours,
             artifacts=artifacts,
             status="active",
         )

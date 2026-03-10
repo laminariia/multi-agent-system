@@ -165,6 +165,9 @@ class PackagerAgent(ConstrainedAgent):
                 existing_missing = []
             delivery_info["missing_artifacts"] = existing_missing + missing
 
+        # 4b. Execution cloaking: check delivery schedule.
+        self._check_delivery_schedule(state, delivery_info)
+
         # 5. Store delivery info as artifact.
         artifacts = dict(all_artifacts)
         delivery_serialized = json.dumps(delivery_info, default=str)
@@ -358,6 +361,40 @@ class PackagerAgent(ConstrainedAgent):
                 missing.append(f"Missing {label}: required for {delivery_type} delivery")
 
         return missing
+
+    # ------------------------------------------------------------------
+    # Delivery schedule check (Execution Cloaking)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _check_delivery_schedule(
+        state: dict[str, Any],
+        delivery_info: dict[str, Any],
+    ) -> None:
+        """Flag early delivery if current time is before ``min_delivery_at``.
+
+        Adds ``delivery_hold`` and ``delivery_hold_reason`` to *delivery_info*
+        when the package is ready too early.  The HITL operator can still
+        approve — this is informational only.
+        """
+        from datetime import UTC, datetime  # noqa: PLC0415
+
+        min_at = state.get("min_delivery_at")
+        if min_at is None:
+            return
+
+        # Ensure timezone-aware comparison (checkpoint deserialization may strip tzinfo).
+        if hasattr(min_at, "tzinfo") and min_at.tzinfo is None:
+            min_at = min_at.replace(tzinfo=UTC)
+
+        now = datetime.now(tz=UTC)
+        if now < min_at:
+            remaining = min_at - now
+            hours_left = remaining.total_seconds() / 3600
+            delivery_info["delivery_hold"] = True
+            delivery_info["delivery_hold_reason"] = (
+                f"Delivery too early — {hours_left:.0f} hours remaining before minimum delivery time"
+            )
 
     # ------------------------------------------------------------------
     # Fallback delivery info
