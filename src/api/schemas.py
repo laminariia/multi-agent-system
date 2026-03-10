@@ -6,6 +6,7 @@ Field examples are provided for OpenAPI documentation generation.
 Convention: SQLAlchemy models (``src.core.models``) have NO suffix;
             Pydantic schemas here have the ``Schema`` suffix.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -76,7 +77,7 @@ class RegisterRequestSchema(_BaseSchema):
 class LoginRequestSchema(_BaseSchema):
     """Credentials submitted during login."""
 
-    email: EmailStr = Field(..., examples=["user@example.com"], description="User email address")
+    email: str = Field(..., max_length=254, examples=["user@example.com"], description="User email address")
     password: str = Field(..., min_length=6, max_length=128, examples=["secret123"], description="Account password")
 
 
@@ -88,7 +89,8 @@ class UserResponseSchema(_BaseSchema):
     name: str | None = Field(default=None, examples=["John"])
     role: str = Field(..., examples=["owner"], description="User role: owner | co_owner | viewer | moderator")
     status: str = Field(
-        default="active", examples=["active"],
+        default="active",
+        examples=["active"],
         description="Account status: active | pending_approval | rejected | suspended",
     )
     telegram_chat_id: int | None = Field(default=None, description="Linked Telegram chat ID")
@@ -180,7 +182,8 @@ class HITLItemSchema(_BaseSchema):
 
     id: uuid.UUID
     type: str = Field(
-        ..., examples=["bid_approval"],
+        ...,
+        examples=["bid_approval"],
         description="bid_approval | code_review | delivery | revision | alert",
     )
     priority: str = Field(default="normal", examples=["urgent"], description="urgent | normal | low")
@@ -317,7 +320,8 @@ class AgentStatusListSchema(_BaseSchema):
     """Aggregated agent status report."""
 
     system_health: str = Field(
-        ..., examples=["healthy"],
+        ...,
+        examples=["healthy"],
         description="Overall system health: healthy | degraded | critical",
     )
     last_check: datetime
@@ -657,12 +661,14 @@ class CredentialTestResponseSchema(_BaseSchema):
         description="Human-readable result",
     )
     latency_ms: int | None = Field(
-        default=None, description="Response time in milliseconds",
+        default=None,
+        description="Response time in milliseconds",
     )
 
 
 class PlatformAccountCreateSchema(_BaseSchema):
     """Create a new platform account with encrypted credentials."""
+
     platform: str = Field(
         ...,
         pattern=r"^(freelancer|upwork|fl_ru|kwork)$",
@@ -680,6 +686,7 @@ class PlatformAccountCreateSchema(_BaseSchema):
 
 class PlatformAccountUpdateSchema(_BaseSchema):
     """Update an existing platform account."""
+
     username: str | None = Field(default=None, max_length=255)
     credentials: dict[str, Any] | None = Field(
         default=None,
@@ -694,6 +701,7 @@ class PlatformAccountUpdateSchema(_BaseSchema):
 
 class PlatformAccountResponseSchema(_BaseSchema):
     """Platform account with masked credentials."""
+
     id: uuid.UUID
     platform: str = Field(..., examples=["freelancer"])
     username: str | None = None
@@ -707,6 +715,7 @@ class PlatformAccountResponseSchema(_BaseSchema):
 
 class PlatformAccountListResponseSchema(_BaseSchema):
     """List of platform accounts."""
+
     accounts: list[PlatformAccountResponseSchema]
     total: int = Field(default=0, ge=0)
 
@@ -739,10 +748,12 @@ class CampaignCreateSchema(_BaseSchema):
         description="Email body template (supports {{var}} placeholders)",
     )
     target_cities: list[str] | None = Field(
-        default=None, examples=[["Berlin", "Munich"]],
+        default=None,
+        examples=[["Berlin", "Munich"]],
     )
     target_categories: list[str] | None = Field(
-        default=None, examples=[["restaurant", "cafe"]],
+        default=None,
+        examples=[["restaurant", "cafe"]],
     )
 
 
@@ -788,6 +799,7 @@ class CampaignListResponseSchema(_BaseSchema):
 
 class APIKeyStatusSchema(_BaseSchema):
     """Status of a single API key (never exposes the actual key)."""
+
     key_name: str = Field(..., examples=["gemini_api_key"])
     display_name: str = Field(..., examples=["Gemini API"])
     configured: bool = Field(default=False)
@@ -796,6 +808,7 @@ class APIKeyStatusSchema(_BaseSchema):
 
 class APIKeySaveSchema(_BaseSchema):
     """Save/update API keys. Only non-null fields are updated."""
+
     openrouter_api_key: str | None = Field(default=None, max_length=500)
     gemini_api_key: str | None = Field(default=None, max_length=500)
     anthropic_api_key: str | None = Field(default=None, max_length=500)
@@ -811,5 +824,6 @@ class APIKeySaveSchema(_BaseSchema):
 
 class CredentialsSummarySchema(_BaseSchema):
     """Overall credentials status for the settings page."""
+
     api_keys: list[APIKeyStatusSchema] = Field(default_factory=list)
     platform_accounts: list[PlatformAccountResponseSchema] = Field(default_factory=list)

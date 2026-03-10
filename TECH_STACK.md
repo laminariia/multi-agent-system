@@ -18,8 +18,7 @@
 | **Orchestration** | LangGraph | 1.0+ | StateGraph for multi-agent |
 | **Backend API** | Litestar | 2.x | NOT FastAPI |
 | **Database** | PostgreSQL | 16+ | With extensions below |
-| **Vector Search** | pgvectorscale | latest | DiskANN indexes (11x faster than HNSW) |
-| **Vector Types** | pgvector | 0.7+ | Required for pgvectorscale |
+| **Vector Search** | pgvector | 0.7+ | HNSW indexes (vector_cosine_ops) |
 | **Embeddings** | OpenAI text-embedding-3-large | 3072 dim | Embedding model for vector search |
 | **Cache/Queue** | Valkey | 8.1 | Redis-compatible fork |
 | **Frontend** | Remix | 2.x | NOT Next.js |
@@ -73,27 +72,26 @@ client = redis.from_url(valkey_url)
 > Code samples throughout documentation may use `redis` variable names.
 > This is intentional — Valkey is API-compatible with Redis.
 
-### 3. Vector Search: pgvectorscale + pgvector
+### 3. Vector Search: pgvector HNSW
 
-**Why pgvectorscale:**
-- DiskANN indexes are 11x faster than HNSW at scale
-- 99% recall at high QPS
+**Why pgvector HNSW:**
 - Integrated with PostgreSQL (no separate vector DB)
-- Works with existing pgvector types
+- Good recall at reasonable QPS for our scale
+- Native support in pgvector 0.7+
+- Works with 3072-dim embeddings
 
 ```sql
--- Required extensions
+-- Required extension
 CREATE EXTENSION IF NOT EXISTS vector;        -- pgvector
-CREATE EXTENSION IF NOT EXISTS vectorscale;   -- pgvectorscale
 
--- DiskANN index (faster than HNSW)
-CREATE INDEX idx_embeddings ON knowledge_base 
-    USING diskann (embedding vector_cosine_ops);
-
--- NOT HNSW (slower at scale)
--- CREATE INDEX idx_embeddings ON knowledge_base 
---     USING hnsw (embedding vector_cosine_ops);  -- AVOID
+-- HNSW index (deployed in production)
+CREATE INDEX idx_embeddings ON knowledge_base
+    USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64);
 ```
+
+> **Note:** Документация ранее указывала DiskANN (pgvectorscale), но в production
+> миграциях (`alembic/versions/`) развёрнуты HNSW индексы. HNSW — текущий стандарт.
 
 ### 4. Frontend: Remix
 
@@ -172,19 +170,19 @@ def choose_sandbox(estimated_time_minutes: int) -> str:
 > **API Gateway:** All LLM calls go through **OpenRouter** (`OPENROUTER_API_KEY`).
 > Exception: Embeddings use **OpenAI API** directly (`OPENAI_API_KEY`).
 
-| Agent | Primary Model | OpenRouter ID | Fallback 1 | Fallback 2 | Cost Tier |
-|-------|--------------|---------------|------------|------------|-----------|
-| **Scout** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Grok 4.1 Fast | Local Qwen3-4B | Low |
-| **Bid** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Claude Haiku 3.5 | — | Low |
-| **Planner** | Claude Opus 4.6 | `anthropic/claude-opus-4.6` | DeepSeek R1 | Gemini 3 Pro | High |
-| **Dev** (complex) | Claude Opus 4.6 | `anthropic/claude-opus-4.6` | DeepSeek V3.2 | Qwen3-Coder-Next | High |
-| **Dev** (standard) | Claude Sonnet 4.5 | `anthropic/claude-sonnet-4.5` | DeepSeek V3.2 | Qwen3-Coder-Next | Medium |
-| **Content** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Gemini 3 Flash | — | Low |
-| **Design** | NanoBanana Pro | `google/gemini-3-pro-image-preview` | Gemini 3 Flash | — | Medium |
-| **Critic** | Claude Sonnet 4.5 | `anthropic/claude-sonnet-4.5` | DeepSeek R1 | GPT-5.2 Codex | High |
-| **Packager** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Grok 4.1 Fast | — | Low |
-| **GeoScout** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Grok 4.1 Fast | Local Qwen3-4B | Low |
-| **Outreach** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Gemini 3 Flash | — | Low |
+**6-Tier System** (canonical source — обновлён март 2026):
+
+| Tier | Роль | Model | OpenRouter ID | Agents |
+|:----:|------|-------|---------------|--------|
+| 1 | Reasoning | Claude Opus 4.6 | `anthropic/claude-opus-4-6` | Planner, Dev (complex), SalesAgent [PLANNED] |
+| 2 | Client-facing | Gemini 3.1 Pro | `google/gemini-3.1-pro` | Bid, Outreach |
+| 3 | Content+Review | Claude Sonnet 4.6 | `anthropic/claude-sonnet-4-6` | Content, Dev (standard), Critic |
+| 4 | Design | NanoBanana Pro | `google/gemini-3-pro-image-preview` | Design |
+| 5 | Extraction | Gemini 2.5 Flash | `google/gemini-2.5-flash` | Scout, GeoScout |
+| 6 | Simple | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Packager, Portfolio Agent [PLANNED] |
+
+> **Note:** Speculative fallback models (Grok 4.1 Fast, Local Qwen3-4B, GPT-5.2 Codex,
+> Qwen3-Coder-Next) removed — only verified OpenRouter models retained.
 
 ### Supplementary Models
 
@@ -196,8 +194,8 @@ def choose_sandbox(estimated_time_minutes: int) -> str:
 ### Dev Agent Routing Logic
 
 Planner tags each task with complexity. Dev Agent selects model accordingly:
-- `complexity: "complex"` → Claude Opus 4.6 (architecture, multi-file, new modules)
-- `complexity: "standard"` → Claude Sonnet 4.5 (bug fixes, single-file, routine code)
+- `complexity: "complex"` → Claude Opus 4.6 / Tier 1 (architecture, multi-file, new modules)
+- `complexity: "standard"` → Claude Sonnet 4.6 / Tier 3 (bug fixes, single-file, routine code)
 
 ### NanoBanana Pro
 
@@ -207,40 +205,25 @@ Used by Design Agent for high-quality image generation: logos with text, infogra
 - Industry-leading text rendering in images
 - Context: 65K tokens
 
-### OpenRouter Model Reference
+### OpenRouter Model Reference (used models only)
 
-| Model | OpenRouter ID | $/1M in | $/1M out | Context |
-|-------|---------------|---------|----------|---------|
-| DeepSeek V3.2 | `deepseek/deepseek-v3.2` | $0.25 | $0.38 | 164K |
-| DeepSeek R1 | `deepseek/deepseek-r1` | $0.70 | $2.50 | 64K |
-| Claude Opus 4.6 | `anthropic/claude-opus-4.6` | $5.00 | $25.00 | 1M |
-| Claude Sonnet 4.5 | `anthropic/claude-sonnet-4.5` | $3.00 | $15.00 | 1M |
-| Claude Haiku 3.5 | `anthropic/claude-3.5-haiku` | $0.80 | $4.00 | 200K |
-| NanoBanana Pro | `google/gemini-3-pro-image-preview` | $2.00 | $12.00 | 65K |
-| Gemini 3 Flash | `google/gemini-3-flash-preview` | $0.50 | $3.00 | 1M |
-| Gemini 3 Pro | `google/gemini-3-pro-preview` | $2.00 | $12.00 | 1M |
-| GPT-5.2 | `openai/gpt-5.2` | $1.75 | $14.00 | 400K |
-| GPT-5.2 Codex | `openai/gpt-5.2-codex` | $1.75 | $14.00 | 400K |
-| Grok 4.1 Fast | `x-ai/grok-4.1-fast` | $0.20 | $0.50 | 2M |
-| Qwen3-Coder-Next | `qwen/qwen3-coder-next` | $0.07 | $0.30 | 262K |
+| Model | OpenRouter ID | Tier | Context |
+|-------|---------------|:----:|---------|
+| Claude Opus 4.6 | `anthropic/claude-opus-4-6` | 1 | 1M |
+| Gemini 3.1 Pro | `google/gemini-3.1-pro` | 2 | 1M |
+| Claude Sonnet 4.6 | `anthropic/claude-sonnet-4-6` | 3 | 1M |
+| NanoBanana Pro | `google/gemini-3-pro-image-preview` | 4 | 65K |
+| Gemini 2.5 Flash | `google/gemini-2.5-flash` | 5 | 1M |
+| DeepSeek V3.2 | `deepseek/deepseek-v3.2` | 6 | 164K |
+
+> **Note:** Pricing fluctuates — verify on openrouter.ai/models before budgeting.
 
 ### Monthly Cost Estimate (~$391/mo at full 24/7 load)
 
-| Agent | Model | $/mo |
-|-------|-------|------|
-| Scout | DeepSeek V3.2 | $14 |
-| Bid | DeepSeek V3.2 | $6 |
-| Planner | Claude Opus 4.6 | $41 |
-| Dev (complex 30%) | Claude Opus 4.6 | $41 |
-| Dev (standard 70%) | Claude Sonnet 4.5 | $57 |
-| Content | DeepSeek V3.2 | $3 |
-| Design | NanoBanana Pro | $30 |
-| Critic | Claude Sonnet 4.5 | $176 |
-| Packager | DeepSeek V3.2 | $1 |
-| GeoScout | DeepSeek V3.2 | $6 |
-| Outreach | DeepSeek V3.2 | $11 |
-| Embeddings | text-embedding-3-large | $5 |
-| **Total** | | **~$391** |
+> **Note:** Cost estimates will be recalculated after migration to the new 6-tier system.
+> Previous estimate (~$391/mo) was based on DeepSeek V3.2 for most agents.
+> New tiers use Gemini 2.5 Flash (Scout, GeoScout) and Gemini 3.1 Pro (Bid, Outreach)
+> which may change the total. See MASTER-VISION.md Section 4.2 for details.
 
 ### Platform Status
 
@@ -258,7 +241,7 @@ Used by Design Agent for high-quality image generation: logos with text, infogra
 ```sql
 -- Run on database initialization
 CREATE EXTENSION IF NOT EXISTS vector;        -- Vector type support
-CREATE EXTENSION IF NOT EXISTS vectorscale;   -- DiskANN indexes
+-- vectorscale NOT used in production (HNSW indexes via pgvector)
 CREATE EXTENSION IF NOT EXISTS pgcrypto;      -- UUID generation
 CREATE EXTENSION IF NOT EXISTS pg_trgm;       -- Text search (optional)
 ```
@@ -338,7 +321,7 @@ SENTRY_DSN=                 # Error tracking
 | Redis | Valkey | Licensing, same API |
 | Next.js | Remix | Architecture decision |
 | NextAuth | Custom JWT | Simpler, no framework lock |
-| HNSW index | DiskANN | Performance at scale |
+| Separate vector DB | pgvector HNSW | Integrated with PostgreSQL |
 | E2B for all | Docker primary | E2B has time limits |
 | Selenium | Playwright | Better API, stealth support |
 
@@ -350,7 +333,7 @@ If you find code using deprecated patterns:
 
 1. **FastAPI imports** → Replace with Litestar
 2. **Redis URL** → Can keep `redis://` (Valkey is compatible)
-3. **HNSW indexes** → Recreate with DiskANN
+3. **DiskANN references in docs** → Current production uses HNSW (pgvector)
 4. **Next.js components** → Rewrite for Remix
 
 ---

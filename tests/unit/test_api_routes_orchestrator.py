@@ -266,23 +266,40 @@ class TestStartRunner:
     """Tests for OrchestratorService.start_runner()."""
 
     def test_start_success(self, svc: OrchestratorService) -> None:
+        import subprocess as _sp
         mock_proc = MagicMock()
         mock_proc.pid = 9999
 
-        with patch(f"{PARSERS}.is_runner_alive", return_value=(False, None)), \
-             patch(f"{PARSERS}.RUNNER_SCRIPT") as mock_script, \
-             patch(f"{PARSERS}.ORCH_DIR") as mock_dir, \
-             patch(f"{PARSERS}.PID_FILE") as mock_pid, \
-             patch("subprocess.Popen", return_value=mock_proc):
-            mock_script.exists.return_value = True
-            mock_dir.mkdir = MagicMock()
-            mock_pid.write_text = MagicMock()
+        # CREATE_NO_WINDOW and CREATE_NEW_PROCESS_GROUP are Windows-only
+        # constants.  Ensure they exist on non-Windows platforms so the
+        # source code can evaluate them without AttributeError.
+        _cnw = getattr(_sp, "CREATE_NO_WINDOW", None)
+        _cnpg = getattr(_sp, "CREATE_NEW_PROCESS_GROUP", None)
+        if _cnw is None:
+            _sp.CREATE_NO_WINDOW = 0x08000000
+        if _cnpg is None:
+            _sp.CREATE_NEW_PROCESS_GROUP = 0x00000200
 
-            result = svc.start_runner()
+        try:
+            with patch(f"{PARSERS}.is_runner_alive", return_value=(False, None)), \
+                 patch(f"{PARSERS}.RUNNER_SCRIPT") as mock_script, \
+                 patch(f"{PARSERS}.ORCH_DIR") as mock_dir, \
+                 patch(f"{PARSERS}.PID_FILE") as mock_pid, \
+                 patch("subprocess.Popen", return_value=mock_proc):
+                mock_script.exists.return_value = True
+                mock_dir.mkdir = MagicMock()
+                mock_pid.write_text = MagicMock()
 
-        assert result["status"] == "started"
-        assert result["pid"] == 9999
-        assert "agent-driven" in result["message"]
+                result = svc.start_runner()
+
+            assert result["status"] == "started"
+            assert result["pid"] == 9999
+            assert "agent-driven" in result["message"]
+        finally:
+            if _cnw is None:
+                del _sp.CREATE_NO_WINDOW
+            if _cnpg is None:
+                del _sp.CREATE_NEW_PROCESS_GROUP
 
     def test_start_already_running(self, svc: OrchestratorService) -> None:
         with patch(f"{PARSERS}.is_runner_alive", return_value=(True, 1234)):
@@ -690,24 +707,40 @@ class TestSchemaConstruction:
         assert schema.log_file == "runner.log"
 
     def test_start_response_schema(self, svc: OrchestratorService) -> None:
+        import subprocess as _sp
+
         from src.api.schemas import OrchestratorStartResponseSchema
 
         mock_proc = MagicMock()
         mock_proc.pid = 9999
 
-        with patch(f"{PARSERS}.is_runner_alive", return_value=(False, None)), \
-             patch(f"{PARSERS}.RUNNER_SCRIPT") as mock_script, \
-             patch(f"{PARSERS}.ORCH_DIR") as mock_dir, \
-             patch(f"{PARSERS}.PID_FILE") as mock_pid, \
-             patch("subprocess.Popen", return_value=mock_proc):
-            mock_script.exists.return_value = True
-            mock_dir.mkdir = MagicMock()
-            mock_pid.write_text = MagicMock()
-            data = svc.start_runner()
+        # Ensure Windows-only constants exist on non-Windows platforms.
+        _cnw = getattr(_sp, "CREATE_NO_WINDOW", None)
+        _cnpg = getattr(_sp, "CREATE_NEW_PROCESS_GROUP", None)
+        if _cnw is None:
+            _sp.CREATE_NO_WINDOW = 0x08000000
+        if _cnpg is None:
+            _sp.CREATE_NEW_PROCESS_GROUP = 0x00000200
 
-        schema = OrchestratorStartResponseSchema(**data)
-        assert schema.status == "started"
-        assert schema.pid == 9999
+        try:
+            with patch(f"{PARSERS}.is_runner_alive", return_value=(False, None)), \
+                 patch(f"{PARSERS}.RUNNER_SCRIPT") as mock_script, \
+                 patch(f"{PARSERS}.ORCH_DIR") as mock_dir, \
+                 patch(f"{PARSERS}.PID_FILE") as mock_pid, \
+                 patch("subprocess.Popen", return_value=mock_proc):
+                mock_script.exists.return_value = True
+                mock_dir.mkdir = MagicMock()
+                mock_pid.write_text = MagicMock()
+                data = svc.start_runner()
+
+            schema = OrchestratorStartResponseSchema(**data)
+            assert schema.status == "started"
+            assert schema.pid == 9999
+        finally:
+            if _cnw is None:
+                del _sp.CREATE_NO_WINDOW
+            if _cnpg is None:
+                del _sp.CREATE_NEW_PROCESS_GROUP
 
     def test_stop_response_schema(self, svc: OrchestratorService) -> None:
         from src.api.schemas import OrchestratorStopResponseSchema

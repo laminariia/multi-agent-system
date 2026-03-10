@@ -16,7 +16,7 @@ from langchain_core.messages import BaseMessage
 # Sub-schemas
 # ---------------------------------------------------------------------------
 
-Platform = Literal["freelancer", "upwork", "flru", "kwork"]
+Platform = Literal["freelancer", "upwork", "flru", "kwork", "internal", "outreach"]
 Status = Literal["active", "paused", "completed", "failed"]
 
 

@@ -130,7 +130,7 @@ class TestApplyEmailApproval:
         state = _state(status="paused")
         result = _apply_email_approval(state, "reject", {}, "t-resume")
         assert result["status"] == "failed"
-        assert "emails rejected" in result["errors"][-1]
+        assert "outreach messages rejected" in result["errors"][-1]
 
     def test_edit_approves_with_edits(self) -> None:
         """Edit should approve emails and store edits."""

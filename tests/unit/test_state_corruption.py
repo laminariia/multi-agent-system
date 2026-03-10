@@ -46,8 +46,8 @@ def test_routing_with_none_artifacts():
     }
     result = _route_after_critic(state)
     assert result == "dev_node"
-    # Verify the fallback created a usable dict
-    assert state["artifacts"]["_critic_revision_count"] == 1
+    # Routing is pure — does not mutate state; artifacts stays None
+    assert state["artifacts"] is None
 
 
 def test_routing_with_artifacts_as_string():

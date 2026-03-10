@@ -1,15 +1,16 @@
-"""Outreach Agent -- enriches leads and generates personalized cold emails.
+"""Outreach Agent -- enriches leads and generates personalized cold messages.
 
-Pipeline B flow: GeoScout -> Outreach (enrich + draft emails) -> [HITL approval] -> Send
+Pipeline B flow: GeoScout -> Outreach (enrich + draft messages) -> [HITL approval] -> Send
 
 The Outreach Agent:
 1. Loads unenriched leads from the database (status='new')
-2. Runs enrichment waterfall (OSINT -> Hunter -> Apollo) to find emails
-3. For leads with emails, generates personalized cold emails via LLM
-4. Queues emails for HITL approval (NEVER auto-sends)
-5. Creates/updates an EmailCampaign to track the batch
+2. Runs enrichment waterfall (OSINT -> Hunter -> Apollo) to find contacts
+3. Selects channel per lead (telegram if username available, else email)
+4. Generates personalized messages via LLM (channel-specific prompts)
+5. Queues messages for HITL approval (NEVER auto-sends)
+6. Creates/updates an EmailCampaign to track the batch
 
-CRITICAL: Email sending requires HITL approval. This agent only DRAFTS emails.
+CRITICAL: Message sending requires HITL approval. This agent only DRAFTS messages.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from src.core.loop_detector import LoopDetector
 from src.core.models import CampaignLead, EmailCampaign, HITLQueue, Lead
 from src.core.state import AgentState, update_state
 from src.enrichment.waterfall import EnrichmentWaterfall
+from src.prompts.outreach import ChannelType, get_outreach_prompt
 
 logger = structlog.get_logger(__name__)
 
@@ -44,34 +46,25 @@ OUTREACH_ALLOWED_TOOLS: list[str] = [
 # Max leads to process per invocation (rate-limit protection).
 _MAX_LEADS_PER_BATCH = 50
 
-OUTREACH_SYSTEM_PROMPT = """\
-You are an expert cold email writer for a web development agency.
-Your task is to write a personalized cold email to a local business that doesn't have a website.
 
-Requirements:
-- Keep it SHORT (under 150 words)
-- Personalize based on the business type and location
-- Clear value proposition: "we build websites that bring customers"
-- One clear CTA (call-to-action): reply to schedule a free consultation
-- Professional but friendly tone
-- NO spam phrases ("limited time offer", "act now", etc.)
-- Include the business name naturally
+def _select_channel(lead: Lead) -> ChannelType:
+    """Choose the best outreach channel for a lead.
 
-Respond with ONLY a JSON object:
-{
-    "subject": "Subject line here",
-    "body": "Email body here"
-}
-"""
+    Prefers Telegram when a username is available (higher open rate),
+    falls back to email.
+    """
+    if getattr(lead, "telegram_username", None):
+        return "telegram"
+    return "email"
 
 
 class OutreachAgent(ConstrainedAgent):
-    """Enriches leads and generates personalized cold emails.
+    """Enriches leads and generates personalized outreach messages.
 
     Parameters
     ----------
     llm_client:
-        Shared :class:`LLMClient` instance (Claude Haiku primary).
+        Shared :class:`LLMClient` instance.
     heartbeat:
         Shared :class:`HeartbeatMonitor` for liveness pings.
     loop_detector:
@@ -134,16 +127,13 @@ class OutreachAgent(ConstrainedAgent):
     # ------------------------------------------------------------------
 
     async def _execute(self, state: AgentState) -> AgentState:
-        """Enrich leads and generate cold emails.
-
-        Reads city from ``artifacts["_geo_scan_results"]["city"]`` or
-        ``state["project"]["requirements"]`` as fallback.
+        """Enrich leads and generate outreach messages (email + telegram).
 
         Flow:
         1. Determine target city from state.
         2. Load unenriched leads (``status='new'``) from DB.
         3. Run enrichment waterfall on each lead.
-        4. Generate personalized email for each enriched lead.
+        4. Select channel per lead, generate personalized message via LLM.
         5. Create EmailCampaign + CampaignLead entries.
         6. Create HITL request for batch approval.
         7. Return state with ``requires_hitl=True``.
@@ -176,7 +166,9 @@ class OutreachAgent(ConstrainedAgent):
                         "_outreach_results": {
                             "city": city,
                             "enriched": 0,
+                            "messages_drafted": 0,
                             "emails_drafted": 0,
+                            "channel_counts": {"email": 0, "telegram": 0},
                         },
                     },
                     status="completed",
@@ -188,20 +180,20 @@ class OutreachAgent(ConstrainedAgent):
             waterfall = await self._get_waterfall(user_id=user_id)
             enriched_leads = await self._enrich_leads(leads, waterfall)
 
-            # 3. Generate emails for enriched leads.
-            emails_drafted = 0
+            # 3. Generate messages for enriched leads (multi-channel).
+            messages_drafted = 0
+            channel_counts: dict[str, int] = {"email": 0, "telegram": 0}
             if enriched_leads:
                 campaign = await self._create_campaign(city)
-                # Store campaign_id in artifacts so email_sending_node can find it.
                 artifacts["campaign_id"] = str(campaign.id)
-                emails_drafted = await self._generate_emails(enriched_leads, campaign)
+                messages_drafted, channel_counts = await self._generate_messages(
+                    enriched_leads, campaign
+                )
 
-                # 4. Create HITL request for email approval.
-                if emails_drafted > 0:
+                # 4. Create HITL request for batch approval.
+                if messages_drafted > 0:
                     hitl_id = await self._create_hitl_request(
-                        campaign,
-                        city,
-                        emails_drafted,
+                        campaign, city, messages_drafted, channel_counts,
                     )
                     artifacts["_outreach_hitl_id"] = str(hitl_id)
 
@@ -211,17 +203,20 @@ class OutreachAgent(ConstrainedAgent):
                 "city": city,
                 "leads_processed": len(leads),
                 "enriched": len(enriched_leads),
-                "emails_drafted": emails_drafted,
+                "messages_drafted": messages_drafted,
+                # Keep emails_drafted for backward compat
+                "emails_drafted": messages_drafted,
+                "channel_counts": channel_counts,
                 "enrichment_cost": enrichment_cost,
             }
 
             return update_state(
                 state,
                 artifacts=artifacts,
-                requires_hitl=emails_drafted > 0,
+                requires_hitl=messages_drafted > 0,
                 hitl_request_id=artifacts.get("_outreach_hitl_id"),
                 current_agent="outreach",
-                status="paused" if emails_drafted > 0 else "completed",
+                status="paused" if messages_drafted > 0 else "completed",
                 next_agent=None,
             )
 
@@ -258,7 +253,7 @@ class OutreachAgent(ConstrainedAgent):
         """Run enrichment waterfall on each lead, updating the DB.
 
         Returns the subset of leads that were successfully enriched
-        (i.e. have an email address).
+        (i.e. have an email address or telegram username).
         """
         enriched: list[Lead] = []
 
@@ -287,7 +282,7 @@ class OutreachAgent(ConstrainedAgent):
                             status="enriched",
                         )
                     )
-                    # Update local object for downstream email generation.
+                    # Update local object for downstream message generation.
                     lead.email = result.email
                     lead.status = "enriched"
                     enriched.append(lead)
@@ -323,49 +318,59 @@ class OutreachAgent(ConstrainedAgent):
             return campaign
 
     # ------------------------------------------------------------------
-    # Email generation via LLM
+    # Multi-channel message generation via LLM
     # ------------------------------------------------------------------
 
-    async def _generate_emails(
+    async def _generate_messages(
         self,
         leads: list[Lead],
         campaign: EmailCampaign,
-    ) -> int:
-        """Generate personalized emails for each enriched lead via LLM.
+    ) -> tuple[int, dict[str, int]]:
+        """Generate personalized messages for each enriched lead via LLM.
 
-        Returns the number of emails drafted.
+        Selects the best channel per lead and uses channel-specific prompts.
+
+        Returns:
+            Tuple of (total_drafted, channel_counts).
         """
         drafted = 0
+        channel_counts: dict[str, int] = {"email": 0, "telegram": 0}
+
         async with get_db_session() as session:
             for lead in leads:
-                if not lead.email:
+                if not lead.email and not getattr(lead, "telegram_username", None):
                     continue
 
-                subject, body = await self._draft_email_for_lead(lead)
+                channel = _select_channel(lead)
+                subject, body = await self._draft_message_for_lead(lead, channel)
 
                 cl = CampaignLead(
                     campaign_id=campaign.id,
                     lead_id=lead.id,
                     status="pending",
+                    channel_type=channel,
                     personalized_subject=subject,
                     personalized_body=body,
                 )
                 session.add(cl)
                 drafted += 1
+                channel_counts[channel] = channel_counts.get(channel, 0) + 1
 
             # Update campaign stats.
             campaign.total_leads = drafted
             session.add(campaign)
             await session.commit()
 
-        self._log.info("outreach_emails_drafted", count=drafted)
-        return drafted
+        self._log.info("outreach_messages_drafted", count=drafted, channels=channel_counts)
+        return drafted, channel_counts
 
-    async def _draft_email_for_lead(self, lead: Lead) -> tuple[str, str]:
-        """Call LLM to generate a personalized email for a single lead.
+    async def _draft_message_for_lead(
+        self, lead: Lead, channel: ChannelType,
+    ) -> tuple[str | None, str]:
+        """Call LLM to generate a personalized message for a single lead.
 
-        Returns ``(subject, body)``.  On LLM failure, returns a safe
-        fallback template.
+        Returns ``(subject, body)`` for email or ``(None, body)`` for telegram.
+        On LLM failure, returns a safe fallback.
         """
         prompt = (
             f"Business: {lead.name}\n"
@@ -373,31 +378,43 @@ class OutreachAgent(ConstrainedAgent):
             f"City: {lead.city}\n"
             f"Address: {lead.address or 'N/A'}\n"
         )
+        if channel == "telegram":
+            tg_user = getattr(lead, "telegram_username", "")
+            prompt += f"Telegram: @{tg_user}\n"
 
         try:
+            system_prompt = get_outreach_prompt(channel)
             response_msg, _metrics = await self._call_llm(
                 messages=[
-                    SystemMessage(content=OUTREACH_SYSTEM_PROMPT),
+                    SystemMessage(content=system_prompt),
                     HumanMessage(content=prompt),
                 ],
                 temperature=0.7,
             )
 
             text = str(response_msg.content)
-            email_data = _parse_email_json(text)
-            subject = email_data.get("subject", f"Website for {lead.name}")
-            body = email_data.get("body", "")
+            msg_data = _parse_message_json(text)
+            body = msg_data.get("body", "")
             if body:
-                return subject, body
+                if channel == "email":
+                    subject = msg_data.get("subject", f"Website for {lead.name}")
+                    return subject, body
+                return None, body
 
         except (LLMException, KeyError, ValueError):
             self._log.warning(
-                "outreach_email_gen_failed",
+                "outreach_message_gen_failed",
                 lead=lead.name,
+                channel=channel,
                 exc_info=True,
             )
 
-        # Fallback template.
+        # Fallback templates.
+        if channel == "telegram":
+            return None, (
+                f"Привет! Заметил, что у {lead.name} нет сайта. "
+                "Делаю сайты для локального бизнеса — могу показать примеры, если интересно."
+            )
         return (
             f"Website for {lead.name}",
             (
@@ -418,21 +435,31 @@ class OutreachAgent(ConstrainedAgent):
         campaign: EmailCampaign,
         city: str,
         count: int,
+        channel_counts: dict[str, int] | None = None,
     ) -> uuid.UUID:
-        """Create HITL queue item for email batch approval.
+        """Create HITL queue item for outreach batch approval.
 
         Returns the UUID of the created HITL request.
         """
+        channels_desc = ""
+        if channel_counts:
+            parts = [f"{v} {k}" for k, v in channel_counts.items() if v > 0]
+            channels_desc = f" ({', '.join(parts)})"
+
         async with get_db_session() as session:
             hitl = HITLQueue(
-                type="email_approval",
+                type="outreach_approval",
                 priority="normal",
-                title=f"Approve {count} cold emails for {city}",
-                description=(f"Review and approve {count} personalized cold emails for businesses in {city}."),
+                title=f"Approve {count} outreach messages for {city}{channels_desc}",
+                description=(
+                    f"Review and approve {count} personalized outreach messages "
+                    f"for businesses in {city}.{channels_desc}"
+                ),
                 payload={
                     "campaign_id": str(campaign.id),
                     "city": city,
-                    "email_count": count,
+                    "message_count": count,
+                    "channel_counts": channel_counts or {},
                 },
                 available_actions=["approve", "reject", "edit"],
                 status="pending",
@@ -448,9 +475,13 @@ class OutreachAgent(ConstrainedAgent):
 # ======================================================================
 
 
-def _parse_email_json(text: str) -> dict[str, Any]:
+def _parse_message_json(text: str) -> dict[str, Any]:
     """Parse JSON from an LLM response using extract_json for robustness."""
     return extract_json(text, expected_type=dict)
+
+
+# Keep old name for backward compatibility with tests
+_parse_email_json = _parse_message_json
 
 
 # ======================================================================

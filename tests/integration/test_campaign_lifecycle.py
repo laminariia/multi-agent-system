@@ -1,10 +1,10 @@
-"""Integration tests for email campaign lifecycle.
+"""Integration tests for outreach campaign lifecycle.
 
 Tests the full campaign lifecycle through the Pipeline B graph:
 - Create -> Draft -> HITL -> Send -> Complete
 - Status transitions: draft -> active -> completed
 - Campaign with 0 enriched leads (no HITL needed)
-- Email sending node behavior after approval
+- Message dispatch node behavior after approval
 """
 
 from __future__ import annotations
@@ -15,10 +15,10 @@ from typing import Any
 from unittest.mock import patch
 
 from src.core.graph import (
-    _route_after_hitl_email,
+    _route_after_hitl_outreach,
     _route_after_outreach,
-    email_sending_node,
-    hitl_email_node,
+    hitl_outreach_node,
+    message_dispatch_node,
 )
 from src.core.state import ProjectContext, create_initial_state
 
@@ -127,7 +127,7 @@ async def test_campaign_lifecycle_create_to_hitl():
 
 
 async def test_campaign_lifecycle_approve_and_send():
-    """Lifecycle: HITL approve -> email_sending_node -> completed."""
+    """Lifecycle: HITL approve -> message_dispatch_node -> completed."""
 
     async def _geo_ok(state: dict[str, Any]) -> dict[str, Any]:
         artifacts = dict(state.get("artifacts") or {})
@@ -155,22 +155,22 @@ async def test_campaign_lifecycle_approve_and_send():
         return {
             **state, "artifacts": artifacts,
             "requires_hitl": False, "status": "active",
-            "current_agent": "hitl_email",
+            "current_agent": "hitl_outreach",
         }
 
-    async def _email_sends(state: dict[str, Any]) -> dict[str, Any]:
+    async def _dispatch_sends(state: dict[str, Any]) -> dict[str, Any]:
         artifacts = dict(state.get("artifacts") or {})
         artifacts["email_send_result"] = {"sent": 5, "failed": 0}
         return {
             **state, "artifacts": artifacts,
-            "current_agent": "email_sending",
+            "current_agent": "message_dispatch",
             "status": "completed", "next_agent": None,
         }
 
     with patch("src.core.graph.geo_scout_node", side_effect=_geo_ok), \
          patch("src.core.graph.outreach_node", side_effect=_outreach_ok), \
-         patch("src.core.graph.hitl_email_node", side_effect=_hitl_approves), \
-         patch("src.core.graph.email_sending_node", side_effect=_email_sends):
+         patch("src.core.graph.hitl_outreach_node", side_effect=_hitl_approves), \
+         patch("src.core.graph.message_dispatch_node", side_effect=_dispatch_sends):
         from src.core.graph import build_pipeline_b_graph
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_campaign_state())
@@ -205,13 +205,13 @@ async def test_campaign_lifecycle_reject_ends():
         return {
             **state,
             "requires_hitl": False, "status": "failed",
-            "current_agent": "hitl_email",
-            "errors": [*state.get("errors", []), "HITL: emails rejected"],
+            "current_agent": "hitl_outreach",
+            "errors": [*state.get("errors", []), "HITL: outreach messages rejected"],
         }
 
     with patch("src.core.graph.geo_scout_node", side_effect=_geo_ok), \
          patch("src.core.graph.outreach_node", side_effect=_outreach_ok), \
-         patch("src.core.graph.hitl_email_node", side_effect=_hitl_rejects):
+         patch("src.core.graph.hitl_outreach_node", side_effect=_hitl_rejects):
         from src.core.graph import build_pipeline_b_graph
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_campaign_state())
@@ -257,7 +257,7 @@ async def test_campaign_zero_leads_no_hitl():
 
     with patch("src.core.graph.geo_scout_node", side_effect=_geo_ok), \
          patch("src.core.graph.outreach_node", side_effect=_outreach_no_enrichment), \
-         patch("src.core.graph.hitl_email_node", side_effect=_tracking_hitl):
+         patch("src.core.graph.hitl_outreach_node", side_effect=_tracking_hitl):
         from src.core.graph import build_pipeline_b_graph
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_campaign_state(emails_drafted=0))
@@ -304,23 +304,23 @@ async def test_campaign_status_draft_to_active_to_completed():
         return {
             **state, "artifacts": artifacts,
             "requires_hitl": False, "status": "active",
-            "current_agent": "hitl_email",
+            "current_agent": "hitl_outreach",
         }
 
-    async def _email_sends(state: dict[str, Any]) -> dict[str, Any]:
-        statuses_seen.append(f"email:{state['status']}")
+    async def _dispatch_sends(state: dict[str, Any]) -> dict[str, Any]:
+        statuses_seen.append(f"dispatch:{state['status']}")
         artifacts = dict(state.get("artifacts") or {})
         artifacts["email_send_result"] = {"sent": 3, "failed": 0}
         return {
             **state, "artifacts": artifacts,
-            "current_agent": "email_sending",
+            "current_agent": "message_dispatch",
             "status": "completed",
         }
 
     with patch("src.core.graph.geo_scout_node", side_effect=_geo_ok), \
          patch("src.core.graph.outreach_node", side_effect=_outreach_ok), \
-         patch("src.core.graph.hitl_email_node", side_effect=_hitl_approves), \
-         patch("src.core.graph.email_sending_node", side_effect=_email_sends):
+         patch("src.core.graph.hitl_outreach_node", side_effect=_hitl_approves), \
+         patch("src.core.graph.message_dispatch_node", side_effect=_dispatch_sends):
         from src.core.graph import build_pipeline_b_graph
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_campaign_state())
@@ -337,9 +337,9 @@ async def test_campaign_status_draft_to_active_to_completed():
 
 
 async def test_route_after_outreach_hitl_when_emails_drafted():
-    """_route_after_outreach routes to hitl_email when requires_hitl."""
+    """_route_after_outreach routes to hitl_outreach when requires_hitl."""
     state = {"status": "paused", "requires_hitl": True}
-    assert _route_after_outreach(state) == "hitl_email_node"
+    assert _route_after_outreach(state) == "hitl_outreach_node"
 
 
 async def test_route_after_outreach_end_when_no_emails():
@@ -356,73 +356,73 @@ async def test_route_after_outreach_end_on_failure():
     assert _route_after_outreach(state) == END
 
 
-async def test_route_after_hitl_email_send_when_approved():
-    """_route_after_hitl_email routes to email_sending when approved."""
+async def test_route_after_hitl_outreach_send_when_approved():
+    """_route_after_hitl_outreach routes to message_dispatch when approved."""
     state = {"status": "active", "artifacts": {"emails_approved": True}}
-    assert _route_after_hitl_email(state) == "email_sending_node"
+    assert _route_after_hitl_outreach(state) == "message_dispatch_node"
 
 
-async def test_route_after_hitl_email_end_when_not_approved():
-    """_route_after_hitl_email routes to END when not approved."""
+async def test_route_after_hitl_outreach_end_when_not_approved():
+    """_route_after_hitl_outreach routes to END when not approved."""
     from langgraph.graph import END
     state = {"status": "active", "artifacts": {}}
-    assert _route_after_hitl_email(state) == END
+    assert _route_after_hitl_outreach(state) == END
 
 
-async def test_route_after_hitl_email_end_on_failure():
-    """_route_after_hitl_email routes to END on failure."""
+async def test_route_after_hitl_outreach_end_on_failure():
+    """_route_after_hitl_outreach routes to END on failure."""
     from langgraph.graph import END
     state = {"status": "failed"}
-    assert _route_after_hitl_email(state) == END
+    assert _route_after_hitl_outreach(state) == END
 
 
 # ---------------------------------------------------------------------------
-# Tests: email_sending_node
+# Tests: message_dispatch_node
 # ---------------------------------------------------------------------------
 
 
-async def test_email_sending_node_skips_when_not_approved():
-    """email_sending_node skips sending when emails_approved is not set."""
+async def test_message_dispatch_node_skips_when_not_approved():
+    """message_dispatch_node skips sending when emails_approved is not set."""
     state = _make_campaign_state()
     # emails_approved NOT set
     state["status"] = "active"
 
-    result = await email_sending_node(state)
+    result = await message_dispatch_node(state)
 
     assert result["status"] == "completed"
-    assert result["current_agent"] == "email_sending"
+    assert result["current_agent"] == "message_dispatch"
 
 
-async def test_email_sending_node_no_campaign_id():
-    """email_sending_node handles missing campaign_id gracefully."""
+async def test_message_dispatch_node_no_campaign_id():
+    """message_dispatch_node handles missing campaign_id gracefully."""
     state = _make_campaign_state()
     state["artifacts"]["emails_approved"] = True
     del state["artifacts"]["campaign_id"]
     state["status"] = "active"
 
-    result = await email_sending_node(state)
+    result = await message_dispatch_node(state)
 
     assert result["status"] == "completed"
-    assert result["artifacts"]["email_send_result"]["error"] == "no campaign_id"
+    assert result["artifacts"]["send_results"]["error"] == "no campaign_id"
 
 
-async def test_hitl_email_node_pauses_when_active():
-    """hitl_email_node pauses the workflow when status is not already paused."""
+async def test_hitl_outreach_node_pauses_when_active():
+    """hitl_outreach_node pauses the workflow when status is not already paused."""
     state = _make_campaign_state()
     state["status"] = "active"  # Not yet paused
 
-    result = await hitl_email_node(state)
+    result = await hitl_outreach_node(state)
 
     assert result["status"] == "paused"
     assert result["requires_hitl"] is True
-    assert result["current_agent"] == "hitl_email"
+    assert result["current_agent"] == "hitl_outreach"
 
 
-async def test_hitl_email_node_no_op_when_already_paused():
-    """hitl_email_node returns state unchanged when already paused."""
+async def test_hitl_outreach_node_no_op_when_already_paused():
+    """hitl_outreach_node returns state unchanged when already paused."""
     state = _make_campaign_state()
     state["status"] = "paused"
 
-    result = await hitl_email_node(state)
+    result = await hitl_outreach_node(state)
 
     assert result["status"] == "paused"

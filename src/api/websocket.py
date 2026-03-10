@@ -228,5 +228,5 @@ async def publish_event(channels: ChannelsPlugin, channel: str, data: dict[str, 
         data: Event payload serialisable to JSON.
     """
     payload = json.dumps(data, default=str)
-    await channels.publish(payload, [channel])
+    channels.publish(payload, [channel])
     logger.debug("ws.publish", channel=channel, data_keys=list(data.keys()))

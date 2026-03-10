@@ -3,7 +3,7 @@
 These tests exercise the production ``build_pipeline_b_graph()`` with patched
 agent node functions.  They verify that:
 
-1. The Pipeline B graph routes correctly (geo_scout -> outreach -> hitl_email -> END)
+1. The Pipeline B graph routes correctly (geo_scout -> outreach -> hitl_outreach -> END)
 2. State transitions carry correct artifacts through each step
 3. Edge cases (no leads, enrichment failure, fallback template) are handled gracefully
 

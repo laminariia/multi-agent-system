@@ -34,24 +34,25 @@ def _make_state(
 
 
 def test_count_0_routes_to_dev():
-    """count=0 < 3 → dev_node, counter incremented to 1."""
+    """count=0 < 3 → dev_node (routing is pure, no state mutation)."""
     state = _make_state(next_agent="dev", revision_count=0)
     assert _route_after_critic(state) == "dev_node"
-    assert state["artifacts"]["_critic_revision_count"] == 1
+    # Routing is now pure — counter is NOT incremented by the routing function.
+    assert state["artifacts"]["_critic_revision_count"] == 0
 
 
 def test_count_1_routes_to_dev():
-    """count=1 < 3 → dev_node, counter incremented to 2."""
+    """count=1 < 3 → dev_node (routing is pure, no state mutation)."""
     state = _make_state(next_agent="dev", revision_count=1)
     assert _route_after_critic(state) == "dev_node"
-    assert state["artifacts"]["_critic_revision_count"] == 2
+    assert state["artifacts"]["_critic_revision_count"] == 1
 
 
 def test_count_2_routes_to_dev():
     """Boundary: count=2 is the LAST permitted revision (2 < 3)."""
     state = _make_state(next_agent="dev", revision_count=2)
     assert _route_after_critic(state) == "dev_node"
-    assert state["artifacts"]["_critic_revision_count"] == 3
+    assert state["artifacts"]["_critic_revision_count"] == 2
 
 
 def test_count_3_escalates_to_hitl():
@@ -67,8 +68,8 @@ def test_count_4_still_escalates():
     assert _route_after_critic(state) == "hitl_review_node"
 
 
-def test_routing_mutates_artifacts():
-    """Side-effect: routing MUTATES state['artifacts'] dict in place."""
+def test_routing_does_not_mutate_artifacts():
+    """Routing is now pure — it does NOT mutate state['artifacts']."""
     artifacts: dict[str, Any] = {"existing": "data", "_critic_revision_count": 0}
     state: dict[str, Any] = {
         "thread_id": "t-mutate",
@@ -77,8 +78,8 @@ def test_routing_mutates_artifacts():
         "artifacts": artifacts,
     }
     _route_after_critic(state)
-    # Same dict object was mutated
-    assert artifacts["_critic_revision_count"] == 1
+    # Routing is pure — counter is unchanged
+    assert artifacts["_critic_revision_count"] == 0
     assert artifacts is state["artifacts"]
 
 
@@ -86,4 +87,5 @@ def test_missing_count_defaults_zero():
     """No _critic_revision_count key → defaults to 0 → routes to dev_node."""
     state = _make_state(next_agent="dev")  # no revision_count
     assert _route_after_critic(state) == "dev_node"
-    assert state["artifacts"]["_critic_revision_count"] == 1
+    # Routing is pure — no key is added
+    assert "_critic_revision_count" not in state["artifacts"]

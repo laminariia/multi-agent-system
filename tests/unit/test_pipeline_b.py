@@ -16,9 +16,11 @@ from src.agents.outreach import OutreachAgent, _parse_email_json, outreach_node
 from src.core.graph import (
     _route_after_geo_scout,
     _route_after_hitl_email,
+    _route_after_hitl_outreach,
     _route_after_outreach,
     build_pipeline_b_graph,
     hitl_email_node,
+    hitl_outreach_node,
 )
 from src.core.models import EmailCampaign, HITLQueue, Lead
 from src.enrichment.waterfall import EnrichmentResult, EnrichmentWaterfall
@@ -730,8 +732,8 @@ async def test_outreach_create_campaign():
 
 
 @pytest.mark.asyncio
-async def test_outreach_generate_emails():
-    """Outreach: _generate_emails generates via LLM."""
+async def test_outreach_generate_messages():
+    """Outreach: _generate_messages generates via LLM."""
     mock_llm = MagicMock()
     mock_heartbeat = MagicMock()
     mock_loop_detector = MagicMock()
@@ -756,6 +758,7 @@ async def test_outreach_generate_emails():
     mock_lead.city = "Berlin"
     mock_lead.address = "Test St"
     mock_lead.email = "test@cafe.com"
+    mock_lead.telegram_username = None  # email channel
 
     mock_campaign = MagicMock(spec=EmailCampaign)
     mock_campaign.id = uuid.uuid4()
@@ -764,9 +767,10 @@ async def test_outreach_generate_emails():
         mock_session = AsyncMock()
         mock_db.return_value.__aenter__.return_value = mock_session
 
-        count = await agent._generate_emails([mock_lead], mock_campaign)  # noqa: SLF001
+        count, channel_counts = await agent._generate_messages([mock_lead], mock_campaign)  # noqa: SLF001
 
     assert count == 1
+    assert channel_counts["email"] == 1
     assert mock_session.add.call_count == 2  # CampaignLead + campaign
 
 
@@ -853,11 +857,11 @@ def test_route_after_geo_scout_to_end_no_next():
     assert result == END
 
 
-def test_route_after_outreach_to_hitl_email():
-    """Routing: _route_after_outreach → hitl_email_node when requires_hitl=True."""
+def test_route_after_outreach_to_hitl_outreach():
+    """Routing: _route_after_outreach → hitl_outreach_node when requires_hitl=True."""
     state = _make_state(status="paused", requires_hitl=True)
     result = _route_after_outreach(state)
-    assert result == "hitl_email_node"
+    assert result == "hitl_outreach_node"
 
 
 def test_route_after_outreach_to_end_failed():
@@ -874,36 +878,61 @@ def test_route_after_outreach_to_end_no_hitl():
     assert result == END
 
 
-def test_route_after_hitl_email_always_end():
-    """Routing: _route_after_hitl_email → END always."""
+def test_route_after_hitl_outreach_no_approval():
+    """Routing: _route_after_hitl_outreach → END when not approved."""
     state = _make_state()
-    result = _route_after_hitl_email(state)
+    result = _route_after_hitl_outreach(state)
     assert result == END
 
 
+def test_route_after_hitl_outreach_approved():
+    """Routing: _route_after_hitl_outreach → message_dispatch_node when approved."""
+    state = _make_state(artifacts={"emails_approved": True})
+    result = _route_after_hitl_outreach(state)
+    assert result == "message_dispatch_node"
+
+
+def test_route_after_hitl_outreach_failed():
+    """Routing: _route_after_hitl_outreach → END when status=failed."""
+    state = _make_state(status="failed", artifacts={"emails_approved": True})
+    result = _route_after_hitl_outreach(state)
+    assert result == END
+
+
+def test_route_after_hitl_email_backward_compat():
+    """Routing: _route_after_hitl_email is alias for _route_after_hitl_outreach."""
+    assert _route_after_hitl_email is _route_after_hitl_outreach
+
+
 # ===========================================================================
-# hitl_email_node tests
+# hitl_outreach_node tests
 # ===========================================================================
 
 
 @pytest.mark.asyncio
-async def test_hitl_email_node_pauses():
-    """HITL email: sets status=paused and requires_hitl=True."""
+async def test_hitl_outreach_node_pauses():
+    """HITL outreach: sets status=paused and requires_hitl=True."""
     state = _make_state(status="active", requires_hitl=False)
-    result = await hitl_email_node(state)
+    result = await hitl_outreach_node(state)
 
     assert result["status"] == "paused"
     assert result["requires_hitl"] is True
-    assert result["current_agent"] == "hitl_email"
+    assert result["current_agent"] == "hitl_outreach"
 
 
 @pytest.mark.asyncio
-async def test_hitl_email_node_already_paused():
-    """HITL email: returns state unchanged when already paused."""
+async def test_hitl_outreach_node_already_paused():
+    """HITL outreach: returns state unchanged when already paused."""
     state = _make_state(status="paused", requires_hitl=True)
-    result = await hitl_email_node(state)
+    result = await hitl_outreach_node(state)
 
     assert result == state
+
+
+@pytest.mark.asyncio
+async def test_hitl_email_node_backward_compat():
+    """hitl_email_node is alias for hitl_outreach_node."""
+    assert hitl_email_node is hitl_outreach_node
 
 
 # ===========================================================================
@@ -918,7 +947,8 @@ def test_build_pipeline_b_graph_no_checkpointer():
     # Check nodes exist
     assert "geo_scout_node" in graph.nodes
     assert "outreach_node" in graph.nodes
-    assert "hitl_email_node" in graph.nodes
+    assert "hitl_outreach_node" in graph.nodes
+    assert "message_dispatch_node" in graph.nodes
 
 
 def test_build_pipeline_b_graph_with_checkpointer():

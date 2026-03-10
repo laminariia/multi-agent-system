@@ -393,7 +393,7 @@ def test_env_example_has_smtp_entries():
     """The .env.example file includes SMTP configuration entries."""
     import pathlib
 
-    env_example = pathlib.Path("C:/Users/user/Desktop/Multi-Agent service/.env.example")
+    env_example = pathlib.Path(__file__).resolve().parents[2] / ".env.example"
     content = env_example.read_text(encoding="utf-8")
 
     assert "SMTP_HOST" in content

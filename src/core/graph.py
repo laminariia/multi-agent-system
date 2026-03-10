@@ -116,6 +116,7 @@ async def bid_submission_node(state: dict[str, Any]) -> dict[str, Any]:
                 project_id=project_id,
                 description=description,
                 amount=amount,
+                period=int(bid_data.get("delivery_days", 7)),
             )
             artifacts["bid_submitted"] = True
             artifacts["bid_submission_result"] = result
@@ -248,14 +249,14 @@ async def hitl_review_node(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
-async def hitl_email_node(state: dict[str, Any]) -> dict[str, Any]:
-    """HITL interrupt node for email batch approval.
+async def hitl_outreach_node(state: dict[str, Any]) -> dict[str, Any]:
+    """HITL interrupt node for outreach batch approval (email + telegram).
 
     Pauses the workflow so a human can review and approve/reject
-    the generated cold emails before they are sent.
+    the generated outreach messages before they are sent.
     """
     logger.info(
-        "hitl_email_node_entered",
+        "hitl_outreach_node_entered",
         thread_id=state["thread_id"],
         hitl_request_id=state.get("hitl_request_id"),
         status=state["status"],
@@ -266,35 +267,38 @@ async def hitl_email_node(state: dict[str, Any]) -> dict[str, Any]:
             state,
             status="paused",
             requires_hitl=True,
-            current_agent="hitl_email",
+            current_agent="hitl_outreach",
         )
 
     return state
 
 
+# Backward-compat alias
+hitl_email_node = hitl_outreach_node
+
+
 # ---------------------------------------------------------------------------
-# Email sending node (Pipeline B)
+# Message dispatch node (Pipeline B — multi-channel)
 # ---------------------------------------------------------------------------
 
 
-async def email_sending_node(state: dict[str, Any]) -> dict[str, Any]:
-    """Send approved outreach emails after HITL approval.
+async def message_dispatch_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Send approved outreach messages across all channels after HITL approval.
 
-    Checks ``artifacts["emails_approved"]`` and, when ``True``, calls
-    :func:`~src.enrichment.email_sender.send_approved_emails` with the
-    campaign ID from artifacts.  Results are stored back in artifacts.
+    Dispatches both email and Telegram DMs based on ``channel_type`` of each
+    CampaignLead.  Replaces the single-channel ``email_sending_node``.
     """
     artifacts = dict(state.get("artifacts") or {})
 
     if not artifacts.get("emails_approved"):
         logger.info(
-            "email_sending_skipped",
+            "message_dispatch_skipped",
             thread_id=state["thread_id"],
-            reason="emails_not_approved",
+            reason="messages_not_approved",
         )
         return update_state(
             state,
-            current_agent="email_sending",
+            current_agent="message_dispatch",
             next_agent=None,
             status="completed",
             artifacts=artifacts,
@@ -303,28 +307,28 @@ async def email_sending_node(state: dict[str, Any]) -> dict[str, Any]:
     campaign_id = artifacts.get("campaign_id")
     if not campaign_id:
         logger.warning(
-            "email_sending_no_campaign",
+            "message_dispatch_no_campaign",
             thread_id=state["thread_id"],
         )
-        artifacts["email_send_result"] = {"sent": 0, "failed": 0, "error": "no campaign_id"}
+        artifacts["send_results"] = {"error": "no campaign_id"}
         return update_state(
             state,
-            current_agent="email_sending",
+            current_agent="message_dispatch",
             next_agent=None,
             status="completed",
             artifacts=artifacts,
         )
+
+    results: dict[str, Any] = {}
 
     try:
         from sqlalchemy import update as sa_update  # noqa: PLC0415
 
         from src.core.database import get_db_session  # noqa: PLC0415
         from src.core.models import CampaignLead  # noqa: PLC0415
-        from src.enrichment.email_sender import send_approved_emails  # noqa: PLC0415
 
         async with get_db_session() as session:
-            # Mark all pending campaign leads as "approved" so
-            # send_approved_emails() can pick them up for delivery.
+            # Mark all pending campaign leads as "approved".
             await session.execute(
                 sa_update(CampaignLead)
                 .where(
@@ -335,42 +339,62 @@ async def email_sending_node(state: dict[str, Any]) -> dict[str, Any]:
             )
             await session.commit()
 
-            result = await send_approved_emails(campaign_id, session)
+            # Send emails
+            try:
+                from src.enrichment.email_sender import send_approved_emails  # noqa: PLC0415
 
-        artifacts["email_send_result"] = result
+                results["email"] = await send_approved_emails(campaign_id, session)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("email_dispatch_failed", error=str(exc), exc_info=True)
+                results["email"] = {"sent": 0, "failed": 0, "error": str(exc)}
 
-        # Warn if SMTP not configured — emails were approved but couldn't send
-        if result.get("sent", 0) == 0 and result.get("failed", 0) == 0:
+            # Send Telegram DMs
+            try:
+                from src.enrichment.telegram_sender import send_approved_telegram_dms  # noqa: PLC0415
+
+                results["telegram"] = await send_approved_telegram_dms(campaign_id, session)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("telegram_dispatch_failed", error=str(exc), exc_info=True)
+                results["telegram"] = {"sent": 0, "failed": 0, "error": str(exc)}
+
+        artifacts["send_results"] = results
+        # Keep backward-compat key
+        artifacts["email_send_result"] = results.get("email", {})
+
+        total_sent = sum(r.get("sent", 0) for r in results.values() if isinstance(r, dict))
+        if total_sent == 0:
             logger.warning(
-                "email_sending_no_emails_sent",
+                "message_dispatch_no_sends",
                 thread_id=state["thread_id"],
                 campaign_id=str(campaign_id),
-                reason="SMTP may not be configured or no approved leads found",
             )
-            artifacts["email_send_warning"] = "No emails sent — check SMTP configuration in Settings"
         else:
             logger.info(
-                "email_sending_complete",
+                "message_dispatch_complete",
                 thread_id=state["thread_id"],
                 campaign_id=str(campaign_id),
-                sent=result.get("sent", 0),
-                failed=result.get("failed", 0),
+                results=results,
             )
+
     except Exception as exc:  # noqa: BLE001
         logger.error(
-            "email_sending_failed",
+            "message_dispatch_failed",
             thread_id=state["thread_id"],
             error=str(exc),
         )
-        artifacts["email_send_result"] = {"sent": 0, "failed": 0, "error": str(exc)}
+        artifacts["send_results"] = {"error": str(exc)}
 
     return update_state(
         state,
-        current_agent="email_sending",
+        current_agent="message_dispatch",
         next_agent=None,
         status="completed",
         artifacts=artifacts,
     )
+
+
+# Backward-compat alias
+email_sending_node = message_dispatch_node
 
 
 # ---------------------------------------------------------------------------
@@ -618,18 +642,27 @@ def _route_after_critic(state: dict[str, Any]) -> str:
         )
         return "planner_node"
 
-    # MINOR REVISION -- send back to Dev, respecting the cycle limit
+    # MINOR REVISION -- send back to Dev, respecting the cycle limit.
+    # NOTE: The revision counter is incremented by Critic._execute(), not here.
+    # Routing functions must be pure (no state mutation) for LangGraph checkpoint
+    # persistence to work correctly.
     if state.get("next_agent") == "dev":
         artifacts = state.get("artifacts") or {}
-        revision_count = artifacts.get("_critic_revision_count", 0)
+        count_data = artifacts.get("_critic_revision_count", [])
+        revision_count = 0
+        if isinstance(count_data, list) and count_data:
+            try:
+                revision_count = int(count_data[0])
+            except (ValueError, TypeError):
+                pass
+        elif isinstance(count_data, (int, float)):
+            revision_count = int(count_data)
+
         if revision_count < MAX_REVISION_CYCLES:
-            # Increment the revision counter so the limit is enforced.
-            artifacts["_critic_revision_count"] = revision_count + 1
-            state["artifacts"] = artifacts
             logger.info(
                 "critic_route_to_dev_revision",
                 thread_id=state["thread_id"],
-                revision_count=revision_count + 1,
+                revision_count=revision_count,
                 max_revisions=MAX_REVISION_CYCLES,
             )
             return "dev_node"
@@ -726,23 +759,27 @@ def _route_after_geo_scout(state: dict[str, Any]) -> str:
 
 
 def _route_after_outreach(state: dict[str, Any]) -> str:
-    """Route after Outreach: HITL email approval or END."""
+    """Route after Outreach: HITL outreach approval or END."""
     if state.get("status") == "failed":
         return END
     if state.get("requires_hitl"):
-        return "hitl_email_node"
-    # No emails drafted -- completed without HITL
+        return "hitl_outreach_node"
+    # No messages drafted -- completed without HITL
     return END
 
 
-def _route_after_hitl_email(state: dict[str, Any]) -> str:
-    """Route after email HITL: send emails if approved, else END."""
+def _route_after_hitl_outreach(state: dict[str, Any]) -> str:
+    """Route after outreach HITL: dispatch messages if approved, else END."""
     if state.get("status") == "failed":
         return END
     artifacts = state.get("artifacts") or {}
     if artifacts.get("emails_approved"):
-        return "email_sending_node"
+        return "message_dispatch_node"
     return END
+
+
+# Backward-compat alias
+_route_after_hitl_email = _route_after_hitl_outreach
 
 
 # ---------------------------------------------------------------------------
@@ -961,7 +998,7 @@ def build_scout_bid_graph(checkpointer: Any | None = None) -> CompiledGraph:
 def build_pipeline_b_graph(checkpointer: Any | None = None) -> CompiledGraph:
     """Build and compile the Pipeline B (Outreach) graph.
 
-    Flow: GeoScout -> Outreach -> [HITL email approval] -> END
+    Flow: GeoScout -> Outreach -> [HITL outreach approval] -> Message Dispatch -> END
 
     Args:
         checkpointer: Optional checkpoint saver for persistence.
@@ -974,8 +1011,8 @@ def build_pipeline_b_graph(checkpointer: Any | None = None) -> CompiledGraph:
     # Nodes
     graph.add_node("geo_scout_node", geo_scout_node)
     graph.add_node("outreach_node", outreach_node)
-    graph.add_node("hitl_email_node", hitl_email_node)
-    graph.add_node("email_sending_node", email_sending_node)
+    graph.add_node("hitl_outreach_node", hitl_outreach_node)
+    graph.add_node("message_dispatch_node", message_dispatch_node)
 
     # Entry point
     graph.set_entry_point("geo_scout_node")
@@ -989,14 +1026,14 @@ def build_pipeline_b_graph(checkpointer: Any | None = None) -> CompiledGraph:
     graph.add_conditional_edges(
         "outreach_node",
         _route_after_outreach,
-        {"hitl_email_node": "hitl_email_node", END: END},
+        {"hitl_outreach_node": "hitl_outreach_node", END: END},
     )
     graph.add_conditional_edges(
-        "hitl_email_node",
-        _route_after_hitl_email,
-        {"email_sending_node": "email_sending_node", END: END},
+        "hitl_outreach_node",
+        _route_after_hitl_outreach,
+        {"message_dispatch_node": "message_dispatch_node", END: END},
     )
-    graph.add_edge("email_sending_node", END)
+    graph.add_edge("message_dispatch_node", END)
 
     compiled = graph.compile(checkpointer=checkpointer)
     logger.info("pipeline_b_graph_compiled", has_checkpointer=checkpointer is not None)
@@ -1339,8 +1376,8 @@ async def resume_from_hitl(
                 resolved_type = "bid_approval"
             elif current_agent == "hitl_review":
                 resolved_type = "final_review"
-            elif current_agent == "hitl_email":
-                resolved_type = "email_approval"
+            elif current_agent in ("hitl_email", "hitl_outreach"):
+                resolved_type = "outreach_approval"
             else:
                 # Fall back to legacy behaviour (Phase 1 Scout -> Bid only).
                 resolved_type = "bid_approval"
@@ -1436,14 +1473,14 @@ async def resume_from_hitl(
             )
             return resumed_state  # type: ignore[return-value]
 
-        # ----- email_approval (Pipeline B) -----------------------------------
-        if resolved_type == "email_approval":
-            resumed_state = _apply_email_approval(
+        # ----- outreach_approval (Pipeline B, email + telegram) ---------------
+        if resolved_type in ("email_approval", "outreach_approval"):
+            resumed_state = _apply_outreach_approval(
                 saved_state, action, hitl_response, thread_id
             )
 
-            # On approval, re-invoke Pipeline B graph so the email_sending_node
-            # runs and actually sends the approved emails.
+            # On approval, re-invoke Pipeline B graph so the message_dispatch_node
+            # runs and actually sends the approved messages.
             if action in ("approve", "edit"):
                 graph = build_pipeline_b_graph(checkpointer=checkpointer)
                 try:
@@ -1451,10 +1488,10 @@ async def resume_from_hitl(
                         graph.ainvoke(resumed_state, config=config), timeout=300,
                     )
                 except TimeoutError:
-                    logger.error("hitl_resume_timed_out", thread_id=thread_id, hitl_type="email_approval")
+                    logger.error("hitl_resume_timed_out", thread_id=thread_id, hitl_type="outreach_approval")
                     return {"status": "failed", "error": "HITL resume timed out"}  # type: ignore[return-value]
                 logger.info(
-                    "hitl_email_resumed_pipeline_finished",
+                    "hitl_outreach_resumed_pipeline_finished",
                     thread_id=thread_id,
                     status=result.get("status"),
                 )
@@ -1465,7 +1502,7 @@ async def resume_from_hitl(
             )
 
             logger.info(
-                "hitl_email_resumed",
+                "hitl_outreach_resumed",
                 thread_id=thread_id,
                 action=action,
                 new_status=resumed_state["status"],
@@ -1568,17 +1605,18 @@ def _apply_bid_approval(
             project=project,
         )
 
-    # Unknown action -- treat as approve with a warning.
-    logger.warning("hitl_bid_unknown_action", action=action, thread_id=thread_id)
-    project = _enrich_project_from_bid(saved_state)
+    # Unknown action -- fail closed to prevent accidental approval.
+    logger.error("hitl_bid_unknown_action", action=action, thread_id=thread_id)
     return update_state(
         saved_state,  # type: ignore[arg-type]
         requires_hitl=False,
         hitl_request_id=None,
-        status="active",
-        next_agent="planner",
-        current_agent="planner",
-        project=project,
+        status="failed",
+        next_agent=None,
+        errors=[
+            *saved_state.get("errors", []),
+            f"HITL: unknown bid action '{action}' — rejected for safety",
+        ],
     )
 
 
@@ -1633,16 +1671,19 @@ def _apply_plan_review(
             artifacts=artifacts,
         )
 
-    # Unknown action -- treat as approve with a warning.
-    logger.warning("hitl_plan_review_unknown_action", action=action, thread_id=thread_id)
+    # Unknown action -- fail closed to prevent accidental approval.
+    logger.error("hitl_plan_review_unknown_action", action=action, thread_id=thread_id)
     return update_state(
         saved_state,  # type: ignore[arg-type]
         requires_hitl=False,
         hitl_request_id=None,
-        status="active",
-        next_agent="dev",
-        current_agent="hitl_review",
+        status="failed",
+        next_agent=None,
         artifacts=artifacts,
+        errors=[
+            *saved_state.get("errors", []),
+            f"HITL: unknown plan review action '{action}' — rejected for safety",
+        ],
     )
 
 
@@ -1689,37 +1730,42 @@ def _apply_final_review(
             artifacts=artifacts,
         )
 
-    # Unknown action -- treat as approve with a warning.
-    logger.warning("hitl_review_unknown_action", action=action, thread_id=thread_id)
+    # Unknown action -- fail closed to prevent accidental approval.
+    logger.error("hitl_review_unknown_action", action=action, thread_id=thread_id)
     return update_state(
         saved_state,  # type: ignore[arg-type]
         requires_hitl=False,
         hitl_request_id=None,
-        status="completed",
+        status="failed",
         next_agent=None,
+        errors=[
+            *saved_state.get("errors", []),
+            f"HITL: unknown final review action '{action}' — rejected for safety",
+        ],
     )
 
 
-def _apply_email_approval(
+def _apply_outreach_approval(
     saved_state: dict[str, Any],
     action: str,
     hitl_response: dict[str, Any],
     thread_id: str,
 ) -> AgentState:
-    """Apply the human's email-approval decision to the saved state.
+    """Apply the human's outreach-approval decision to the saved state.
 
-    On **approve** the emails are marked as approved for sending.
+    On **approve** all channels (email + telegram) are marked approved.
     On **reject** the campaign is cancelled.
     """
     if action == "approve":
         artifacts = dict(saved_state.get("artifacts") or {})
         artifacts["emails_approved"] = True
+        artifacts["telegram_approved"] = True
         return update_state(
             saved_state,  # type: ignore[arg-type]
             requires_hitl=False,
             hitl_request_id=None,
             status="active",
-            current_agent="hitl_email",
+            current_agent="hitl_outreach",
             next_agent=None,
             artifacts=artifacts,
         )
@@ -1733,7 +1779,7 @@ def _apply_email_approval(
             next_agent=None,
             errors=[
                 *saved_state.get("errors", []),
-                "HITL: outreach emails rejected by human",
+                "HITL: outreach messages rejected by human",
             ],
         )
 
@@ -1741,6 +1787,7 @@ def _apply_email_approval(
         edits = hitl_response.get("edits", {})
         artifacts = dict(saved_state.get("artifacts") or {})
         artifacts["emails_approved"] = True
+        artifacts["telegram_approved"] = True
         if edits:
             artifacts["hitl_edits"] = [edits] if not isinstance(edits, list) else edits
         return update_state(
@@ -1748,21 +1795,25 @@ def _apply_email_approval(
             requires_hitl=False,
             hitl_request_id=None,
             status="active",
-            current_agent="hitl_email",
+            current_agent="hitl_outreach",
             next_agent=None,
             artifacts=artifacts,
         )
 
-    # Unknown action -- treat as approve with a warning.
-    logger.warning("hitl_email_unknown_action", action=action, thread_id=thread_id)
-    artifacts = dict(saved_state.get("artifacts") or {})
-    artifacts["emails_approved"] = True
+    # Unknown action -- fail closed to prevent accidental approval.
+    logger.error("hitl_outreach_unknown_action", action=action, thread_id=thread_id)
     return update_state(
         saved_state,  # type: ignore[arg-type]
         requires_hitl=False,
         hitl_request_id=None,
-        status="active",
-        current_agent="hitl_email",
+        status="failed",
         next_agent=None,
-        artifacts=artifacts,
+        errors=[
+            *saved_state.get("errors", []),
+            f"HITL: unknown outreach approval action '{action}' — rejected for safety",
+        ],
     )
+
+
+# Backward-compat alias
+_apply_email_approval = _apply_outreach_approval

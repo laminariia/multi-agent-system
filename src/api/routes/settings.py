@@ -6,6 +6,7 @@ at rest using Fernet and never returned in plain text.
 
 Mounted at ``/api/v1/settings``.
 """
+
 from __future__ import annotations
 
 import time
@@ -55,6 +56,7 @@ _ALLOWED_PLATFORMS: set[str] = {
     "upwork",
     "fl_ru",
     "kwork",
+    "fiverr",
 }
 
 
@@ -79,9 +81,7 @@ def _mask_account(account: PlatformAccount) -> dict[str, Any]:
         "status": account.status,
         "profile_url": account.profile_url,
         "stats": account.stats,
-        "last_health_check": (
-            account.last_health_check.isoformat() if account.last_health_check else None
-        ),
+        "last_health_check": (account.last_health_check.isoformat() if account.last_health_check else None),
         "credentials_masked": masked_creds,
         "created_at": account.created_at.isoformat() if account.created_at else None,
         "updated_at": account.updated_at.isoformat() if account.updated_at else None,
