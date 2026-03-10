@@ -42,7 +42,7 @@ PLANNER → [HITL plan_review?] → agent_sequence[0] → ... → agent_sequence
 - Re-plan после Critic major revision
 - Оператор вручную запросил ревью
 
-**LLM:** Claude Opus 4.6 (primary), Claude Sonnet 4.5 (fallback).
+**LLM:** Claude Opus 4.6 (Tier 1 — Reasoning).
 
 **Файл:** `src/agents/planner.py`
 
@@ -148,7 +148,7 @@ Critic оценивает **ВСЕ** артефакты (не только по�
 | `score < 0.60` | → HITL эскалация |
 | 2+ ревизий одного агента | → HITL эскалация |
 
-**LLM:** Claude Sonnet 4.5.
+**LLM:** Claude Sonnet 4.6 (Tier 3 — Content+Review).
 
 **Файл:** `src/agents/critic.py`
 

@@ -33,7 +33,7 @@ Work ONLY on `auto/{date}/{slug}` branches. Never touch `main`/`master`. Tag bef
 |-------|------------|
 | Orchestration | LangGraph 1.0 |
 | Backend | **Litestar** + Python 3.12 (NOT FastAPI) |
-| Database | PostgreSQL 16 + pgvector + pgvectorscale (`timescale/timescaledb-ha:pg16`) |
+| Database | PostgreSQL 16 + pgvector (HNSW indexes) |
 | Cache | **Valkey 8.1** (Redis-compatible, BSD-3) |
 | Browser | Playwright + Stealth |
 | Frontend | Remix + shadcn/ui |
@@ -45,12 +45,14 @@ Full stack details: `TECH_STACK.md`
 ## LLM Strategy (OpenRouter)
 
 All LLM calls via **OpenRouter** (`OPENROUTER_API_KEY`). Embeddings via OpenAI direct.
-- **DeepSeek V3.2**: Scout, Bid, Content, Packager, GeoScout, Outreach
-- **Claude Opus 4.6**: Planner, Dev (complex)
-- **Claude Sonnet 4.5**: Dev (standard), Critic
-- **NanoBanana Pro** (Gemini 3 Pro): Design
 
-Canonical assignments: `TECH_STACK.md` > "LLM Models"
+**6-Tier System** (canonical source: `MASTER-VISION.md` Section 4):
+- **Tier 1 (Reasoning):** Claude Opus 4.6 → Planner, Dev (complex), SalesAgent [PLANNED]
+- **Tier 2 (Client-facing):** Gemini 3.1 Pro → Bid, Outreach
+- **Tier 3 (Content+Review):** Claude Sonnet 4.6 → Content, Dev (standard), Critic
+- **Tier 4 (Design):** NanoBanana Pro → Design
+- **Tier 5 (Extraction):** Gemini 2.5 Flash → Scout, GeoScout
+- **Tier 6 (Simple):** DeepSeek V3.2 → Packager, Portfolio Agent [PLANNED]
 
 ## Pipelines
 
@@ -91,7 +93,7 @@ docker/         — Dockerfile, docker-compose.yml
 
 ## Current Status (Feb 2026)
 
-- **2087+ tests** passing, grade A+ (99)
+- **2435+ tests** passing, grade A+ (99)
 - **Pipeline A**: fully implemented — Scout, Bid, HITL, Planner, Dev, Content, Design, Critic, HITL, Packager
 - **Pipeline B**: fully implemented — GeoScout, Outreach, HITL, Email
 - **Dashboard**: Remix + shadcn/ui, all CRUD pages, WebSocket real-time, Settings with encrypted credentials
@@ -106,7 +108,7 @@ docker/         — Dockerfile, docker-compose.yml
 | Area | File |
 |------|------|
 | Vision & Architecture | `docs/Full_work/MASTER-VISION.md` |
-| Agents (11) | `docs/Full_work/specs/agents-spec.md` |
+| Agents (10 impl + 2 planned) | `docs/Full_work/specs/agents-spec.md` |
 | Pipeline A (freelance) | `docs/Full_work/pipeline-a-spec.md` |
 | Pipeline B (direct sales) | `docs/Full_work/pipeline-b-spec.md` |
 | Dev Cycle Engine | `docs/Full_work/dev-cycle-spec.md` |

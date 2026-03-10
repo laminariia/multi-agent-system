@@ -62,23 +62,21 @@ async def call(
 
 ### Реестр в коде (`AGENT_MODEL_REGISTRY`)
 
-> Синхронизировано с `TECH_STACK.md` (canonical source). Дата: 2026-03-07.
+> Синхронизировано с `MASTER-VISION.md` Section 4 (canonical source). Дата: 2026-03-10.
+> Speculative fallback models removed — only verified OpenRouter models.
 
-| Агент | Primary | OpenRouter ID | Fallback 1 | Fallback 2 | Cost Tier |
-|-------|---------|---------------|------------|------------|-----------|
-| **Scout** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Grok 4.1 Fast | Local Qwen3-4B | Low |
-| **Bid** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Claude Haiku 3.5 | — | Low |
-| **Planner** | Claude Opus 4.6 | `anthropic/claude-opus-4.6` | DeepSeek R1 | Gemini 3 Pro | High |
-| **Dev** (complex) | Claude Opus 4.6 | `anthropic/claude-opus-4.6` | DeepSeek V3.2 | Qwen3-Coder-Next | High |
-| **Dev** (standard) | Claude Sonnet 4.5 | `anthropic/claude-sonnet-4.5` | DeepSeek V3.2 | Qwen3-Coder-Next | Medium |
-| **Content** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Gemini 3 Flash | — | Low |
-| **Design** | NanoBanana Pro | `google/gemini-3-pro-image-preview` | Gemini 3 Flash | — | Medium |
-| **Critic** | Claude Sonnet 4.5 | `anthropic/claude-sonnet-4.5` | DeepSeek R1 | GPT-5.2 Codex | High |
-| **Packager** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Grok 4.1 Fast | — | Low |
-| **GeoScout** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Grok 4.1 Fast | Local Qwen3-4B | Low |
-| **Outreach** | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Gemini 3 Flash | — | Low |
+**6-Tier LLM System:**
 
-Dev Agent routing: Planner помечает задачу `complexity: "complex"` → Opus, `"standard"` → Sonnet.
+| Tier | Роль | Model | OpenRouter ID | Agents |
+|:----:|------|-------|---------------|--------|
+| 1 | Reasoning | Claude Opus 4.6 | `anthropic/claude-opus-4-6` | Planner, Dev (complex), SalesAgent [PLAN] |
+| 2 | Client-facing | Gemini 3.1 Pro | `google/gemini-3.1-pro` | Bid, Outreach |
+| 3 | Content+Review | Claude Sonnet 4.6 | `anthropic/claude-sonnet-4-6` | Content, Dev (standard), Critic |
+| 4 | Design | NanoBanana Pro | `google/gemini-3-pro-image-preview` | Design |
+| 5 | Extraction | Gemini 2.5 Flash | `google/gemini-2.5-flash` | Scout, GeoScout |
+| 6 | Simple | DeepSeek V3.2 | `deepseek/deepseek-v3.2` | Packager, Portfolio Agent [PLAN] |
+
+Dev Agent routing: Planner помечает задачу `complexity: "complex"` → Opus (T1), `"standard"` → Sonnet (T3).
 
 ### Supplementary Models
 
@@ -87,22 +85,19 @@ Dev Agent routing: Planner помечает задачу `complexity: "complex"`
 | Embeddings | OpenAI text-embedding-3-large (3072 dim) | OpenAI API direct | Vector search, semantic cache |
 | Fast image drafts | Gemini 3 Flash | OpenRouter | Quick concept exploration |
 
-### Стоимость моделей (OpenRouter pricing)
+### Стоимость моделей (OpenRouter pricing — used models only)
 
-| Модель | OpenRouter ID | $/1M input | $/1M output | Контекст |
-|--------|---------------|-----------|------------|----------|
-| DeepSeek V3.2 | `deepseek/deepseek-v3.2` | $0.25 | $0.38 | 164K |
-| DeepSeek R1 | `deepseek/deepseek-r1` | $0.70 | $2.50 | 64K |
-| Claude Opus 4.6 | `anthropic/claude-opus-4.6` | $5.00 | $25.00 | 1M |
-| Claude Sonnet 4.5 | `anthropic/claude-sonnet-4.5` | $3.00 | $15.00 | 1M |
-| Claude Haiku 3.5 | `anthropic/claude-3.5-haiku` | $0.80 | $4.00 | 200K |
-| NanoBanana Pro | `google/gemini-3-pro-image-preview` | $2.00 | $12.00 | 65K |
-| Gemini 3 Flash | `google/gemini-3-flash-preview` | $0.50 | $3.00 | 1M |
-| Gemini 3 Pro | `google/gemini-3-pro-preview` | $2.00 | $12.00 | 1M |
-| GPT-5.2 | `openai/gpt-5.2` | $1.75 | $14.00 | 400K |
-| GPT-5.2 Codex | `openai/gpt-5.2-codex` | $1.75 | $14.00 | 400K |
-| Grok 4.1 Fast | `x-ai/grok-4.1-fast` | $0.20 | $0.50 | 2M |
-| Qwen3-Coder-Next | `qwen/qwen3-coder-next` | $0.07 | $0.30 | 262K |
+| Модель | OpenRouter ID | Tier | Контекст |
+|--------|---------------|:----:|----------|
+| Claude Opus 4.6 | `anthropic/claude-opus-4-6` | 1 | 1M |
+| Gemini 3.1 Pro | `google/gemini-3.1-pro` | 2 | 1M |
+| Claude Sonnet 4.6 | `anthropic/claude-sonnet-4-6` | 3 | 1M |
+| NanoBanana Pro | `google/gemini-3-pro-image-preview` | 4 | 65K |
+| Gemini 2.5 Flash | `google/gemini-2.5-flash` | 5 | 1M |
+| DeepSeek V3.2 | `deepseek/deepseek-v3.2` | 6 | 164K |
+
+> **Note:** Pricing fluctuates — verify on openrouter.ai/models before budgeting.
+> Removed: DeepSeek R1, Claude Haiku 3.5, GPT-5.2/Codex, Grok 4.1 Fast, Qwen3-Coder-Next (speculative/unused).
 
 ### NanoBanana Pro
 
@@ -116,19 +111,24 @@ Dev Agent routing: Planner помечает задачу `complexity: "complex"`
 
 | Агент | Модель | $/мес |
 |-------|--------|-------|
-| Scout | DeepSeek V3.2 | $14 |
-| Bid | DeepSeek V3.2 | $6 |
-| Planner | Claude Opus 4.6 | $41 |
-| Dev (complex 30%) | Claude Opus 4.6 | $41 |
-| Dev (standard 70%) | Claude Sonnet 4.5 | $57 |
-| Content | DeepSeek V3.2 | $3 |
-| Design | NanoBanana Pro | $30 |
-| Critic | Claude Sonnet 4.5 | $176 |
-| Packager | DeepSeek V3.2 | $1 |
-| GeoScout | DeepSeek V3.2 | $6 |
-| Outreach | DeepSeek V3.2 | $11 |
-| Embeddings | text-embedding-3-large | $5 |
-| **Total** | | **~$391** |
+| Агент | Модель (Tier) | $/мес |
+|-------|---------------|-------|
+| Scout | Gemini 2.5 Flash (T5) | TBD |
+| Bid | Gemini 3.1 Pro (T2) | TBD |
+| Planner | Claude Opus 4.6 (T1) | ~$41 |
+| Dev (complex 30%) | Claude Opus 4.6 (T1) | ~$41 |
+| Dev (standard 70%) | Claude Sonnet 4.6 (T3) | TBD |
+| Content | Claude Sonnet 4.6 (T3) | TBD |
+| Design | NanoBanana Pro (T4) | ~$30 |
+| Critic | Claude Sonnet 4.6 (T3) | TBD |
+| Packager | DeepSeek V3.2 (T6) | ~$1 |
+| GeoScout | Gemini 2.5 Flash (T5) | TBD |
+| Outreach | Gemini 3.1 Pro (T2) | TBD |
+| Embeddings | text-embedding-3-large | ~$5 |
+| **Total** | | **Recalculate after migration** |
+
+> **Note:** Previous estimate (~$391/mo) was based on DeepSeek V3.2 for most agents.
+> New tier system uses different models — costs to be recalculated after implementation.
 
 ## Промпты
 
@@ -155,7 +155,7 @@ Dev Agent routing: Planner помечает задачу `complexity: "complex"`
 Двухуровневый семантический кэш (`src/core/semantic_cache.py`):
 
 - **Hot layer (Valkey):** RediSearch vector index (HNSW, FLOAT32, DIM=3072, COSINE). Sub-millisecond lookup.
-- **Cold layer (PostgreSQL):** pgvector с DiskANN индексом (`<=>` оператор). Persistent fallback.
+- **Cold layer (PostgreSQL):** pgvector с HNSW (pgvector) индексом (`<=>` оператор). Persistent fallback.
 
 ### Параметры
 

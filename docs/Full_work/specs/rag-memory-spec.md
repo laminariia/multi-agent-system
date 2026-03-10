@@ -35,7 +35,7 @@ SemanticCache(
 **Cold layer — PostgreSQL (pgvector):**
 - Таблица: `semantic_cache`
 - Поля: `id`, `query_hash` (unique), `query`, `response`, `query_type`, `embedding` (vector(3072)), `expires_at`, `hit_count`
-- Индекс: DiskANN (`<=>` cosine operator)
+- Индекс: HNSW (pgvector) (`<=>` cosine operator)
 - Upsert: `ON CONFLICT (query_hash) DO UPDATE` — обновляет response и сбрасывает hit_count
 
 ### Поток запроса (get)
@@ -95,7 +95,7 @@ SemanticCache(
 ### Хранение в PostgreSQL
 
 - Тип: `vector(3072)` (расширение pgvector)
-- Индекс: DiskANN (pgvectorscale) — 11x быстрее HNSW на масштабе, 99% recall
+- Индекс: HNSW (pgvector) (pgvectorscale) — 11x быстрее HNSW на масштабе, 99% recall
 - Оператор: `<=>` (cosine distance)
 
 ### Хранение в Valkey
@@ -196,7 +196,7 @@ CREATE INDEX idx_embeddings_category ON knowledge_embeddings(category);
 CREATE INDEX idx_embeddings_platform ON knowledge_embeddings(platform);
 CREATE INDEX idx_embeddings_source ON knowledge_embeddings(source_type);
 CREATE INDEX idx_embeddings_vector ON knowledge_embeddings
-    USING diskann (embedding vector_cosine_ops);    -- DiskANN: 11x vs HNSW
+    USING hnsw (embedding vector_cosine_ops);    -- HNSW (pgvector): 11x vs HNSW
 ```
 
 #### Chunking Strategy
@@ -443,4 +443,4 @@ Embeddings вызываются через OpenAI API напрямую (`OPENAI_
 - `src/core/semantic_cache.py` — SemanticCache класс, dual-layer архитектура
 - `src/core/llm_client.py` — интеграция кэша с LLM-вызовами, `_AGENT_CACHE_TTL`, `_NEVER_CACHE_AGENTS`
 - `src/core/config.py` — настройки `SEMANTIC_CACHE_TTL_*`, `SEMANTIC_CACHE_SIMILARITY_THRESHOLD`
-- `TECH_STACK.md` — спецификация pgvector/pgvectorscale/DiskANN
+- `TECH_STACK.md` — спецификация pgvector/pgvectorscale/HNSW (pgvector)

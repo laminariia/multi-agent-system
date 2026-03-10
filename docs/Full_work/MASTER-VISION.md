@@ -21,10 +21,10 @@
 | agents-spec.md | 10 агентов (без SalesAgent, Portfolio) |
 | CLAUDE.md | "10 ИИ-агентов" |
 
-**Решение:** **11 реализованных + 1 проектируемый = 12 в реестре.**
-- Агенты 1-10: Scout, Bid, Planner, Dev, Content, Design, Critic, Packager, GeoScout, Outreach — **реализованы**
-- Агент 11: SalesAgent — **реализован** (SalesConversationEngine, cron-based)
-- Агент 12: Portfolio Agent — **проектируемый** (дизайн утверждён, код не написан)
+**Решение:** **10 реализованных + 2 проектируемых = 12 в реестре.**
+- Агенты 1-10: Scout, Bid, Planner, Dev, Content, Design, Critic, Packager, GeoScout, Outreach — **[IMPLEMENTED]**
+- Агент 11: SalesAgent — **[PLANNED]** (спецификация готова в `specs/sales-agent-spec.md`, код не написан)
+- Агент 12: Portfolio Agent — **[PLANNED]** (дизайн утверждён, код не написан)
 
 ## I.2 LLM-модели: 4 версии правды
 
@@ -35,11 +35,15 @@
 | agents-spec.md | DeepSeek V3.2 | Claude Sonnet 4.5 | Claude Sonnet 4.5 |
 | llm-spec.md / TECH_STACK.md | DeepSeek V3.2 | NanoBanana Pro | Claude Sonnet 4.5 |
 
-**Решение:** **TECH_STACK.md = Single Source of Truth** для LLM assignments.
-- Scout: **DeepSeek V3.2** (дешёвый, batch-scoring)
-- Design: **NanoBanana Pro** (= Gemini 3 Pro Image Preview, визуальные задачи)
-- Critic: **Claude Sonnet 4.5** (все источники согласны)
-- agents-spec.md указывал Design=Sonnet — ошибка, NanoBanana Pro корректен для визуальных спек
+**Решение:** **MASTER-VISION.md Section 4 = Single Source of Truth** для LLM assignments (6-tier система).
+- Scout: **Gemini 2.5 Flash** (Tier 5, extraction — дешёвый batch-scoring)
+- Bid: **Gemini 3.1 Pro** (Tier 2, client-facing — качество заявки)
+- Design: **NanoBanana Pro** (Tier 4, визуальные задачи)
+- Critic: **Claude Sonnet 4.6** (Tier 3, content+review)
+- Content: **Claude Sonnet 4.6** (Tier 3)
+- Outreach: **Gemini 3.1 Pro** (Tier 2, client-facing)
+- Packager: **DeepSeek V3.2** (Tier 6, simple)
+- Все предыдущие fallback-модели (Grok 4.1 Fast, Qwen3-4B, GPT-5.2 Codex, Qwen3-Coder-Next) удалены — только реальные модели на OpenRouter
 
 ## I.3 Количество платформ
 
@@ -234,11 +238,11 @@ WebScout — набор дополнительных data sources для GeoScou
 
 | Метрика | Значение |
 |---------|----------|
-| Агентов (реализовано / проект) | 11 / 1 |
+| Агентов (реализовано / проект) | 10 / 2 |
 | Платформ фриланса | 6 (5 активных + 1 planned) |
-| HITL-точек | 15 (7 mandatory, 8 conditional) |
+| HITL-точек | 15 (9 mandatory, 6 conditional) |
 | LLM-стоимость/мес (24/7) | ~$391 |
-| Тестов | 2330+ (0 failed) |
+| Тестов | 2435+ (0 failed) |
 | API endpoints | 62+ |
 | DB таблиц | 20+ |
 | Telegram-каналов мониторинга | 22 |
@@ -292,7 +296,7 @@ WebScout — набор дополнительных data sources для GeoScou
 |------|------------|------------|
 | Оркестрация | LangGraph 1.0 | StateGraph(dict), astream not ainvoke |
 | Backend | **Litestar** + Python 3.12 | НЕ FastAPI |
-| Database | PostgreSQL 16 + pgvector + pgvectorscale | DiskANN индексы (не HNSW) |
+| Database | PostgreSQL 16 + pgvector | HNSW индексы (pgvector ANN) |
 | Cache | **Valkey 8.1** | Redis-compatible, BSD-3, `VALKEY_URL` |
 | Browser | Playwright + playwright_stealth | StealthBrowser, BrowserPool |
 | Frontend | Remix + shadcn/ui | Dashboard |
@@ -308,20 +312,30 @@ WebScout — набор дополнительных data sources для GeoScou
 
 ### 4.1 Полная таблица
 
-| # | Агент | Pipeline | LLM Primary | Fallback 1 | Fallback 2 | Temp | Роль |
-|---|-------|----------|-------------|------------|------------|------|------|
-| 1 | Scout | A | DeepSeek V3.2 | Grok 4.1 Fast | Local Qwen3-4B | 0.2 | Поиск заказов на 5 платформах, LLM-скоринг 0.0-1.0 |
-| 2 | Bid | A | DeepSeek V3.2 | Claude Haiku 3.5 | — | 0.7 | Генерация 5-частной заявки, RAG, HITL mandatory |
-| 3 | Planner | Dev Cycle | Claude Opus 4.6 | DeepSeek R1 | Gemini 3 Pro | 0.3 | Декомпозиция на задачи ≤4ч, dynamic routing |
-| 4 | Dev | Dev Cycle | Opus 4.6 (30%) / Sonnet 4.5 (70%) | DeepSeek V3.2 | Qwen3-Coder-Next | 0.3 | Генерация кода, Semgrep, sandbox exec |
-| 5 | Content | Dev Cycle | DeepSeek V3.2 | Gemini 3 Flash | — | 0.7 | Тексты, документация, переводы |
-| 6 | Design | Dev Cycle | NanoBanana Pro | Gemini 3 Flash | — | 0.7 | UI/UX спеки (JSON, не изображения) |
-| 7 | Critic | Dev Cycle | Claude Sonnet 4.5 | DeepSeek R1 | GPT-5.2 Codex | 0.2 | Semgrep + LLM-ревью, quality gate |
-| 8 | Packager | Dev Cycle | DeepSeek V3.2 | Grok 4.1 Fast | — | auto | Финальная упаковка, HITL mandatory |
-| 9 | GeoScout | B | — (no LLM) | — | — | — | H3 гексы, Overpass API, lead discovery |
-| 10 | Outreach | B | DeepSeek V3.2 | Gemini 3 Flash | — | 0.7 | Email/Telegram DM черновики |
-| 11 | SalesAgent | B | Claude Opus 4.6 | — | — | 0.7 | Multi-turn переговоры, concept generation |
-| 12 | Portfolio Agent | — | DeepSeek V3.2 | — | — | auto | (Будущее) Автозаполнение портфолио |
+| # | Агент | Pipeline | LLM Primary | Tier | Temp | Статус | Роль |
+|---|-------|----------|-------------|:----:|:----:|:------:|------|
+| 1 | Scout | A | Gemini 2.5 Flash | 5 | 0.2 | [IMPL] | Поиск заказов на 5 платформах, LLM-скоринг 0.0-1.0 |
+| 2 | Bid | A | Gemini 3.1 Pro | 2 | 0.7 | [IMPL] | Генерация 5-частной заявки, RAG, HITL mandatory |
+| 3 | Planner | Dev Cycle | Claude Opus 4.6 | 1 | 0.3 | [IMPL] | Декомпозиция на задачи ≤4ч, dynamic routing |
+| 4 | Dev | Dev Cycle | Opus 4.6 (30%) / Sonnet 4.6 (70%) | 1/3 | 0.3 | [IMPL] | Генерация кода, Semgrep, sandbox exec |
+| 5 | Content | Dev Cycle | Claude Sonnet 4.6 | 3 | 0.7 | [IMPL] | Тексты, документация, переводы |
+| 6 | Design | Dev Cycle | NanoBanana Pro | 4 | 0.7 | [IMPL] | UI/UX спеки (JSON, не изображения) |
+| 7 | Critic | Dev Cycle | Claude Sonnet 4.6 | 3 | 0.2 | [IMPL] | Semgrep + LLM-ревью, quality gate |
+| 8 | Packager | Dev Cycle | DeepSeek V3.2 | 6 | auto | [IMPL] | Финальная упаковка, HITL mandatory |
+| 9 | GeoScout | B | Gemini 2.5 Flash | 5 | — | [IMPL] | H3 гексы, Overpass API, lead discovery (no LLM in MVP) |
+| 10 | Outreach | B | Gemini 3.1 Pro | 2 | 0.7 | [IMPL] | Email/Telegram DM черновики |
+| 11 | SalesAgent | B | Claude Opus 4.6 | 1 | 0.7 | [PLAN] | Multi-turn переговоры, concept generation |
+| 12 | Portfolio Agent | — | DeepSeek V3.2 | 6 | auto | [PLAN] | Автозаполнение портфолио |
+
+**LLM Tier System:**
+| Tier | Роль | Модель | Агенты |
+|:----:|------|--------|--------|
+| 1 | Reasoning | Claude Opus 4.6 | Planner, Dev (complex), SalesAgent |
+| 2 | Client-facing | Gemini 3.1 Pro | Bid, Outreach |
+| 3 | Content+Review | Claude Sonnet 4.6 | Content, Dev (standard), Critic |
+| 4 | Design | NanoBanana Pro | Design |
+| 5 | Extraction | Gemini 2.5 Flash | Scout, GeoScout |
+| 6 | Simple | DeepSeek V3.2 | Packager, Portfolio Agent |
 
 ### 4.2 LLM-стоимость ($391/мес при 24/7)
 
@@ -666,8 +680,8 @@ Agent fails → status="failed"
 ### 7.3 Dev Agent: Complexity Routing
 
 Planner устанавливает `task.complexity`:
-- **complex** (30% задач): Claude Opus 4.6 — архитектурные решения, сложная логика
-- **standard** (70% задач): Claude Sonnet 4.5 — типовые задачи, CRUD, рефакторинг
+- **complex** (30% задач): Claude Opus 4.6 (Tier 1) — архитектурные решения, сложная логика
+- **standard** (70% задач): Claude Sonnet 4.6 (Tier 3) — типовые задачи, CRUD, рефакторинг
 
 ---
 
@@ -769,7 +783,7 @@ CREATE TABLE hitl_queue (
 ### 9.2 Embedding Strategy
 
 - **Model:** OpenAI `text-embedding-3-large` (3072 dimensions)
-- **Index:** pgvectorscale DiskANN (11x faster than HNSW, 99% recall)
+- **Index:** pgvector HNSW (vector_cosine_ops)
 - **Operator:** `<=>` (cosine distance)
 - **Tables with vectors:** `knowledge_base`, `semantic_cache`
 
@@ -780,7 +794,7 @@ CREATE TABLE hitl_queue (
 ```
 Query → hash → Valkey HNSW (HOT, <10ms)
               ↓ miss
-         → PostgreSQL DiskANN (COLD, <100ms)
+         → PostgreSQL HNSW (COLD, <100ms)
               ↓ miss
          → LLM call → save to both layers
 ```
@@ -1025,10 +1039,12 @@ StealthBrowser
 
 | Уровень | Файлов | Тестов | Доля |
 |---------|:------:|:------:|:----:|
-| Unit | 99 | ~2100+ | 88% |
-| Integration | 22 | 76+ | 10% |
+| Unit | 105+ | ~2200+ | 88% |
+| Integration | 25+ | 80+ | 10% |
 | E2E | 3 | 39 | 2% |
-| **Total** | **124** | **2330+** | **100%** |
+| **Total** | **133+** | **2435+** | **100%** |
+
+> **Примечание:** числа актуальны для ветки `auto/2026-02-26/multichannel-outreach-portfolio`. На `main` — ~2087 тестов.
 
 ### 13.2 Coverage Targets
 

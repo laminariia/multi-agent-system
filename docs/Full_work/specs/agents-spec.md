@@ -32,7 +32,7 @@ update_state(state, current_agent="xxx", next_agent="yyy", artifacts=artifacts, 
 ## Scout Agent
 
 **Файлы:** `src/agents/scout.py`, `src/prompts/scout.py`
-**LLM:** DeepSeek V3.2 (конфиг CLAUDE.md: Gemini 3 Flash в коде)
+**LLM:** Gemini 2.5 Flash (Tier 5 — Extraction)
 **Температура:** 0.2
 **Класс:** `ScoutAgent(ConstrainedAgent)`
 
@@ -85,7 +85,7 @@ update_state(state, current_agent="xxx", next_agent="yyy", artifacts=artifacts, 
 ## Bid Agent
 
 **Файлы:** `src/agents/bid.py`, `src/prompts/bid.py`
-**LLM:** DeepSeek V3.2 (Gemini 3 Flash в коде)
+**LLM:** Gemini 3.1 Pro (Tier 2 — Client-facing)
 **Температура:** 0.7
 **Класс:** `BidAgent(ConstrainedAgent)`
 
@@ -235,7 +235,7 @@ update_state(state,
 ## Dev Agent
 
 **Файлы:** `src/agents/dev.py`, `src/prompts/dev.py`
-**LLM:** Claude Opus 4.6 (fallback Sonnet 4.5)
+**LLM:** Claude Opus 4.6 (T1, complex 30%) / Claude Sonnet 4.6 (T3, standard 70%)
 **Температура:** 0.3, `max_tokens=16000`
 **Класс:** `DevAgent(ConstrainedAgent)`
 
@@ -295,7 +295,7 @@ update_state(state,
 ## Content Agent
 
 **Файлы:** `src/agents/content.py`, `src/prompts/content.py`
-**LLM:** Claude Haiku 4.5
+**LLM:** Claude Sonnet 4.6 (Tier 3 — Content+Review)
 **Температура:** 0.7
 **Класс:** `ContentAgent(ConstrainedAgent)`
 
@@ -343,7 +343,7 @@ update_state(state,
 ## Design Agent
 
 **Файлы:** `src/agents/design.py`, `src/prompts/design.py`
-**LLM:** Claude Sonnet 4.5 (в CLAUDE.md указан NanoBanana Pro / Gemini 3 Pro)
+**LLM:** NanoBanana Pro (Tier 4 — Design)
 **Температура:** 0.7
 **Класс:** `DesignAgent(ConstrainedAgent)`
 
@@ -393,7 +393,7 @@ update_state(state,
 ## Critic Agent
 
 **Файлы:** `src/agents/critic.py`, `src/prompts/critic.py`
-**LLM:** Claude Sonnet 4.5 (GPT-4o в промпте)
+**LLM:** Claude Sonnet 4.6 (Tier 3 — Content+Review)
 **Температура:** 0.2, `max_tokens=8000`
 **Класс:** `CriticAgent(ConstrainedAgent)`
 
@@ -479,7 +479,7 @@ update_state(state,
 ## Packager Agent
 
 **Файлы:** `src/agents/packager.py`, `src/prompts/packager.py`
-**LLM:** Claude Haiku 4.5
+**LLM:** DeepSeek V3.2 (Tier 6 — Simple)
 **Температура:** 0.3
 **Класс:** `PackagerAgent(ConstrainedAgent)`
 
@@ -549,7 +549,7 @@ Planner → agent_sequence[0] → agent_sequence[1] → ... → agent_sequence[N
 ### GeoScout Agent
 
 **Файлы:** `src/agents/geo_scout.py`, `src/prompts/geo_scout.py`
-**LLM:** DeepSeek V3.2
+**LLM:** Gemini 2.5 Flash (Tier 5 — Extraction, no LLM in MVP)
 **Класс:** `GeoScoutAgent(ConstrainedAgent)`
 
 #### Назначение
@@ -604,7 +604,7 @@ Planner → agent_sequence[0] → agent_sequence[1] → ... → agent_sequence[N
 ### Outreach Agent
 
 **Файлы:** `src/agents/outreach.py`, `src/prompts/outreach.py`
-**LLM:** DeepSeek V3.2
+**LLM:** Gemini 3.1 Pro (Tier 2 — Client-facing)
 **Класс:** `OutreachAgent(ConstrainedAgent)`
 
 #### Назначение
@@ -1083,13 +1083,13 @@ LANGGRAPH_CONFIG = {
 
 | Agent | LLM | Pipeline | Primary Role | HITL |
 |-------|-----|----------|-------------|------|
-| Scout | DeepSeek V3.2 | A | Job discovery | Нет (HITL для review band) |
-| Bid | DeepSeek V3.2 | A | Proposal generation | **Да, всегда** |
+| Scout | Gemini 2.5 Flash (T5) | A | Job discovery | Нет (HITL для review band) |
+| Bid | Gemini 3.1 Pro (T2) | A | Proposal generation | **Да, всегда** |
 | Planner | Claude Opus 4.6 | A | Task decomposition | Условно (hours >= 20) |
 | Dev | Claude Opus 4.6 | A | Code generation | Нет |
-| Content | Claude Haiku 4.5 | A | Copywriting | Нет |
-| Design | Claude Sonnet 4.5 | A | Graphics/UI specs | Нет |
-| Critic | Claude Sonnet 4.5 | A | Quality gate | Условно (reject, scope_creep) |
-| Packager | Claude Haiku 4.5 | A | Final delivery | **Да, всегда** |
-| GeoScout | DeepSeek V3.2 | B | Lead discovery | Нет |
-| Outreach | DeepSeek V3.2 | B | Cold outreach | На первой кампании |
+| Content | Claude Sonnet 4.6 (T3) | A | Copywriting | Нет |
+| Design | NanoBanana Pro (T4) | A | Graphics/UI specs | Нет |
+| Critic | Claude Sonnet 4.6 (T3) | A | Quality gate | Условно (reject, scope_creep) |
+| Packager | DeepSeek V3.2 (T6) | A | Final delivery | **Да, всегда** |
+| GeoScout | Gemini 2.5 Flash (T5) | B | Lead discovery | Нет |
+| Outreach | Gemini 3.1 Pro (T2) | B | Cold outreach | На первой кампании |

@@ -1,6 +1,6 @@
 # MAS: Мульти-Агентная Система
 
-> Автономное цифровое агентство из 11 ИИ-агентов. Находит заказы, ведёт переговоры, выполняет работу, сдаёт результат.
+> Автономное цифровое агентство из 10 реализованных + 2 проектируемых ИИ-агентов. Находит заказы, ведёт переговоры, выполняет работу, сдаёт результат.
 > Этот файл — единый индекс. Source of truth — детальные спеки по ссылкам ниже.
 >
 > **Новый разработчик?** Начните с [onboarding.md](onboarding.md).
@@ -49,20 +49,20 @@
 
 ## 11 агентов
 
-| # | Агент | Pipeline | LLM | Роль |
-|---|-------|----------|-----|------|
-| 1 | Scout | A | DeepSeek V3.2 | Поиск заказов на 5 платформах, LLM-скоринг |
-| 2 | Bid | A | DeepSeek V3.2 | Генерация заявки, RAG, HITL перед отправкой |
-| 3 | Planner | Dev Cycle | Claude Opus 4.6 | Декомпозиция задач ≤4ч, HITL при >20ч |
-| 4 | Dev | Dev Cycle | Claude Opus/Sonnet | Генерация кода, семантический кэш |
-| 5 | Content | Dev Cycle | DeepSeek V3.2 | Тексты, документация, переводы |
-| 6 | Design | Dev Cycle | Gemini 3 Pro | Макеты, Pencil.dev, UI-спеки |
-| 7 | Critic | Dev Cycle | Claude Sonnet 4.5 | Semgrep + LLM-ревью, блокировка |
-| 8 | Packager | Dev Cycle | DeepSeek V3.2 | Финальная упаковка, HITL перед сдачей |
-| 9 | GeoScout | B | DeepSeek V3.2 | H3 гексы, Overpass API, геолокация бизнесов |
-| 10 | Outreach | B | DeepSeek V3.2 | Email/Telegram outreach, touch sequence |
-| 11 | SalesAgent | B | Claude Opus 4.6 | Переговоры, Concept Review, сделки |
-| 12 | Portfolio Agent | — | DeepSeek V3.2 | (будущее) Автозаполнение портфолио |
+| # | Агент | Pipeline | LLM (Tier) | Статус | Роль |
+|---|-------|----------|------------|:------:|------|
+| 1 | Scout | A | Gemini 2.5 Flash (T5) | [IMPL] | Поиск заказов на 5 платформах, LLM-скоринг |
+| 2 | Bid | A | Gemini 3.1 Pro (T2) | [IMPL] | Генерация заявки, RAG, HITL перед отправкой |
+| 3 | Planner | Dev Cycle | Claude Opus 4.6 (T1) | [IMPL] | Декомпозиция задач ≤4ч, HITL при >20ч |
+| 4 | Dev | Dev Cycle | Opus 4.6 / Sonnet 4.6 (T1/T3) | [IMPL] | Генерация кода, семантический кэш |
+| 5 | Content | Dev Cycle | Claude Sonnet 4.6 (T3) | [IMPL] | Тексты, документация, переводы |
+| 6 | Design | Dev Cycle | NanoBanana Pro (T4) | [IMPL] | Макеты, UI-спеки |
+| 7 | Critic | Dev Cycle | Claude Sonnet 4.6 (T3) | [IMPL] | Semgrep + LLM-ревью, блокировка |
+| 8 | Packager | Dev Cycle | DeepSeek V3.2 (T6) | [IMPL] | Финальная упаковка, HITL перед сдачей |
+| 9 | GeoScout | B | Gemini 2.5 Flash (T5) | [IMPL] | H3 гексы, Overpass API, геолокация бизнесов |
+| 10 | Outreach | B | Gemini 3.1 Pro (T2) | [IMPL] | Email/Telegram outreach, touch sequence |
+| 11 | SalesAgent | B | Claude Opus 4.6 (T1) | [PLAN] | Переговоры, Concept Review, сделки |
+| 12 | Portfolio Agent | — | DeepSeek V3.2 (T6) | [PLAN] | Автозаполнение портфолио |
 
 ---
 

@@ -153,13 +153,14 @@ ruff format --check src/ tests/
 
 ## Ключевые архитектурные заметки
 
-- **11 агентов** в двух пайплайнах (A: фриланс-биржи, B: прямые продажи) + Dev Cycle Engine
+- **10 реализованных + 2 проектируемых агента** в двух пайплайнах (A: фриланс-биржи, B: прямые продажи) + Dev Cycle Engine
 - **Litestar** фреймворк (НЕ FastAPI)
 - **Valkey** для кэширования (НЕ Redis) — env var `VALKEY_URL`
 - **LangGraph** для оркестрации — см. `.claude/rules/debugging.md` для критических gotchas
-- HITL (Human-in-the-Loop) — 7 обязательных + 8 условных точек (детали в `specs/hitl-spec.md`)
-- Все LLM-вызовы через **OpenRouter** (`OPENROUTER_API_KEY`)
-- **6 платформ**: Freelancer.com (API), FL.ru (RSS), Kwork (scraper), Upwork (read-only!), Fiverr, YouDo
+- HITL (Human-in-the-Loop) — 9 обязательных + 6 условных точек (детали в `specs/hitl-spec.md`)
+- **pgvector HNSW** для vector search (НЕ DiskANN)
+- Все LLM-вызовы через **OpenRouter** (`OPENROUTER_API_KEY`), 6-tier LLM система (см. MASTER-VISION.md §4)
+- **6 платформ**: Freelancer.com (API), FL.ru (RSS), Kwork (scraper), Upwork (read-only!), Telegram, Fiverr [PLANNED]
 - Upwork auto-submit **ЗАПРЕЩЁН** (нарушение ToS)
 
 ## Деплой

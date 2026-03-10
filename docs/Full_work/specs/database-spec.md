@@ -5,7 +5,7 @@
 | Компонент | Технология |
 |-----------|------------|
 | СУБД | PostgreSQL 16 |
-| Расширения | pgvector, pgvectorscale |
+| Расширения | pgvector, pgvector |
 | Docker image | `timescale/timescaledb-ha:pg16` |
 | ORM | SQLAlchemy 2.0 (async, `Mapped` / `mapped_column`) |
 | Миграции | Alembic (async, asyncpg) |
@@ -16,7 +16,7 @@
 
 - UUID первичные ключи (`gen_random_uuid()` server-side default)
 - `Vector(3072)` для embedding-колонок (OpenAI text-embedding-3-large)
-- DiskANN индексы для vector-колонок (НЕ HNSW) -- создаются через raw DDL
+- HNSW (pgvector) индексы для vector-колонок (НЕ HNSW) -- создаются через raw DDL
 - `datetime.now(timezone.utc)` для Python-side timestamp defaults
 - JSONB для произвольных структур (`type_annotation_map = {dict[str, Any]: JSONB}`)
 - `_escape_like()` хелпер из `src/api/routes/__init__.py` для защиты от SQL wildcard injection
@@ -194,13 +194,13 @@ Heartbeat-мониторинг агентов (PK = `agent_name`).
 RAG-хранилище знаний для Bid Agent.
 
 Ключевые поля: `type`, `category`, `title`, `content`, `embedding` (Vector(3072)), `usage_count`, `success_rate`.
-**DiskANN индекс** создается через raw DDL в init-миграции.
+**HNSW (pgvector) индекс** создается через raw DDL в init-миграции.
 
 ### 16. semantic_cache
 LLM-кэш с семантическим поиском.
 
 Ключевые поля: `query_hash` (UNIQUE), `query`, `response`, `query_type`, `embedding` (Vector(3072)), `hit_count`, `expires_at`.
-**DiskANN индекс** создается через raw DDL.
+**HNSW (pgvector) индекс** создается через raw DDL.
 
 ### 17. ab_test_results
 A/B тестирование шаблонов предложений.
@@ -221,16 +221,16 @@ Telegram-каналы для мониторинга (PK = auto-increment Integer
 
 - **Dimension:** 3072 (OpenAI text-embedding-3-large)
 - **Таблицы с embedding:** `knowledge_base`, `semantic_cache`
-- **Тип индекса:** DiskANN (pgvectorscale) -- НЕ HNSW
+- **Тип индекса:** HNSW (pgvector) (pgvector) -- НЕ HNSW
 - **Оператор:** cosine similarity
-- DiskANN индексы создаются через raw DDL, т.к. SQLAlchemy не поддерживает `USING diskann` нативно
+- HNSW (pgvector) индексы создаются через raw DDL, т.к. SQLAlchemy не поддерживает `USING hnsw` нативно
 
 ## Миграции Alembic
 
 | Файл | Описание |
 |------|----------|
 | `20260207_2326_initial_schema.py` | Начальная схема (17 таблиц) |
-| `20260208_1420_add_knowledge_vector_index.py` | DiskANN индекс для knowledge_base |
+| `20260208_1420_add_knowledge_vector_index.py` | HNSW (pgvector) индекс для knowledge_base |
 | `20260208_1600_add_user_status_column.py` | Колонка status в users |
 | `20260210_1200_add_checkpoint_history_table.py` | Таблица langgraph_checkpoint_history |
 | `20260210_1830_fix_checkpoint_column_names.py` | Переименование колонок чекпоинтов |
@@ -259,7 +259,7 @@ done
 | `alembic/env.py` | Async Alembic config (asyncpg) |
 | `src/core/database.py` | engine, get_db_session, get_valkey |
 | `src/api/routes/__init__.py` | `_escape_like()` хелпер |
-| `init.sql` | DDL для DiskANN индексов |
+| `init.sql` | DDL для HNSW (pgvector) индексов |
 
 ---
 
@@ -453,7 +453,7 @@ async_session = async_sessionmaker(engine, expire_on_commit=False)
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;        -- pgvector для vector types
-CREATE EXTENSION IF NOT EXISTS vectorscale;   -- pgvectorscale для DiskANN indexes
+-- vectorscale NOT used (HNSW via pgvector)   -- pgvector для HNSW (pgvector) indexes
 CREATE EXTENSION IF NOT EXISTS pgcrypto;      -- для gen_random_uuid()
 ```
 
@@ -479,8 +479,8 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;      -- для gen_random_uuid()
 | hitl_queue | `idx_hitl_status(status, priority, created_at)`, `idx_hitl_type(type, status)` |
 | leads | `idx_leads_city(city, category, status)`, `idx_leads_h3(h3_index)`, `idx_leads_status` |
 | agent_logs | `idx_agent_logs_agent(agent_name, created_at)`, `idx_agent_logs_project(project_id, created_at)`, `idx_agent_logs_event(event_type, created_at)` |
-| knowledge_base | `idx_knowledge_type(type, category)`, `idx_knowledge_embedding USING diskann` |
-| semantic_cache | `idx_cache_embedding USING diskann`, `idx_cache_expires(expires_at)`, `idx_cache_type(query_type)` |
+| knowledge_base | `idx_knowledge_type(type, category)`, `idx_knowledge_embedding USING hnsw` |
+| semantic_cache | `idx_cache_embedding USING hnsw`, `idx_cache_expires(expires_at)`, `idx_cache_type(query_type)` |
 | ab_test_results | `idx_ab_test(test_name, variant_id)` |
 | langgraph_checkpoints | `idx_checkpoints_thread(thread_id, created_at)` |
 | revisions | `idx_revisions_project(project_id, status)` |
