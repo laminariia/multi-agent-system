@@ -211,8 +211,13 @@ class PlannerAgent(ConstrainedAgent):
                 errors=[*state["errors"], f"Planner exceeded max re-plans ({_MAX_REPLANS})"],
             )
 
+        # 2b. Build artifact context for re-plan awareness.
+        artifact_context = self._build_artifact_context(state)
+        if artifact_context:
+            self._log.info("replan_with_artifact_context", project_id=project_id)
+
         # 3. Call LLM to generate the plan.
-        plan = await self._generate_plan(project)
+        plan = await self._generate_plan(project, artifact_context=artifact_context)
         if plan is None:
             self._log.error("plan_generation_failed", project_id=project_id)
             return update_state(
@@ -360,23 +365,41 @@ class PlannerAgent(ConstrainedAgent):
     # LLM plan generation
     # ------------------------------------------------------------------
 
-    async def _generate_plan(self, project: dict[str, Any]) -> dict[str, Any] | None:
+    async def _generate_plan(
+        self,
+        project: dict[str, Any],
+        *,
+        artifact_context: str | None = None,
+    ) -> dict[str, Any] | None:
         """Call the LLM to generate a structured project plan.
+
+        Args:
+            project: Project context dict.
+            artifact_context: Optional summary of existing artifacts from a
+                previous execution cycle.  When present, the LLM is instructed
+                to build on existing work rather than re-planning from scratch.
 
         Returns a parsed plan dict or ``None`` on failure.
         """
         project_text = json.dumps(project, indent=2, default=str, ensure_ascii=False)
 
+        user_parts = [f"Decompose the following project into a structured plan.\n\nProject:\n{project_text}"]
+
+        if artifact_context:
+            user_parts.append(
+                "\n\n--- EXISTING WORK (from previous execution cycle) ---\n"
+                f"{artifact_context}\n"
+                "--- END EXISTING WORK ---\n\n"
+                "IMPORTANT: This is a RE-PLAN. Build on the existing work above. "
+                "Do NOT re-plan tasks that are already completed. Focus on "
+                "what needs to be fixed or added based on the review feedback."
+            )
+
+        user_parts.append("\n\nReturn a single JSON object matching the output format specified in your instructions.")
+
         messages = [
             SystemMessage(content=PLANNER_SYSTEM_PROMPT),
-            HumanMessage(
-                content=(
-                    "Decompose the following project into a structured plan.\n\n"
-                    f"Project:\n{project_text}\n\n"
-                    "Return a single JSON object matching the output format specified "
-                    "in your instructions."
-                )
-            ),
+            HumanMessage(content="".join(user_parts)),
         ]
 
         response_msg, _metrics = await self._call_llm(messages, temperature=0.3)
@@ -483,6 +506,51 @@ class PlannerAgent(ConstrainedAgent):
                     seen.append(assigned)
 
         return seen if seen else ["dev", "content", "design"]
+
+    # ------------------------------------------------------------------
+    # Helper: artifact context for re-plan awareness
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_artifact_context(state: dict[str, Any]) -> str | None:
+        """Build a summary of existing execution artifacts for re-plan context.
+
+        Returns a human-readable summary string when execution artifacts
+        exist, or ``None`` for a first-plan scenario (no prior work).
+        """
+        artifacts = state.get("artifacts") or {}
+        execution_agents = ("dev", "content", "design")
+        parts: list[str] = []
+
+        # Execution agent artifacts.
+        for agent_name in execution_agents:
+            agent_arts = artifacts.get(agent_name, [])
+            if agent_arts:
+                previews = [str(a)[:200] for a in agent_arts[:3]]
+                parts.append(
+                    f"Agent '{agent_name}': {len(agent_arts)} artifact(s)\n" + "\n".join(f"  - {p}" for p in previews)
+                )
+
+        if not parts:
+            return None
+
+        # Critic feedback.
+        critic_arts = artifacts.get("critic", [])
+        if critic_arts:
+            previews = [str(a)[:300] for a in critic_arts[:2]]
+            parts.append(f"Critic feedback: {len(critic_arts)} review(s)\n" + "\n".join(f"  - {p}" for p in previews))
+
+        # Critic revision type.
+        revision_type = artifacts.get("_critic_revision_type", [])
+        if revision_type and isinstance(revision_type, list) and revision_type:
+            parts.append(f"Revision type: {revision_type[0]} (triggered re-plan)")
+
+        # Skipped agents from partial failure recovery.
+        skipped = state.get("skipped_agents") or []
+        if skipped:
+            parts.append(f"Skipped agents (failed/unavailable): {', '.join(skipped)}")
+
+        return "\n\n".join(parts)
 
     # ------------------------------------------------------------------
     # Helper: HITL plan review gate
