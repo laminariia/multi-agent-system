@@ -58,7 +58,7 @@ from src.agents.planner import planner_node
 from src.agents.scout import scout_node
 from src.core.checkpoints import HybridCheckpointSaver
 from src.core.config import get_settings
-from src.core.state import AgentState, ProjectContext, create_initial_state, update_state
+from src.core.state import AgentState, ProjectContext, create_initial_state, update_state, validate_delivery_type
 from src.core.tracing import build_langsmith_config
 
 logger = structlog.get_logger(__name__)
@@ -1754,8 +1754,36 @@ def _apply_plan_review(
 
     if action == "edit":
         edits = hitl_response.get("edits", {})
+        overrides: dict[str, Any] = {}
+
         if edits:
             artifacts["hitl_edits"] = [edits] if not isinstance(edits, list) else edits
+
+            # --- Apply agent_sequence edit ---
+            if "agent_sequence" in edits:
+                valid_agents = {n.removesuffix("_node") for n in _VALID_EXECUTION_NODES}
+                original_seq = list(saved_state.get("agent_sequence") or [])
+                artifacts["_original_sequence"] = [original_seq]
+
+                raw_seq = edits["agent_sequence"]
+                if isinstance(raw_seq, list):
+                    filtered = [a for a in raw_seq if a in valid_agents]
+                    if len(filtered) != len(raw_seq):
+                        logger.warning(
+                            "plan_edit_invalid_agents_removed",
+                            original=raw_seq,
+                            filtered=filtered,
+                            thread_id=thread_id,
+                        )
+                    overrides["agent_sequence"] = filtered
+                    overrides["current_sequence_index"] = 0
+
+            # --- Apply delivery_type edit ---
+            if "delivery_type" in edits:
+                overrides["delivery_type"] = validate_delivery_type(edits["delivery_type"])
+
+            artifacts["_plan_edit_applied"] = [True]
+
         return update_state(
             saved_state,  # type: ignore[arg-type]
             requires_hitl=False,
@@ -1764,6 +1792,7 @@ def _apply_plan_review(
             next_agent="dev",
             current_agent="hitl_review",
             artifacts=artifacts,
+            **overrides,
         )
 
     # Unknown action -- fail closed to prevent accidental approval.
