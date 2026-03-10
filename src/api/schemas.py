@@ -14,7 +14,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 # =============================================================================
 # Base configuration shared by all schemas
@@ -861,6 +861,46 @@ class PipelineProgressSchema(_BaseSchema):
     status: str = Field(default="idle", description="Pipeline status: idle|running|paused|completed|failed")
     started_at: str | None = Field(default=None, description="ISO timestamp of pipeline start")
     updated_at: str | None = Field(default=None, description="ISO timestamp of last update")
+
+
+# Default scout categories
+_SCOUT_AUTO_CATEGORIES = ["landings", "bots", "api_backend", "design", "content", "small_fixes"]
+_SCOUT_SUGGEST_CATEGORIES = ["mobile_apps", "ml_ai", "devops", "consulting", "ecommerce", "system_integration"]
+
+
+class ScoutConfigSchema(_BaseSchema):
+    """Scout agent category configuration and custom rules."""
+
+    categories_auto: list[str] = Field(
+        default_factory=lambda: list(_SCOUT_AUTO_CATEGORIES),
+        description="Categories the Scout agent takes automatically",
+    )
+    categories_suggest: list[str] = Field(
+        default_factory=lambda: list(_SCOUT_SUGGEST_CATEGORIES),
+        description="Categories routed to HITL for human review",
+    )
+    custom_rules: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description="Free-text custom rules for Scout LLM (max 50)",
+    )
+
+    @field_validator("custom_rules")
+    @classmethod
+    def _validate_rule_length(cls, v: list[str]) -> list[str]:
+        for rule in v:
+            if len(rule) > 500:
+                msg = f"Custom rule exceeds 500 characters: {len(rule)}"
+                raise ValueError(msg)
+        return v
+
+    @model_validator(mode="after")
+    def _validate_no_overlap(self) -> ScoutConfigSchema:
+        overlap = set(self.categories_auto) & set(self.categories_suggest)
+        if overlap:
+            msg = f"Categories cannot be in both auto and suggest: {overlap}"
+            raise ValueError(msg)
+        return self
 
 
 class DealUpdateSchema(_BaseSchema):

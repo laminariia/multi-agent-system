@@ -33,9 +33,10 @@ from src.core.heartbeat import HeartbeatMonitor
 from src.core.json_repair import extract_json
 from src.core.llm_client import LLMClient
 from src.core.loop_detector import LoopDetector
-from src.core.models import AgentLog, HITLQueue, Job
+from src.core.models import AgentLog, HITLQueue, Job, PlatformAccount
 from src.core.state import AgentState, update_state
 from src.prompts.scout import SCOUT_SYSTEM_PROMPT
+from src.security.encryption import decrypt_credentials
 
 logger = structlog.get_logger(__name__)
 
@@ -409,6 +410,41 @@ class ScoutAgent(ConstrainedAgent):
             review=review,
             rejected=rejected,
         )
+
+
+# ======================================================================
+# Scout config loading + category modifiers
+# ======================================================================
+
+
+async def load_scout_config(session: Any) -> dict[str, Any]:
+    """Load scout configuration from DB, returning defaults if not stored."""
+    stmt = select(PlatformAccount).where(
+        PlatformAccount.platform == "__scout_config__",
+    )
+    result = await session.execute(stmt)
+    account = result.scalar_one_or_none()
+
+    if account is None:
+        from src.api.schemas import ScoutConfigSchema  # noqa: PLC0415
+
+        return ScoutConfigSchema().model_dump()
+
+    return decrypt_credentials(account.credentials)
+
+
+def apply_category_modifier(category: str, config: dict[str, Any]) -> float:
+    """Return score modifier based on category classification.
+
+    - auto categories: 0.0 (no modifier)
+    - suggest categories: -0.2 (routes to HITL)
+    - unknown/missing: 0.0
+    """
+    if category in config.get("categories_auto", []):
+        return 0.0
+    if category in config.get("categories_suggest", []):
+        return -0.2
+    return 0.0
 
 
 # ======================================================================

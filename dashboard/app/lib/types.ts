@@ -315,6 +315,14 @@ export interface CredentialsSummary {
   platform_accounts: PlatformAccount[];
 }
 
+// --- Scout Config ---
+
+export interface ScoutConfig {
+  categories_auto: string[];
+  categories_suggest: string[];
+  custom_rules: string[];
+}
+
 // --- Campaigns ---
 
 export interface EmailCampaign {

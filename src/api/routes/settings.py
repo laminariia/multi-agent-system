@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.guards import require_role
-from src.api.schemas import CredentialTestRequestSchema, CredentialTestResponseSchema
+from src.api.schemas import CredentialTestRequestSchema, CredentialTestResponseSchema, ScoutConfigSchema
 from src.core.models import PlatformAccount, User
 from src.security.encryption import (
     decrypt_credentials,
@@ -629,6 +629,86 @@ class SettingsController(Controller):
                 message=f"Connection failed: {exc}",
                 latency_ms=None,
             )
+
+    # -----------------------------------------------------------------
+    # GET /api/v1/settings/scout-config
+    # -----------------------------------------------------------------
+
+    @get(
+        "/scout-config",
+        summary="Get Scout agent configuration",
+        description="Returns current scout categories and custom rules.",
+    )
+    async def get_scout_config(
+        self,
+        request: Request[User, Token, Any],
+        db_session: AsyncSession,
+    ) -> dict[str, Any]:
+        """Return current scout config or defaults."""
+        user_id = uuid.UUID(request.auth.sub)
+
+        stmt = select(PlatformAccount).where(
+            PlatformAccount.user_id == user_id,
+            PlatformAccount.platform == "__scout_config__",
+        )
+        result = await db_session.execute(stmt)
+        account = result.scalar_one_or_none()
+
+        if account is None:
+            from src.api.schemas import ScoutConfigSchema  # noqa: PLC0415
+
+            return ScoutConfigSchema().model_dump()
+
+        config = decrypt_credentials(account.credentials)
+        return config
+
+    # -----------------------------------------------------------------
+    # PUT /api/v1/settings/scout-config
+    # -----------------------------------------------------------------
+
+    @put(
+        "/scout-config",
+        summary="Update Scout agent configuration",
+        description="Saves scout categories and custom rules.",
+    )
+    async def update_scout_config(
+        self,
+        data: ScoutConfigSchema,
+        request: Request[User, Token, Any],
+        db_session: AsyncSession,
+    ) -> dict[str, Any]:
+        """Create or update scout config."""
+        user_id = uuid.UUID(request.auth.sub)
+
+        stmt = select(PlatformAccount).where(
+            PlatformAccount.user_id == user_id,
+            PlatformAccount.platform == "__scout_config__",
+        )
+        result = await db_session.execute(stmt)
+        account = result.scalar_one_or_none()
+
+        config_data = data.model_dump()
+        encrypted = encrypt_credentials(config_data)
+
+        if account is None:
+            account = PlatformAccount(
+                user_id=user_id,
+                platform="__scout_config__",
+                credentials=encrypted,
+                status="active",
+            )
+            db_session.add(account)
+        else:
+            account.credentials = encrypted
+
+        await db_session.flush()
+
+        logger.info(
+            "settings.scout_config_updated",
+            user_id=str(user_id),
+        )
+
+        return {"status": "saved"}
 
     # -----------------------------------------------------------------
     # Helpers

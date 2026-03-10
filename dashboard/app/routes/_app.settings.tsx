@@ -23,13 +23,15 @@ import {
 } from "~/components/ui/select";
 import { useAuthStore } from "~/stores/auth-store";
 import { toast } from "~/hooks/use-toast";
-import type { CredentialsSummary, CredentialTestResult, PlatformAccount } from "~/lib/types";
+import type { CredentialsSummary, CredentialTestResult, PlatformAccount, ScoutConfig } from "~/lib/types";
 import {
   fetchCredentials,
   saveAPIKeys,
   createPlatformAccount,
   deletePlatformAccount,
   testCredential,
+  fetchScoutConfig,
+  saveScoutConfig,
 } from "~/lib/api";
 
 // --- Constants ---
@@ -82,6 +84,200 @@ function statusBadge(status: string) {
     default:
       return <Badge variant="outline">{status}</Badge>;
   }
+}
+
+// --- Scout Config constants ---
+
+const ALL_CATEGORIES: { value: string; label: string }[] = [
+  { value: "landings", label: "Landing pages" },
+  { value: "bots", label: "Telegram / Chat bots" },
+  { value: "api_backend", label: "API & Backend" },
+  { value: "design", label: "Web Design" },
+  { value: "content", label: "Content" },
+  { value: "small_fixes", label: "Small fixes" },
+  { value: "mobile_apps", label: "Mobile apps" },
+  { value: "ml_ai", label: "ML / AI" },
+  { value: "devops", label: "DevOps" },
+  { value: "consulting", label: "Consulting" },
+  { value: "ecommerce", label: "E-commerce" },
+  { value: "system_integration", label: "System integration" },
+];
+
+function ScoutConfigSection() {
+  const [config, setConfig] = useState<ScoutConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [newRule, setNewRule] = useState("");
+
+  useEffect(() => {
+    fetchScoutConfig()
+      .then(setConfig)
+      .catch(() =>
+        toast({ title: "Failed to load Scout config", variant: "destructive" })
+      )
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleToggle = (category: string, column: "auto" | "suggest") => {
+    if (!config) return;
+    const auto = new Set(config.categories_auto);
+    const suggest = new Set(config.categories_suggest);
+
+    // Remove from both first
+    auto.delete(category);
+    suggest.delete(category);
+
+    // Add to selected column
+    if (column === "auto") auto.add(category);
+    else suggest.add(category);
+
+    setConfig({
+      ...config,
+      categories_auto: [...auto],
+      categories_suggest: [...suggest],
+    });
+  };
+
+  const handleAddRule = () => {
+    if (!config || !newRule.trim()) return;
+    if (config.custom_rules.length >= 50) {
+      toast({ title: "Max 50 custom rules", variant: "destructive" });
+      return;
+    }
+    setConfig({ ...config, custom_rules: [...config.custom_rules, newRule.trim()] });
+    setNewRule("");
+  };
+
+  const handleRemoveRule = (idx: number) => {
+    if (!config) return;
+    setConfig({
+      ...config,
+      custom_rules: config.custom_rules.filter((_, i) => i !== idx),
+    });
+  };
+
+  const handleSave = async () => {
+    if (!config) return;
+    setSaving(true);
+    try {
+      await saveScoutConfig(config);
+      toast({ title: "Scout configuration saved" });
+    } catch (err) {
+      toast({
+        title: "Failed to save",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <Card className="border-border/50">
+        <CardHeader>
+          <CardTitle className="text-base">Scout Configuration</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!config) return null;
+
+  return (
+    <Card className="border-border/50">
+      <CardHeader>
+        <CardTitle className="text-base">Scout Configuration</CardTitle>
+        <CardDescription>
+          Configure which job categories the Scout agent handles automatically
+          and which are routed for your review.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Categories two-column checklist */}
+        <div>
+          <div className="grid grid-cols-3 gap-2 mb-2 text-xs font-medium text-muted-foreground">
+            <span>Category</span>
+            <span className="text-center">AI handles</span>
+            <span className="text-center">Suggest to me</span>
+          </div>
+          <div className="space-y-1">
+            {ALL_CATEGORIES.map(({ value, label }) => {
+              const isAuto = config.categories_auto.includes(value);
+              const isSuggest = config.categories_suggest.includes(value);
+              return (
+                <div key={value} className="grid grid-cols-3 gap-2 items-center py-1.5 border-b border-border/30">
+                  <span className="text-sm">{label}</span>
+                  <div className="flex justify-center">
+                    <input
+                      type="radio"
+                      name={`cat-${value}`}
+                      checked={isAuto}
+                      onChange={() => handleToggle(value, "auto")}
+                      className="h-4 w-4 accent-primary"
+                    />
+                  </div>
+                  <div className="flex justify-center">
+                    <input
+                      type="radio"
+                      name={`cat-${value}`}
+                      checked={isSuggest}
+                      onChange={() => handleToggle(value, "suggest")}
+                      className="h-4 w-4 accent-primary"
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Custom rules */}
+        <div className="space-y-3">
+          <Label className="text-sm font-medium">Custom Rules</Label>
+          <p className="text-xs text-muted-foreground">
+            Free-text instructions for the Scout LLM (max 50 rules, 500 chars each).
+          </p>
+          {config.custom_rules.map((rule, idx) => (
+            <div key={idx} className="flex items-start gap-2">
+              <span className="flex-1 text-sm bg-muted rounded px-3 py-2">{rule}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleRemoveRule(idx)}
+                className="text-destructive shrink-0"
+              >
+                Remove
+              </Button>
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <Input
+              value={newRule}
+              onChange={(e) => setNewRule(e.target.value)}
+              placeholder="e.g. If the job mentions Figma — take it"
+              maxLength={500}
+              onKeyDown={(e) => e.key === "Enter" && handleAddRule()}
+            />
+            <Button variant="outline" onClick={handleAddRule} disabled={!newRule.trim()}>
+              Add
+            </Button>
+          </div>
+        </div>
+
+        {/* Save button */}
+        <div className="flex justify-end">
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "Saving..." : "Save Scout Config"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 // --- Main component ---
@@ -746,6 +942,11 @@ export default function SettingsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Separator />
+
+      {/* Scout Configuration */}
+      <ScoutConfigSection />
 
       <Separator />
 

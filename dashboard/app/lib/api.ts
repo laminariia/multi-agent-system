@@ -34,6 +34,7 @@ import type {
   TelegramChannel,
   TelegramChannelListResponse,
   PipelineProgress,
+  ScoutConfig,
 } from "./types";
 
 declare global {
@@ -563,6 +564,17 @@ export async function saveAPIKeys(keys: Record<string, string>): Promise<{ api_k
   return apiFetch<{ api_keys: Record<string, any>; message: string }>("/settings/api-keys", {
     method: "PUT",
     body: JSON.stringify(keys),
+  });
+}
+
+export async function fetchScoutConfig(): Promise<ScoutConfig> {
+  return apiFetch<ScoutConfig>("/settings/scout-config");
+}
+
+export async function saveScoutConfig(config: ScoutConfig): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>("/settings/scout-config", {
+    method: "PUT",
+    body: JSON.stringify(config),
   });
 }
 
