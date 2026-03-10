@@ -103,6 +103,12 @@ _NEXT_ACTION_MAP: dict[str, dict[str, str]] = {
         "skip": "emails_skipped",
         "later": "emails_deferred",
     },
+    "dev_launch": {
+        "approve": "development_cycle_started",
+        "reject": "development_cycle_cancelled",
+        "skip": "dev_launch_skipped",
+        "later": "dev_launch_deferred",
+    },
     "final_review": {
         "approve": "work_delivered_to_client",
         "reject": "work_rejected_for_rework",
@@ -321,7 +327,7 @@ class HITLController(Controller):
         # Resume the paused pipeline if this HITL type has a graph to resume.
         # Fire-and-forget: the pipeline runs asynchronously; the HTTP
         # response returns immediately so the dashboard stays responsive.
-        _RESUMABLE_TYPES = {"bid_approval", "plan_review", "email_approval", "final_review"}
+        _RESUMABLE_TYPES = {"bid_approval", "dev_launch", "plan_review", "email_approval", "final_review"}
         thread_id_from_payload = (item.payload or {}).get("thread_id")
         if item.type in _RESUMABLE_TYPES and thread_id_from_payload and data.action != "later":
             try:
@@ -454,7 +460,7 @@ class HITLController(Controller):
         )
 
         # Fire-and-forget resume for each resumable item
-        _RESUMABLE_TYPES = {"bid_approval", "plan_review", "email_approval", "final_review"}
+        _RESUMABLE_TYPES = {"bid_approval", "dev_launch", "plan_review", "email_approval", "final_review"}
         for item_id_str in resolved_ids:
             item_id_uuid = uuid.UUID(item_id_str)
             item = items_by_id.get(item_id_uuid)

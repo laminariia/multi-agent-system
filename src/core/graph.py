@@ -245,6 +245,79 @@ async def hitl_review_node(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
+async def hitl_dev_launch_node(state: dict[str, Any]) -> dict[str, Any]:
+    """HITL interrupt node for dev launch approval.
+
+    Pauses the workflow so a human can explicitly approve starting
+    the development cycle after the bid has been submitted.  The dev
+    cycle NEVER starts automatically -- operator must approve.
+    """
+    logger.info(
+        "hitl_dev_launch_node_entered",
+        thread_id=state["thread_id"],
+        hitl_request_id=state.get("hitl_request_id"),
+        status=state["status"],
+    )
+
+    if state["status"] != "paused":
+        artifacts = dict(state.get("artifacts") or {})
+        artifacts["_hitl_started_at"] = time.time()
+
+        # Create HITLQueue entry for dashboard visibility.
+        try:
+            from src.core.database import get_db_session  # noqa: PLC0415
+            from src.core.models import HITLQueue  # noqa: PLC0415
+
+            project = state.get("project") or {}
+            project_id = project.get("project_id", state.get("thread_id", ""))
+            project_title = project.get("title", "Unknown project")
+
+            async with get_db_session() as session:
+                import uuid as _uuid  # noqa: PLC0415
+
+                hitl = HITLQueue(
+                    id=_uuid.uuid4(),
+                    type="dev_launch",
+                    priority="high",
+                    title=f"Launch development: {project_title[:200]}",
+                    description=(
+                        f"Bid submitted for '{project_title}'. "
+                        f"Approve to start the development cycle (Planner → Dev → Critic → Packager)."
+                    ),
+                    payload={
+                        "thread_id": state["thread_id"],
+                        "project_id": project_id,
+                        "platform": project.get("platform", ""),
+                        "bid_amount": project.get("bid_amount"),
+                    },
+                    available_actions=["approve", "reject"],
+                    status="pending",
+                )
+                session.add(hitl)
+                await session.commit()
+
+                return update_state(
+                    state,
+                    status="paused",
+                    requires_hitl=True,
+                    hitl_request_id=str(hitl.id),
+                    current_agent="hitl_dev_launch",
+                    artifacts=artifacts,
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("hitl_dev_launch_entry_creation_failed", thread_id=state["thread_id"])
+            # Fail-open would be dangerous — fail closed instead.
+            return update_state(
+                state,
+                status="paused",
+                requires_hitl=True,
+                current_agent="hitl_dev_launch",
+                artifacts=artifacts,
+            )
+
+    return state
+
+
 async def hitl_outreach_node(state: dict[str, Any]) -> dict[str, Any]:
     """HITL interrupt node for outreach batch approval (email + telegram).
 
@@ -588,19 +661,39 @@ def _route_after_hitl_bid(state: dict[str, Any]) -> str:
 def _route_after_bid_submission(state: dict[str, Any]) -> str:
     """Route after the bid submission node.
 
-    Always routes to Planner (even on submission failure -- the bid was
-    approved and we should prepare for the project).
+    Routes to the dev-launch HITL gate so the operator must explicitly
+    approve starting the development cycle.
 
     Returns:
-        ``"planner_node"`` (always),
+        ``"hitl_dev_launch_node"`` on success,
         ``END`` on failure.
     """
     if state.get("status") == "failed":
         logger.warning("bid_submission_route_to_end_failed", thread_id=state["thread_id"])
         return END
 
-    logger.info("bid_submission_route_to_planner", thread_id=state["thread_id"])
-    return "planner_node"
+    logger.info("bid_submission_route_to_dev_launch", thread_id=state["thread_id"])
+    return "hitl_dev_launch_node"
+
+
+def _route_after_hitl_dev_launch(state: dict[str, Any]) -> str:
+    """Route after the dev-launch HITL node.
+
+    Returns:
+        ``"planner_node"`` if dev launch was approved,
+        ``END`` if rejected or failed.
+    """
+    if state.get("status") == "failed":
+        logger.info("hitl_dev_launch_route_to_end_failed", thread_id=state["thread_id"])
+        return END
+
+    if state.get("status") == "active":
+        logger.info("hitl_dev_launch_route_to_planner", thread_id=state["thread_id"])
+        return "planner_node"
+
+    # Still paused or unknown status
+    logger.info("hitl_dev_launch_route_to_end", thread_id=state["thread_id"], status=state.get("status"))
+    return END
 
 
 def _route_after_planner(state: dict[str, Any]) -> str:
@@ -891,7 +984,8 @@ def build_full_pipeline_graph(checkpointer: Any | None = None) -> CompiledGraph:
 
     The graph topology is::
 
-        scout -> bid -> hitl_bid -> planner -> dev -> content -> design
+        scout -> bid -> hitl_bid -> bid_submission -> hitl_dev_launch
+          -> planner -> dev -> content -> design
           -> critic -> packager -> hitl_review -> END
                 ^--- (revision loop, max 3 cycles) ---|
 
@@ -910,6 +1004,7 @@ def build_full_pipeline_graph(checkpointer: Any | None = None) -> CompiledGraph:
     graph.add_node("bid_node", bid_node)
     graph.add_node("hitl_bid_node", hitl_bid_node)
     graph.add_node("bid_submission_node", bid_submission_node)
+    graph.add_node("hitl_dev_launch_node", hitl_dev_launch_node)
     graph.add_node("planner_node", planner_node)
     graph.add_node("dev_node", dev_node)
     graph.add_node("content_node", content_node)
@@ -953,10 +1048,20 @@ def build_full_pipeline_graph(checkpointer: Any | None = None) -> CompiledGraph:
         },
     )
 
-    # Bid Submission -> Planner | END
+    # Bid Submission -> HITL(dev_launch) | END
     graph.add_conditional_edges(
         "bid_submission_node",
         _route_after_bid_submission,
+        {
+            "hitl_dev_launch_node": "hitl_dev_launch_node",
+            END: END,
+        },
+    )
+
+    # HITL(dev_launch) -> Planner | END
+    graph.add_conditional_edges(
+        "hitl_dev_launch_node",
+        _route_after_hitl_dev_launch,
         {
             "planner_node": "planner_node",
             END: END,
@@ -1452,6 +1557,8 @@ async def resume_from_hitl(
                 resolved_type = "bid_approval"
             elif current_agent == "hitl_review":
                 resolved_type = "final_review"
+            elif current_agent == "hitl_dev_launch":
+                resolved_type = "dev_launch"
             elif current_agent in ("hitl_email", "hitl_outreach"):
                 resolved_type = "outreach_approval"
             else:
@@ -1495,6 +1602,30 @@ async def resume_from_hitl(
                 return result
 
             # Rejection / edit without continuation -- save and return.
+            await checkpointer.aput(config, resumed_state, {"source": "hitl_resume", "action": action})
+            return resumed_state  # type: ignore[return-value]
+
+        # ----- dev_launch -------------------------------------------------
+        if resolved_type == "dev_launch":
+            resumed_state = _apply_dev_launch(saved_state, action, hitl_response, thread_id)
+
+            if action == "approve":
+                graph = build_full_pipeline_graph(checkpointer=checkpointer)
+                try:
+                    result = await asyncio.wait_for(
+                        graph.ainvoke(resumed_state, config=config),
+                        timeout=600,
+                    )
+                except TimeoutError:
+                    logger.error("hitl_resume_timed_out", thread_id=thread_id, hitl_type="dev_launch")
+                    return {"status": "failed", "error": "HITL resume timed out"}  # type: ignore[return-value]
+                logger.info(
+                    "hitl_dev_launch_resumed_pipeline_finished",
+                    thread_id=thread_id,
+                    status=result.get("status"),
+                )
+                return result  # type: ignore[return-value]
+
             await checkpointer.aput(config, resumed_state, {"source": "hitl_resume", "action": action})
             return resumed_state  # type: ignore[return-value]
 
@@ -1711,6 +1842,52 @@ def _apply_bid_approval(
         errors=[
             *saved_state.get("errors", []),
             f"HITL: unknown bid action '{action}' — rejected for safety",
+        ],
+    )
+
+
+def _apply_dev_launch(
+    saved_state: dict[str, Any],
+    action: str,
+    hitl_response: dict[str, Any],
+    thread_id: str,
+) -> AgentState:
+    """Apply the human's dev-launch decision to the saved state.
+
+    On **approve** the graph continues to Planner.
+    On **reject** the workflow is terminated.
+    """
+    if action == "approve":
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="active",
+            next_agent="planner",
+            current_agent="planner",
+        )
+
+    if action == "reject":
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="failed",
+            next_agent=None,
+            errors=[*saved_state.get("errors", []), "HITL: dev launch rejected by operator"],
+        )
+
+    # Unknown action -- fail closed.
+    logger.error("hitl_dev_launch_unknown_action", action=action, thread_id=thread_id)
+    return update_state(
+        saved_state,  # type: ignore[arg-type]
+        requires_hitl=False,
+        hitl_request_id=None,
+        status="failed",
+        next_agent=None,
+        errors=[
+            *saved_state.get("errors", []),
+            f"HITL: unknown dev_launch action '{action}' — rejected for safety",
         ],
     )
 

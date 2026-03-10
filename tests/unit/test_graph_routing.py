@@ -432,10 +432,10 @@ def test_create_graph_with_persistence_pipeline_b_overrides_full(mock_build_b, m
 # ---------------------------------------------------------------------------
 
 
-def test_route_after_bid_submission_to_planner():
-    """Bid submission always routes to planner_node (normal path)."""
+def test_route_after_bid_submission_to_dev_launch():
+    """Bid submission routes to hitl_dev_launch_node (safety gate before planner)."""
     state = {"thread_id": "t1", "status": "active"}
-    assert _route_after_bid_submission(state) == "planner_node"
+    assert _route_after_bid_submission(state) == "hitl_dev_launch_node"
 
 
 def test_route_after_bid_submission_failed():

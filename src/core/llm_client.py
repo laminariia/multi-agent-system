@@ -39,13 +39,14 @@ logger = structlog.get_logger(__name__)
 # Model registry -- canonical agent -> (primary, fallback) mapping
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class ModelSpec:
     """Specification for a single LLM model."""
 
-    provider: str          # "google", "anthropic", "openai" (original provider)
-    model_id: str          # OpenRouter model identifier (e.g. "google/gemini-2.5-flash")
-    cost_input_per_1k: float   # USD per 1 000 input tokens
+    provider: str  # "google", "anthropic", "openai" (original provider)
+    model_id: str  # OpenRouter model identifier (e.g. "google/gemini-2.5-flash")
+    cost_input_per_1k: float  # USD per 1 000 input tokens
     cost_output_per_1k: float  # USD per 1 000 output tokens
     max_context_tokens: int = 128_000
 
@@ -116,27 +117,42 @@ MODELS: dict[str, ModelSpec] = {
         cost_output_per_1k=0.012,
         max_context_tokens=1_048_576,
     ),
+    "gemini-3.1-pro": ModelSpec(
+        provider="google",
+        model_id="google/gemini-3.1-pro",
+        cost_input_per_1k=0.00125,
+        cost_output_per_1k=0.005,
+        max_context_tokens=1_048_576,
+    ),
+    "claude-sonnet-4-6": ModelSpec(
+        provider="anthropic",
+        model_id="anthropic/claude-sonnet-4-6",
+        cost_input_per_1k=0.003,
+        cost_output_per_1k=0.015,
+        max_context_tokens=1_000_000,
+    ),
 }
 
 # Agent -> tuple of model keys forming the fallback chain (primary, fallback1, fallback2).
 # NOTE: Gemini models are blocked on some OpenRouter accounts.
 # Using Claude Haiku as default cheap model, GPT-4o-mini as last-resort fallback.
 AGENT_MODEL_REGISTRY: dict[str, tuple[str, ...]] = {
-    "scout":     ("deepseek-v3-2",    "claude-haiku-4-5",  "gpt-4o-mini"),
-    "bid":       ("deepseek-v3-2",    "claude-haiku-4-5",  "gpt-4o-mini"),
-    "planner":   ("claude-opus-4-6",  "claude-sonnet-4-5", "claude-haiku-4-5"),
-    "dev":       ("claude-opus-4-6",  "claude-sonnet-4-5", "gpt-4o-mini"),
-    "content":   ("deepseek-v3-2",    "gemini-3-flash",    "gpt-4o-mini"),
-    "design":    ("nanobanana-pro",   "gemini-3-flash",    "gpt-4o-mini"),
-    "critic":    ("claude-sonnet-4-5", "gpt-4o",           "claude-haiku-4-5"),
-    "packager":  ("deepseek-v3-2",    "claude-haiku-4-5",  "gpt-4o-mini"),
-    "geoscout":  ("deepseek-v3-2",    "claude-haiku-4-5",  "gpt-4o-mini"),
-    "outreach":  ("deepseek-v3-2",    "claude-haiku-4-5",  "gpt-4o-mini"),
+    "scout": ("gemini-3-flash", "deepseek-v3-2", "gpt-4o-mini"),  # Tier 5: Extraction
+    "bid": ("gemini-3.1-pro", "claude-sonnet-4-6", "gpt-4o-mini"),  # Tier 2: Client-facing
+    "planner": ("claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"),  # Tier 1: Reasoning
+    "dev": ("claude-opus-4-6", "claude-sonnet-4-6", "gpt-4o-mini"),  # Tier 1/3: Reasoning + Content
+    "content": ("claude-sonnet-4-6", "gemini-3-flash", "gpt-4o-mini"),  # Tier 3: Content+Review
+    "design": ("nanobanana-pro", "gemini-3-flash", "gpt-4o-mini"),  # Tier 4: Design
+    "critic": ("claude-sonnet-4-6", "gpt-4o", "claude-haiku-4-5"),  # Tier 3: Content+Review
+    "packager": ("deepseek-v3-2", "claude-haiku-4-5", "gpt-4o-mini"),  # Tier 6: Simple
+    "geoscout": ("gemini-3-flash", "deepseek-v3-2", "gpt-4o-mini"),  # Tier 5: Extraction
+    "outreach": ("gemini-3.1-pro", "claude-sonnet-4-6", "gpt-4o-mini"),  # Tier 2: Client-facing
 }
 
 # ---------------------------------------------------------------------------
 # Cost tracking
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CallMetrics:
@@ -217,21 +233,25 @@ def _load_provider_errors() -> None:
 
     try:
         from openai import RateLimitError as OpenAIRateLimit
+
         rate_limit.append(OpenAIRateLimit)
     except ImportError:
         pass
     try:
         from openai import APITimeoutError as OpenAITimeout
+
         timeout.append(OpenAITimeout)
     except ImportError:
         pass
     try:
         from anthropic import RateLimitError as AnthropicRateLimit
+
         rate_limit.append(AnthropicRateLimit)
     except ImportError:
         pass
     try:
         from google.api_core.exceptions import ResourceExhausted
+
         rate_limit.append(ResourceExhausted)
     except ImportError:
         pass
@@ -247,13 +267,13 @@ def _load_provider_errors() -> None:
 
 # Agent -> cache TTL in seconds.  Agents NOT in this map are never cached.
 _AGENT_CACHE_TTL: dict[str, int] = {
-    "scout": 6 * 3600,       # 6 hours
-    "planner": 1 * 3600,     # 1 hour
-    "dev": 1 * 3600,         # 1 hour
-    "content": 12 * 3600,    # 12 hours
-    "design": 12 * 3600,     # 12 hours
-    "geoscout": 6 * 3600,    # 6 hours (geo queries are stable)
-    "outreach": 6 * 3600,    # 6 hours
+    "scout": 6 * 3600,  # 6 hours
+    "planner": 1 * 3600,  # 1 hour
+    "dev": 1 * 3600,  # 1 hour
+    "content": 12 * 3600,  # 12 hours
+    "design": 12 * 3600,  # 12 hours
+    "geoscout": 6 * 3600,  # 6 hours (geo queries are stable)
+    "outreach": 6 * 3600,  # 6 hours
 }
 
 # These agents are NEVER cached because their outputs must be unique per invocation.
@@ -414,15 +434,13 @@ class LLMClient:
                 )
 
                 # --- Semantic cache: store after successful LLM call ---
-                if (
-                    self._semantic_cache is not None
-                    and cache_query_type is not None
-                    and cache_key_text is not None
-                ):
+                if self._semantic_cache is not None and cache_query_type is not None and cache_key_text is not None:
                     try:
                         response_text = str(result.content)
                         await self._semantic_cache.set(
-                            cache_key_text, response_text, cache_query_type,
+                            cache_key_text,
+                            response_text,
+                            cache_query_type,
                         )
                     except Exception:  # noqa: BLE001
                         logger.debug("semantic_cache_store_failed", agent=agent_name, exc_info=True)
@@ -488,18 +506,13 @@ class LLMClient:
 
                 usage = getattr(response, "usage_metadata", None) or {}
                 tokens_in = (
-                    usage.get("input_tokens", 0) if isinstance(usage, dict)
-                    else getattr(usage, "input_tokens", 0)
+                    usage.get("input_tokens", 0) if isinstance(usage, dict) else getattr(usage, "input_tokens", 0)
                 )
                 tokens_out = (
-                    usage.get("output_tokens", 0) if isinstance(usage, dict)
-                    else getattr(usage, "output_tokens", 0)
+                    usage.get("output_tokens", 0) if isinstance(usage, dict) else getattr(usage, "output_tokens", 0)
                 )
 
-                cost = (
-                    (tokens_in / 1000) * spec.cost_input_per_1k
-                    + (tokens_out / 1000) * spec.cost_output_per_1k
-                )
+                cost = (tokens_in / 1000) * spec.cost_input_per_1k + (tokens_out / 1000) * spec.cost_output_per_1k
 
                 metrics = CallMetrics(
                     agent_name=agent_name,
@@ -630,14 +643,8 @@ class LLMClient:
         if max_tokens is not None:
             common_kwargs["max_tokens"] = max_tokens
 
-        api_key = (
-            self._api_key
-            or os.environ.get("OPENROUTER_API_KEY", "")
-        )
-        base_url = (
-            self._base_url
-            or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-        )
+        api_key = self._api_key or os.environ.get("OPENROUTER_API_KEY", "")
+        base_url = self._base_url or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
         model = ChatOpenAI(
             model=spec.model_id,
