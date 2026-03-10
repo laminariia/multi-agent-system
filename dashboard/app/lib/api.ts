@@ -33,6 +33,7 @@ import type {
   CreateCampaignPayload,
   TelegramChannel,
   TelegramChannelListResponse,
+  PipelineProgress,
 } from "./types";
 
 declare global {
@@ -673,4 +674,10 @@ export async function deleteTelegramChannel(id: number): Promise<{ status: strin
   return apiFetch<{ status: string; id: number }>(`/telegram-channels/${id}`, {
     method: "DELETE",
   });
+}
+
+// --- Pipeline Progress ---
+
+export async function fetchPipelineProgress(jobId: string): Promise<PipelineProgress> {
+  return apiFetch<PipelineProgress>(`/jobs/${jobId}/pipeline-progress`);
 }

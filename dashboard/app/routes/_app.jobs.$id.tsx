@@ -9,7 +9,8 @@ import { Separator } from "~/components/ui/separator";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Textarea } from "~/components/ui/textarea";
 import { PipelineStatusTracker } from "~/components/pipeline-status-tracker";
-import { fetchJob, disqualifyJob, runPipeline } from "~/lib/api";
+import { ExecutionProgress } from "~/components/execution-progress";
+import { fetchJob, disqualifyJob, runPipeline, fetchPipelineProgress } from "~/lib/api";
 import { relativeTime } from "~/lib/utils";
 import { toast } from "~/hooks/use-toast";
 import { useWsSubscription } from "~/hooks/use-ws-subscription";
@@ -32,6 +33,13 @@ export default function JobDetailPage() {
     queryKey: ["job", id],
     queryFn: () => fetchJob(id!),
     enabled: !!id,
+  });
+
+  const { data: pipelineProgress } = useQuery({
+    queryKey: ["pipeline-progress", id],
+    queryFn: () => fetchPipelineProgress(id!),
+    enabled: !!id && job?.status === "in_progress",
+    refetchInterval: 5000,
   });
 
   const handleDisqualify = async () => {
@@ -208,8 +216,10 @@ export default function JobDetailPage() {
         </CardContent>
       </Card>
 
-      {/* In progress banner */}
-      {job.status === "in_progress" && (
+      {/* Pipeline execution progress */}
+      {job.status === "in_progress" && pipelineProgress && pipelineProgress.status !== "idle" ? (
+        <ExecutionProgress progress={pipelineProgress} />
+      ) : job.status === "in_progress" ? (
         <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 flex items-center gap-3">
           <div className="h-3 w-3 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
           <div>
@@ -217,12 +227,11 @@ export default function JobDetailPage() {
               Pipeline A is running
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Planner, Dev, Content, Design, and Critic agents are processing this job.
-              Check HITL queue for any pending approvals.
+              Waiting for progress data...
             </p>
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Disqualify form */}
       {showDisqualify && (

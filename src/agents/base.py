@@ -252,7 +252,10 @@ class ConstrainedAgent(abc.ABC):
                 # 3. Role constraints
                 self._validate_role_constraints(state)
 
-                # 4. Agent-specific logic
+                # 4. Publish pipeline progress (best-effort)
+                await self._publish_progress_start(state)
+
+                # 5. Agent-specific logic
                 self._log.info(
                     "agent_invoke_start",
                     thread_id=state["thread_id"],
@@ -284,6 +287,9 @@ class ConstrainedAgent(abc.ABC):
                 status = "hitl_paused" if result_state.get("requires_hitl") else "success"
                 self._record_metric(status, elapsed_ms / 1000)
 
+                # Publish pipeline progress (best-effort)
+                await self._publish_progress_complete(result_state)
+
                 return result_state
 
             except LoopDetectedError:
@@ -312,6 +318,7 @@ class ConstrainedAgent(abc.ABC):
 
             except HITLRequiredError as exc:
                 self._log.info("hitl_required", thread_id=state["thread_id"], reason=str(exc))
+                await self._publish_progress_status(state, "paused")
                 return update_state(
                     state,
                     requires_hitl=True,
@@ -351,6 +358,7 @@ class ConstrainedAgent(abc.ABC):
             except MASException as exc:
                 self._log.error("mas_error", thread_id=state["thread_id"], error=str(exc))
                 self._record_metric("failed", 0)
+                await self._publish_progress_status(state, "failed")
                 state = append_error(state, f"Unrecoverable: {exc}")
                 if self.agent_name in _RECOVERABLE_AGENTS:
                     return await self._pause_for_recovery(state, str(exc))
@@ -368,6 +376,43 @@ class ConstrainedAgent(abc.ABC):
         if self.agent_name in _RECOVERABLE_AGENTS:
             return await self._pause_for_recovery(state, "Exhausted all retries")
         return update_state(state, status="failed", next_agent=None)
+
+    # ------------------------------------------------------------------
+    # Pipeline progress helpers (best-effort, never block execution)
+    # ------------------------------------------------------------------
+
+    async def _publish_progress_start(self, state: AgentState) -> None:
+        """Publish that this agent has started execution."""
+        try:
+            from src.core.pipeline_progress import get_progress_tracker  # noqa: PLC0415
+
+            tracker = get_progress_tracker()
+            if tracker:
+                await tracker.publish_agent_started(self.agent_name, state)
+        except Exception:
+            self._log.debug("progress_start_publish_failed", exc_info=True)
+
+    async def _publish_progress_complete(self, state: AgentState) -> None:
+        """Publish that this agent has completed execution."""
+        try:
+            from src.core.pipeline_progress import get_progress_tracker  # noqa: PLC0415
+
+            tracker = get_progress_tracker()
+            if tracker:
+                await tracker.publish_agent_completed(self.agent_name, state)
+        except Exception:
+            self._log.debug("progress_complete_publish_failed", exc_info=True)
+
+    async def _publish_progress_status(self, state: AgentState, status: str) -> None:
+        """Publish a status change (paused, failed)."""
+        try:
+            from src.core.pipeline_progress import get_progress_tracker  # noqa: PLC0415
+
+            tracker = get_progress_tracker()
+            if tracker:
+                await tracker.publish_status(state["thread_id"], status, self.agent_name)
+        except Exception:
+            self._log.debug("progress_status_publish_failed", exc_info=True)
 
     # ------------------------------------------------------------------
     # Partial failure recovery

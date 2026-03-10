@@ -375,3 +375,15 @@ export interface TelegramChannelListResponse {
   channels: TelegramChannel[];
   total: number;
 }
+
+export interface PipelineProgress {
+  thread_id: string | null;
+  agent_sequence: string[];
+  current_agent: string | null;
+  current_index: number;
+  total_agents: number;
+  completed_agents: string[];
+  status: "idle" | "running" | "paused" | "completed" | "failed";
+  started_at: string | null;
+  updated_at: string | null;
+}

@@ -849,6 +849,20 @@ class DealCreateSchema(_BaseSchema):
     conversation_history: list[dict[str, Any]] | None = Field(default=None, description="Conversation history")
 
 
+class PipelineProgressSchema(_BaseSchema):
+    """Pipeline execution progress for dashboard display."""
+
+    thread_id: str | None = Field(default=None, description="Pipeline thread ID")
+    agent_sequence: list[str] = Field(default_factory=list, description="Dynamic agent sequence")
+    current_agent: str | None = Field(default=None, description="Currently executing agent")
+    current_index: int = Field(default=0, description="Current position in sequence")
+    total_agents: int = Field(default=0, description="Total agents in pipeline")
+    completed_agents: list[str] = Field(default_factory=list, description="Agents that finished")
+    status: str = Field(default="idle", description="Pipeline status: idle|running|paused|completed|failed")
+    started_at: str | None = Field(default=None, description="ISO timestamp of pipeline start")
+    updated_at: str | None = Field(default=None, description="ISO timestamp of last update")
+
+
 class DealUpdateSchema(_BaseSchema):
     """Request body for updating an existing deal (all fields optional)."""
 
