@@ -905,3 +905,32 @@ class Deal(Base):
         Index("idx_deals_status", "status"),
         Index("idx_deals_lead_id", "lead_id"),
     )
+
+
+# ---------------------------------------------------------------------------
+# 19. scheduled_messages
+# ---------------------------------------------------------------------------
+
+
+class ScheduledMessage(Base):
+    """Scheduled progress messages for delivery throttling (execution cloaking)."""
+
+    __tablename__ = "scheduled_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    project_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    send_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    channel: Mapped[str] = mapped_column(String(20), default="platform", server_default="platform")
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("idx_scheduled_messages_status_send_at", "status", "send_at"),
+        Index("idx_scheduled_messages_thread", "thread_id"),
+    )

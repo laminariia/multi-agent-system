@@ -412,6 +412,7 @@ class TestPackagerDeliverySchedule:
 
         with (
             patch.object(agent, "_generate_delivery_package", new_callable=AsyncMock, return_value=delivery_info),
+            patch.object(agent, "_create_delivery_hold_entry", new_callable=AsyncMock, return_value="hitl-hold-1"),
             patch.object(agent, "_create_hitl_entry", new_callable=AsyncMock, return_value="hitl-pkg-1"),
             patch.object(agent, "_log_packaging_action", new_callable=AsyncMock),
         ):
@@ -525,6 +526,7 @@ class TestPackagerDeliverySchedule:
 
         with (
             patch.object(agent, "_generate_delivery_package", new_callable=AsyncMock, return_value=delivery_info),
+            patch.object(agent, "_create_delivery_hold_entry", new_callable=AsyncMock, return_value="hitl-hold-4"),
             patch.object(agent, "_create_hitl_entry", new_callable=AsyncMock, return_value="hitl-pkg-4"),
             patch.object(agent, "_log_packaging_action", new_callable=AsyncMock),
         ):

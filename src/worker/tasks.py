@@ -277,6 +277,46 @@ async def run_pipeline_b_scan(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def dispatch_scheduled_messages() -> int:
+    """Send scheduled messages that are due.
+
+    Queries ``ScheduledMessage`` rows with status='pending' and
+    ``send_at <= now``, marks them as 'sent', and returns the count.
+    Actual channel delivery (platform API, email) is a future extension;
+    for now we record the intent and update status.
+    """
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from src.core.models import ScheduledMessage  # noqa: PLC0415
+
+    now = datetime.now(tz=UTC)
+    sent_count = 0
+
+    async with get_db_session() as session:
+        stmt = (
+            select(ScheduledMessage).where(ScheduledMessage.status == "pending").where(ScheduledMessage.send_at <= now)
+        )
+        result = await session.execute(stmt)
+        messages = result.scalars().all()
+
+        for msg in messages:
+            msg.status = "sent"
+            msg.sent_at = now
+            sent_count += 1
+            logger.info(
+                "scheduled_message_sent",
+                message_id=str(msg.id),
+                project_id=msg.project_id,
+                channel=msg.channel,
+            )
+
+    if sent_count:
+        logger.info("dispatch_scheduled_messages_done", sent=sent_count)
+    return sent_count
+
+
 # Task dispatcher
 TASK_REGISTRY: dict[str, Any] = {
     "scout_cycle": run_scout_cycle,

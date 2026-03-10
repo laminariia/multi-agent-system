@@ -168,6 +168,34 @@ class PackagerAgent(ConstrainedAgent):
         # 4b. Execution cloaking: check delivery schedule.
         self._check_delivery_schedule(state, delivery_info)
 
+        # 4c. Delivery guard: hold if delivery is too early.
+        if delivery_info.get("delivery_hold"):
+            artifacts = dict(all_artifacts)
+            delivery_serialized = json.dumps(delivery_info, default=str)
+            existing = list(artifacts.get("packager", []))
+            existing.append(delivery_serialized)
+            artifacts["packager"] = existing
+
+            hitl_id = await self._create_delivery_hold_entry(
+                project,
+                delivery_info,
+                state["thread_id"],
+            )
+            self._log.info(
+                "delivery_held",
+                project_id=project_id,
+                reason=delivery_info.get("delivery_hold_reason"),
+            )
+            return update_state(
+                state,
+                current_agent="packager",
+                next_agent=None,
+                artifacts=artifacts,
+                requires_hitl=True,
+                hitl_request_id=hitl_id,
+                status="paused",
+            )
+
         # 5. Store delivery info as artifact.
         artifacts = dict(all_artifacts)
         delivery_serialized = json.dumps(delivery_info, default=str)
@@ -422,6 +450,52 @@ class PackagerAgent(ConstrainedAgent):
             "quality_notes": "Delivery assembled from available artifacts.",
             "requires_hitl": True,
         }
+
+    # ------------------------------------------------------------------
+    # Delivery hold HITL entry (Execution Cloaking)
+    # ------------------------------------------------------------------
+
+    async def _create_delivery_hold_entry(
+        self,
+        project: dict[str, Any],
+        delivery_info: dict[str, Any],
+        thread_id: str = "",
+    ) -> str:
+        """Create HITL entry for delivery hold (execution cloaking).
+
+        When the package is ready before ``min_delivery_at``, this entry
+        gives the operator a choice to deliver now or wait.
+        """
+        hitl_id = uuid.uuid4()
+        project_id = project.get("project_id", "unknown")
+
+        async with get_db_session() as session:
+            hitl = HITLQueue(
+                id=hitl_id,
+                type="delivery_hold",
+                priority="medium",
+                title=f"Delivery hold: project {project_id}",
+                description=delivery_info.get(
+                    "delivery_hold_reason",
+                    "Delivery ready too early — waiting for minimum delivery time",
+                ),
+                payload={
+                    "project": project,
+                    "delivery_info": delivery_info,
+                    "source_agent": "packager",
+                    "thread_id": thread_id,
+                },
+                available_actions=["deliver_now", "wait"],
+                status="pending",
+            )
+            session.add(hitl)
+
+        self._log.info(
+            "delivery_hold_created",
+            hitl_id=str(hitl_id),
+            project_id=project_id,
+        )
+        return str(hitl_id)
 
     # ------------------------------------------------------------------
     # HITL queue entry

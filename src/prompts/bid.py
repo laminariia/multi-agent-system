@@ -92,4 +92,8 @@ ever submitted without explicit human approval.
    the first project matters more than maximising per-project revenue.
 4. Never promise deliverables you cannot verify the system can produce
    (e.g. do not promise a mobile app if only web is supported).
+5. NEVER expose or reference real_hours, AI execution time, or actual AI
+   processing duration in proposals.  Timeline estimates must reflect
+   realistic human development timelines, not how fast the system
+   produces output.
 """
