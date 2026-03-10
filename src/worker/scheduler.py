@@ -5,7 +5,9 @@ Runs:
 - Metrics collection every METRICS_INTERVAL_SECONDS (default 60) seconds.
 - Heartbeat cleanup every HEARTBEAT_CLEANUP_MINUTES (default 10) minutes.
 - Pipeline B geo-scan every PIPELINE_B_SCAN_INTERVAL_HOURS (default 24) hours.
+- Scheduled message dispatch every 5 minutes (delivery throttling).
 """
+
 from __future__ import annotations
 
 import structlog
@@ -43,19 +45,13 @@ class WorkerScheduler:
             },
         )
         self._scout_interval = (
-            scout_interval_minutes
-            if scout_interval_minutes is not None
-            else settings.SCOUT_INTERVAL_MINUTES
+            scout_interval_minutes if scout_interval_minutes is not None else settings.SCOUT_INTERVAL_MINUTES
         )
         self._metrics_interval = (
-            metrics_interval_seconds
-            if metrics_interval_seconds is not None
-            else settings.METRICS_INTERVAL_SECONDS
+            metrics_interval_seconds if metrics_interval_seconds is not None else settings.METRICS_INTERVAL_SECONDS
         )
         self._heartbeat_interval = (
-            heartbeat_cleanup_minutes
-            if heartbeat_cleanup_minutes is not None
-            else settings.HEARTBEAT_CLEANUP_MINUTES
+            heartbeat_cleanup_minutes if heartbeat_cleanup_minutes is not None else settings.HEARTBEAT_CLEANUP_MINUTES
         )
         self._pipeline_b_interval = (
             pipeline_b_scan_interval_hours
@@ -91,6 +87,14 @@ class WorkerScheduler:
             trigger=IntervalTrigger(minutes=self._heartbeat_interval),
             id="heartbeat_cleanup",
             name="Heartbeat cleanup",
+            replace_existing=True,
+        )
+
+        self._scheduler.add_job(
+            _dispatch_scheduled_messages,
+            trigger=IntervalTrigger(minutes=5),
+            id="dispatch_scheduled_messages",
+            name="Dispatch scheduled messages (delivery throttling)",
             replace_existing=True,
         )
 
@@ -253,3 +257,15 @@ async def _cleanup_heartbeats() -> None:
 
     except Exception:
         logger.debug("heartbeat_cleanup_failed", exc_info=True)
+
+
+async def _dispatch_scheduled_messages() -> None:
+    """Dispatch due scheduled messages (delivery throttling)."""
+    try:
+        from src.worker.tasks import dispatch_scheduled_messages
+
+        count = await dispatch_scheduled_messages()
+        if count:
+            logger.info("scheduled_messages_dispatched", count=count)
+    except Exception:
+        logger.debug("scheduled_message_dispatch_failed", exc_info=True)

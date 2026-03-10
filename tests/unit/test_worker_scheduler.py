@@ -181,8 +181,8 @@ class TestWorkerScheduler:
         assert scheduler.running is False
 
     @pytest.mark.usefixtures("_mock_settings")
-    async def test_scheduler_registers_three_jobs_no_cities(self) -> None:
-        """With no cities configured, scheduler should have 3 jobs (no pipeline_b)."""
+    async def test_scheduler_registers_base_jobs_no_cities(self) -> None:
+        """With no cities configured, scheduler should have 4 jobs (no pipeline_b)."""
         scheduler = WorkerScheduler()
 
         await scheduler.start()
@@ -192,8 +192,9 @@ class TestWorkerScheduler:
         assert "scout_cycle" in job_ids
         assert "metrics_collection" in job_ids
         assert "heartbeat_cleanup" in job_ids
+        assert "dispatch_scheduled_messages" in job_ids
         assert "pipeline_b_scan" not in job_ids
-        assert len(jobs) == 3
+        assert len(jobs) == 4
 
         await scheduler.stop()
 
@@ -225,7 +226,7 @@ class TestWorkerScheduler:
 
     @pytest.mark.usefixtures("_mock_settings")
     async def test_scheduler_registers_pipeline_b_with_cities(self) -> None:
-        """When cities are configured, scheduler should register a 4th pipeline_b_scan job."""
+        """When cities are configured, scheduler should register pipeline_b_scan too."""
         scheduler = WorkerScheduler(
             pipeline_b_cities=["Berlin", "Munich"],
         )
@@ -235,7 +236,7 @@ class TestWorkerScheduler:
         jobs = scheduler._scheduler.get_jobs()
         job_ids = {j.id for j in jobs}
         assert "pipeline_b_scan" in job_ids
-        assert len(jobs) == 4
+        assert len(jobs) == 5
 
         await scheduler.stop()
 
