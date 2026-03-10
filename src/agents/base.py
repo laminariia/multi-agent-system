@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import os
 import time
 from typing import Any
 
 import structlog
 from langchain_core.messages import BaseMessage
 
+from src.core.database import get_db_session
 from src.core.exceptions import (
     AgentException,
     HITLRequiredError,
@@ -167,7 +169,7 @@ ROLE_CONSTRAINTS: dict[str, dict[str, Any]] = {
 }
 
 _DEFAULT_MAX_RETRIES = 3
-_DEFAULT_NODE_TIMEOUT_SECONDS = 600  # 10 minutes per agent invocation
+_DEFAULT_NODE_TIMEOUT_SECONDS = int(os.environ.get("AGENT_TIMEOUT_SECONDS", "600"))
 
 
 class ConstrainedAgent(abc.ABC):
@@ -303,7 +305,7 @@ class ConstrainedAgent(abc.ABC):
 
             except TimeoutError:
                 elapsed = time.perf_counter() - t0
-                reason = f"{self.agent_name} timed out after {_DEFAULT_NODE_TIMEOUT_SECONDS}s"
+                reason = f"Agent timeout: {self.agent_name} timed out after {_DEFAULT_NODE_TIMEOUT_SECONDS}s"
                 self._log.error(
                     "node_timeout",
                     thread_id=state["thread_id"],
@@ -312,8 +314,45 @@ class ConstrainedAgent(abc.ABC):
                 )
                 self._record_metric("timeout", elapsed)
                 state = append_error(state, reason)
+
+                # Create HITL alert for ALL agents on timeout (P3.14)
+                import uuid as _uuid  # noqa: PLC0415
+
+                hitl_id = _uuid.uuid4()
+                try:
+                    from src.core.models import HITLQueue  # noqa: PLC0415
+
+                    async with get_db_session() as session:
+                        hitl = HITLQueue(
+                            id=hitl_id,
+                            type="agent_timeout",
+                            priority="urgent",
+                            title=f"Agent '{self.agent_name}' timed out",
+                            payload={
+                                "failed_agent": self.agent_name,
+                                "failure_reason": reason[:500],
+                                "thread_id": state["thread_id"],
+                            },
+                            available_actions=["retry", "skip"],
+                            status="pending",
+                        )
+                        session.add(hitl)
+                except Exception:  # noqa: BLE001
+                    self._log.exception(
+                        "timeout_hitl_creation_failed",
+                        agent=self.agent_name,
+                    )
+
                 if self.agent_name in _RECOVERABLE_AGENTS:
-                    return await self._pause_for_recovery(state, reason)
+                    return update_state(
+                        state,
+                        status="paused",
+                        requires_hitl=True,
+                        hitl_request_id=str(hitl_id),
+                        failed_agent=self.agent_name,
+                        failure_reason=reason[:500],
+                        next_agent=None,
+                    )
                 return update_state(state, status="failed", next_agent=None)
 
             except HITLRequiredError as exc:
@@ -431,7 +470,7 @@ class ConstrainedAgent(abc.ABC):
         """
         import uuid as _uuid  # noqa: PLC0415
 
-        from src.core.database import get_db_session  # noqa: PLC0415
+        from src.core.database import get_db_session as _get_db  # noqa: PLC0415
         from src.core.models import HITLQueue  # noqa: PLC0415
 
         hitl_id = _uuid.uuid4()
@@ -447,7 +486,7 @@ class ConstrainedAgent(abc.ABC):
         )
 
         try:
-            async with get_db_session() as session:
+            async with _get_db() as session:
                 hitl = HITLQueue(
                     id=hitl_id,
                     type="agent_failure",

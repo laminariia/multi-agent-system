@@ -1,4 +1,5 @@
 """Unit tests for src/worker/tasks.py - Background task handlers."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -89,9 +90,8 @@ class TestRunProjectPipeline:
     def _pipeline_patches(self):
         """Return a tuple of patch contexts for run_project_pipeline deps.
 
-        The function uses lazy imports, so we patch at the source module:
-        ``src.core.config.get_settings``, ``src.core.database.get_valkey``,
-        ``asyncpg.create_pool``, ``src.core.graph.create_graph_with_persistence``.
+        Patches at ``src.worker.tasks.*`` because the module uses top-level
+        imports (module-level references).
         """
         from unittest.mock import MagicMock
 
@@ -107,10 +107,10 @@ class TestRunProjectPipeline:
         mock_graph.ainvoke = AsyncMock(return_value={"status": "completed"})
 
         patches = {
-            "settings": patch("src.core.config.get_settings", return_value=mock_settings),
-            "valkey": patch("src.core.database.get_valkey", return_value=mock_valkey),
-            "pool": patch("asyncpg.create_pool", new_callable=AsyncMock, return_value=mock_pool),
-            "graph": patch("src.core.graph.create_graph_with_persistence", return_value=mock_graph),
+            "settings": patch("src.worker.tasks.get_settings", return_value=mock_settings),
+            "valkey": patch("src.worker.tasks.get_valkey", return_value=mock_valkey),
+            "pool": patch("src.worker.tasks.asyncpg.create_pool", new_callable=AsyncMock, return_value=mock_pool),
+            "graph": patch("src.worker.tasks.create_graph_with_persistence", return_value=mock_graph),
         }
         return patches, mock_graph, mock_pool
 
@@ -182,11 +182,7 @@ class TestRunProjectPipeline:
             await run_project_pipeline(payload)
 
             call = mock_graph.ainvoke.call_args
-            config = (
-                call.kwargs.get("config")
-                or call[1].get("config")
-                or call[0][1]
-            )
+            config = call.kwargs.get("config") or call[1].get("config") or call[0][1]
             assert config["configurable"]["thread_id"] == "pipeline-proj-abc"
 
     @pytest.mark.asyncio
@@ -347,10 +343,10 @@ class TestDispatchTask:
         mock_graph.ainvoke = AsyncMock(return_value={"status": "completed"})
 
         with (
-            patch("src.core.config.get_settings", return_value=mock_settings),
-            patch("src.core.database.get_valkey", return_value=MagicMock()),
-            patch("asyncpg.create_pool", new_callable=AsyncMock, return_value=mock_pool),
-            patch("src.core.graph.create_graph_with_persistence", return_value=mock_graph),
+            patch("src.worker.tasks.get_settings", return_value=mock_settings),
+            patch("src.worker.tasks.get_valkey", return_value=MagicMock()),
+            patch("src.worker.tasks.asyncpg.create_pool", new_callable=AsyncMock, return_value=mock_pool),
+            patch("src.worker.tasks.create_graph_with_persistence", return_value=mock_graph),
         ):
             payload = {"project_id": "p1", "requirements": "Test", "budget": 100}
             result = await dispatch_task("project_pipeline", payload)
