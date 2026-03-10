@@ -19,6 +19,29 @@ from langchain_core.messages import BaseMessage
 Platform = Literal["freelancer", "upwork", "flru", "kwork", "internal", "outreach"]
 Status = Literal["active", "paused", "completed", "failed"]
 
+# Valid delivery types for project packaging.
+VALID_DELIVERY_TYPES: frozenset[str] = frozenset(
+    {
+        "files",  # Code, design, content -> archive (ZIP / GitHub repo)
+        "credentials",  # Configured service + access credentials + instructions
+        "deploy",  # Deployed to hosting -> URL + settings
+        "instructions",  # Documentation + guides (consulting/audit)
+        "mixed",  # Combination of files + credentials + deploy + instructions
+    }
+)
+
+
+def validate_delivery_type(value: str) -> str:
+    """Return validated delivery_type or ``'files'`` as fallback.
+
+    Args:
+        value: The delivery_type string to validate.
+
+    Returns:
+        The same string if it is a valid delivery type, otherwise ``'files'``.
+    """
+    return value if value in VALID_DELIVERY_TYPES else "files"
+
 
 class ProjectContext(TypedDict):
     """Describes the freelance project associated with the current workflow."""

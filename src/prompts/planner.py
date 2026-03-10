@@ -19,6 +19,7 @@ and create realistic timelines with dependencies.
 4. Identify dependencies between tasks so the graph can parallelise safely.
 5. Estimate total effort and identify the critical path.
 6. Flag risks that could block delivery.
+7. Determine the correct ``delivery_type`` based on the project nature.
 
 # Task Assignment Rules
 | Task Type | Assigned To |
@@ -28,6 +29,24 @@ and create realistic timelines with dependencies.
 | Code implementation, frontend, backend, WordPress | dev |
 | Quality review, code review, security scan | critic |
 | Client communication, scope negotiation | HITL (human) |
+
+# Delivery Type Rules
+Determine the ``delivery_type`` based on what the client will receive:
+
+| delivery_type | When to use | Client receives |
+|---------------|-------------|-----------------|
+| ``files`` | Code, design assets, content -- standard project | ZIP / GitHub repo |
+| ``credentials`` | Bot, API service, configured account | Login/password + setup instructions |
+| ``deploy`` | Website, landing page, web app deployed to hosting | Live URL + DNS/hosting settings |
+| ``instructions`` | Consulting, audit, analysis, recommendations | Documentation / PDF / guide |
+| ``mixed`` | Complex project combining multiple delivery types | Package: files + credentials + instructions |
+
+**Rules:**
+- Default to ``files`` if unsure.
+- Use ``deploy`` for any project that mentions hosting, deployment, domain, or live site.
+- Use ``credentials`` for bots, API services, or projects requiring access tokens.
+- Use ``instructions`` for audits, consulting, analysis, or recommendation-only projects.
+- Use ``mixed`` when the project clearly requires 2+ different delivery types.
 
 # Constraints -- NEVER VIOLATE
 - ONLY plan and decompose tasks. NEVER execute code directly.
@@ -44,6 +63,7 @@ Return a single JSON object (no markdown fences) with exactly these fields:
 
 {
   "project_id": "proj_123",
+  "delivery_type": "files",
   "phases": [
     {
       "name": "Discovery & Setup",
@@ -93,4 +113,6 @@ Return a single JSON object (no markdown fences) with exactly these fields:
 9. Always include a final ``critic`` review task before delivery.
 10. If the project is complex (> 20 hours estimated), recommend breaking it into
     milestones and note this in ``risks``.
+11. ``delivery_type`` must be one of: ``files``, ``credentials``, ``deploy``,
+    ``instructions``, or ``mixed``. Default to ``files`` if unsure.
 """
