@@ -257,6 +257,37 @@ async def lifespan(app: Litestar) -> AsyncGenerator[None, None]:
     container = get_container()
     container.semantic_cache = getattr(app.state, "semantic_cache", None)
 
+    # Initialize LLM Request Queue (P3.12 — best-effort)
+    try:
+        from src.core.llm_queue import LLMRequestQueue  # noqa: PLC0415
+
+        llm_queue = LLMRequestQueue(
+            llm_client=container.llm_client,
+            max_concurrent=settings.LLM_MAX_CONCURRENT,
+        )
+        await llm_queue.start()
+        container.llm_queue = llm_queue
+        logger.info("app.llm_queue_initialized", max_concurrent=settings.LLM_MAX_CONCURRENT)
+    except Exception as exc:
+        logger.warning("app.llm_queue_init_failed", error=str(exc))
+
+    # Initialize Decision Memory (P3.13 — best-effort)
+    try:
+        from src.core.decision_memory import DecisionMemory  # noqa: PLC0415
+        from src.knowledge.ingestion import KnowledgeIngestionPipeline  # noqa: PLC0415
+        from src.knowledge.retrieval import KnowledgeRetriever  # noqa: PLC0415
+
+        dm_db_pool = getattr(app.state, "semantic_cache_db_pool", None)
+        if dm_db_pool is not None:
+            ingestion = KnowledgeIngestionPipeline(db_pool=dm_db_pool)
+            retriever = KnowledgeRetriever(db_pool=dm_db_pool, valkey=valkey)
+            container.decision_memory = DecisionMemory(ingestion=ingestion, retriever=retriever)
+            logger.info("app.decision_memory_initialized")
+        else:
+            logger.warning("app.decision_memory_skipped", reason="no db_pool available")
+    except Exception as exc:
+        logger.warning("app.decision_memory_init_failed", error=str(exc))
+
     # Seed admin user if users table is empty and ADMIN_EMAIL/PASSWORD are set.
     await _seed_admin_user(settings)
 

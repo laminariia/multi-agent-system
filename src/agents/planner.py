@@ -385,6 +385,13 @@ class PlannerAgent(ConstrainedAgent):
 
         user_parts = [f"Decompose the following project into a structured plan.\n\nProject:\n{project_text}"]
 
+        # P3.13: Query decision memory for similar past projects.
+        similar_context = await self._query_decision_memory(
+            project.get("requirements", ""),
+        )
+        if similar_context:
+            user_parts.append(similar_context)
+
         if artifact_context:
             user_parts.append(
                 "\n\n--- EXISTING WORK (from previous execution cycle) ---\n"
@@ -405,6 +412,39 @@ class PlannerAgent(ConstrainedAgent):
         response_msg, _metrics = await self._call_llm(messages, temperature=0.3)
         raw_text = str(response_msg.content)
         return self._parse_plan_response(raw_text)
+
+    async def _query_decision_memory(self, requirements: str) -> str | None:
+        """Query decision memory for similar past projects (P3.13).
+
+        Returns a formatted context string for the LLM prompt, or None.
+        Best-effort: errors are logged and swallowed.
+        """
+        if not requirements:
+            return None
+
+        try:
+            from src.core.container import get_container  # noqa: PLC0415
+
+            dm = get_container().decision_memory
+            if dm is None:
+                return None
+
+            patterns = await dm.find_similar(requirements, top_k=3)
+            if not patterns:
+                return None
+
+            lines = ["\n\n--- SIMILAR PAST PROJECTS (from decision memory) ---"]
+            for i, p in enumerate(patterns, 1):
+                lines.append(f"\n{i}. {p.title} (similarity: {p.similarity:.0%})\n{p.content}")
+            lines.append(
+                "\n--- END SIMILAR PROJECTS ---\n\n"
+                "Use these past outcomes to inform your timeline estimates "
+                "and approach. Avoid repeating past mistakes."
+            )
+            return "".join(lines)
+        except Exception:  # noqa: BLE001
+            self._log.debug("decision_memory_query_failed", exc_info=True)
+            return None
 
     def _parse_plan_response(self, raw: str) -> dict[str, Any] | None:
         """Parse the LLM's plan JSON response using extract_json.

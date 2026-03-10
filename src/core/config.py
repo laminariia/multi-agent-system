@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     SEMANTIC_CACHE_TTL_TRANSLATION: int = 604_800  # 7 d
     SEMANTIC_CACHE_TTL_DEFAULT: int = 21_600  # 6 h
 
+    # ── LLM Queue ──────────────────────────────────────────────────
+    LLM_MAX_CONCURRENT: int = 5
+
     # ── Scheduler ────────────────────────────────────────────────────
     SCOUT_INTERVAL_MINUTES: int = 5
     METRICS_INTERVAL_SECONDS: int = 60

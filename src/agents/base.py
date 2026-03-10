@@ -585,7 +585,22 @@ class ConstrainedAgent(abc.ABC):
         temperature: float = 0.7,
         max_tokens: int | None = None,
     ) -> tuple[BaseMessage, CallMetrics]:
-        """Delegate an LLM call through the shared client, tagged with this agent's name."""
+        """Delegate an LLM call, routing through the priority queue when available."""
+        from src.core.container import get_container  # noqa: PLC0415
+
+        queue = get_container().llm_queue
+        if queue is not None:
+            from src.core.llm_queue import AGENT_PRIORITY, LLMPriority  # noqa: PLC0415
+
+            priority = AGENT_PRIORITY.get(self.agent_name, LLMPriority.NORMAL)
+            return await queue.submit(
+                priority=priority,
+                agent_name=self.agent_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+
         return await self.llm_client.call(
             self.agent_name,
             messages,

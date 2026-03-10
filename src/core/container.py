@@ -47,6 +47,8 @@ class AgentContainer:
         self._semantic_cache: Any | None = None
         self._browser_pool: Any | None = None
         self._telegram_adapter: Any | None = None
+        self._llm_queue: Any | None = None
+        self._decision_memory: Any | None = None
 
     # ------------------------------------------------------------------
     # Lazy accessors
@@ -126,6 +128,24 @@ class AgentContainer:
         return self._browser_pool
 
     @property
+    def llm_queue(self) -> Any | None:
+        """Return the LLM request queue, if initialized."""
+        return self._llm_queue
+
+    @llm_queue.setter
+    def llm_queue(self, value: Any) -> None:
+        self._llm_queue = value
+
+    @property
+    def decision_memory(self) -> Any | None:
+        """Return the decision memory, if initialized."""
+        return self._decision_memory
+
+    @decision_memory.setter
+    def decision_memory(self, value: Any) -> None:
+        self._decision_memory = value
+
+    @property
     def telegram_adapter(self) -> Any | None:
         """Return the Telegram channel adapter (reads from Valkey queue).
 
@@ -184,6 +204,18 @@ class AgentContainer:
 
         # Loop detector (stateless, just drop reference)
         self._loop_detector = None
+
+        # LLM queue
+        if self._llm_queue is not None:
+            try:
+                await self._llm_queue.stop()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"llm_queue: {exc}")
+            finally:
+                self._llm_queue = None
+
+        # Decision memory (stateless, just drop reference)
+        self._decision_memory = None
 
         # Semantic cache reference (owned by app.state, not us)
         self._semantic_cache = None

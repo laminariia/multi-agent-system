@@ -150,12 +150,43 @@ async def run_project_pipeline(payload: dict[str, Any]) -> dict[str, Any]:
         status=final_status,
     )
 
+    # P3.13: Record decision pattern for terminal pipeline states.
+    await _record_decision_pattern(result)
+
     return {
         "task": "project_pipeline",
         "project_id": project["project_id"],
         "thread_id": thread_id,
         "status": final_status,
     }
+
+
+async def _record_decision_pattern(result: dict[str, Any]) -> None:
+    """Record a decision pattern from a completed pipeline (P3.13).
+
+    Best-effort: errors are logged and swallowed so they never
+    affect the pipeline result returned to the caller.
+    """
+    try:
+        from src.core.container import get_container  # noqa: PLC0415
+        from src.core.decision_memory import extract_pattern_from_state  # noqa: PLC0415
+
+        dm = get_container().decision_memory
+        if dm is None:
+            return
+
+        pattern = extract_pattern_from_state(result)
+        if pattern is None:
+            return  # Non-terminal status — nothing to record.
+
+        await dm.record_outcome(pattern)
+        logger.info(
+            "decision_pattern_recorded",
+            project_type=pattern.project_type,
+            outcome=pattern.outcome,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("decision_pattern_recording_failed", exc_info=True)
 
 
 async def run_bid_generation(payload: dict[str, Any]) -> dict[str, Any]:
