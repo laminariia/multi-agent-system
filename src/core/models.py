@@ -936,3 +936,28 @@ class ScheduledMessage(Base):
         Index("idx_scheduled_messages_status_send_at", "status", "send_at"),
         Index("idx_scheduled_messages_thread", "thread_id"),
     )
+
+
+# ---------------------------------------------------------------------------
+# 22. email_suppression_list
+# ---------------------------------------------------------------------------
+
+
+class EmailSuppressionEntry(Base):
+    """CAN-SPAM / GDPR email suppression list."""
+
+    __tablename__ = "email_suppression_list"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    reason: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # hard_bounce | unsubscribe | complaint | manual | gdpr_erasure
+    source: Mapped[str] = mapped_column(String(100), nullable=False)  # bounce_handler | user_request | admin | webhook
+    suppressed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (Index("idx_suppression_email", "email"),)
