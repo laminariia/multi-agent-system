@@ -509,9 +509,25 @@ class Lead(Base):
     # Status
     status: Mapped[str] = mapped_column(String(20), default="new", server_default="new")
 
+    # Scoring (pipeline-b-spec)
+    lead_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    temperature: Mapped[str | None] = mapped_column(String(10), nullable=True)  # hot/warm/cold
+
+    # Touch tracking
+    touch_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    channel_used: Mapped[str | None] = mapped_column(String(20), nullable=True)  # email/telegram/platform
+
+    # External data
+    google_rating: Mapped[Decimal | None] = mapped_column(Numeric(2, 1), nullable=True)
+    review_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     # Source
+    source: Mapped[str | None] = mapped_column(String(30), nullable=True)  # geo_scanner/web_search/telegram
+    source_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     osm_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
     discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=_utcnow, nullable=True)
 
     # Relationships
     campaign_links: Mapped[list[CampaignLead]] = relationship(back_populates="lead", cascade="all, delete-orphan")
@@ -520,6 +536,7 @@ class Lead(Base):
         Index("idx_leads_city", "city", "category", "status"),
         Index("idx_leads_h3", "h3_index"),
         Index("idx_leads_status", "status"),
+        Index("idx_leads_temperature", "temperature"),
     )
 
 

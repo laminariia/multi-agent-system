@@ -291,6 +291,17 @@ async def lifespan(app: Litestar) -> AsyncGenerator[None, None]:
     # Seed admin user if users table is empty and ADMIN_EMAIL/PASSWORD are set.
     await _seed_admin_user(settings)
 
+    # Crash recovery — resume stale pipeline threads (best-effort, non-blocking)
+    try:
+        from src.core.crash_recovery import startup_crash_recovery  # noqa: PLC0415
+        from src.core.database import get_db_session as _get_session  # noqa: PLC0415
+
+        async with _get_session() as recovery_session:
+            summary = await startup_crash_recovery(recovery_session)
+            logger.info("app.crash_recovery_complete", **summary)
+    except Exception as exc:
+        logger.warning("app.crash_recovery_failed", error=str(exc))
+
     yield
 
     # ── Shutdown ────────────────────────────────────────────────────
