@@ -290,7 +290,7 @@ async def hitl_dev_launch_node(state: dict[str, Any]) -> dict[str, Any]:
                         "platform": project.get("platform", ""),
                         "bid_amount": project.get("bid_amount"),
                     },
-                    available_actions=["approve", "reject"],
+                    available_actions=["approve", "reject", "later"],
                     status="pending",
                 )
                 session.add(hitl)
@@ -1875,6 +1875,15 @@ def _apply_dev_launch(
             status="failed",
             next_agent=None,
             errors=[*saved_state.get("errors", []), "HITL: dev launch rejected by operator"],
+        )
+
+    if action == "later":
+        # Operator defers — keep paused, do NOT resume pipeline.
+        logger.info("hitl_dev_launch_deferred", thread_id=thread_id)
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            status="paused",
+            requires_hitl=True,
         )
 
     # Unknown action -- fail closed.

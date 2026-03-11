@@ -1,12 +1,12 @@
 """SQLAlchemy 2.0 ORM models for the Multi-Agent Service.
 
-All 18 tables from ``docs/database_schema.md`` are defined here using the
+All 21 tables from ``docs/Full_work/specs/database-spec.md`` are defined here using the
 modern ``Mapped`` / ``mapped_column`` annotation style.
 
 Key conventions:
 - UUIDs as primary keys (``gen_random_uuid()`` server-side default)
 - ``Vector(3072)`` for OpenAI text-embedding-3-large embedding columns
-- DiskANN indexes for vector columns (NOT HNSW)
+- HNSW indexes for vector columns (pgvector)
 - ``datetime.now(timezone.utc)`` for Python-side timestamp defaults
 - Async Alembic with asyncpg for migrations
 """
@@ -190,6 +190,9 @@ class Bid(Base):
     bid_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     estimated_days: Mapped[int | None] = mapped_column(Integer)
     portfolio_items: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(Text))
+
+    # Platform reference
+    platform_bid_id: Mapped[str | None] = mapped_column(String(255))
 
     # Status
     status: Mapped[str] = mapped_column(String(30), default="draft", server_default="draft")
@@ -729,9 +732,8 @@ class KnowledgeBase(Base):
 
     __table_args__ = (
         Index("idx_knowledge_type", "type", "category"),
-        # DiskANN index for ultra-fast vector search (pgvectorscale).
-        # Created via raw DDL in init migration or init.sql because SQLAlchemy
-        # does not natively support USING diskann.
+        # HNSW index for vector search (pgvector).
+        # Created via raw DDL in init migration or init.sql.
     )
 
 
@@ -762,7 +764,7 @@ class SemanticCache(Base):
     __table_args__ = (
         Index("idx_cache_expires", "expires_at"),
         Index("idx_cache_type", "query_type"),
-        # DiskANN index for embedding created via raw DDL (see init migration).
+        # HNSW index for embedding created via raw DDL (see init migration).
     )
 
 

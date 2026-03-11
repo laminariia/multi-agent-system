@@ -6,7 +6,7 @@ queries.  The similarity threshold is 0.92 (cosine).
 **Hot layer (Valkey):** RediSearch vector index (HNSW, FLOAT32, DIM=3072,
 COSINE).  Provides sub-millisecond lookup for active queries.
 
-**Cold layer (PostgreSQL):** pgvector with DiskANN index (``<=>`` operator).
+**Cold layer (PostgreSQL):** pgvector with HNSW index (``<=>`` operator).
 Acts as persistent fallback and long-term audit store.
 
 Embeddings are produced by OpenAI ``text-embedding-3-large`` (3072 dimensions)
@@ -36,10 +36,12 @@ logger = structlog.get_logger(__name__)
 # TTL by query type (seconds)
 # ---------------------------------------------------------------------------
 
+
 def _build_ttl_map() -> dict[str, int]:
     """Build TTL map from application settings (falls back to defaults)."""
     try:
         from src.core.config import get_settings
+
         s = get_settings()
         return {
             "proposal": s.SEMANTIC_CACHE_TTL_PROPOSAL,
@@ -62,6 +64,7 @@ def _get_similarity_threshold() -> float:
     """Return similarity threshold from application settings."""
     try:
         from src.core.config import get_settings
+
         return get_settings().SEMANTIC_CACHE_SIMILARITY_THRESHOLD
     except Exception:  # noqa: BLE001
         return 0.92
@@ -201,9 +204,7 @@ class SemanticCache:
         deleted_pg = 0
         if self.db_pool is not None:
             async with self.db_pool.acquire() as conn:
-                result = await conn.execute(
-                    "DELETE FROM semantic_cache WHERE query_type = $1", query_type
-                )
+                result = await conn.execute("DELETE FROM semantic_cache WHERE query_type = $1", query_type)
                 deleted_pg = int(result.split()[-1])
 
         logger.info("semantic_cache_invalidated", query_type=query_type, valkey=deleted_valkey, pg=deleted_pg)

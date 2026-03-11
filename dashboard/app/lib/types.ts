@@ -33,7 +33,7 @@ export interface RegisterRequest {
 
 export interface HITLItem {
   id: string;
-  type: "bid_approval" | "code_review" | "delivery" | "revision" | "scope_creep" | "plan_review" | "alert" | "email_approval" | "final_review" | "job_review";
+  type: "bid_approval" | "code_review" | "delivery" | "revision" | "scope_creep" | "plan_review" | "alert" | "email_approval" | "final_review" | "job_review" | "dev_launch" | "agent_failure" | "delivery_hold" | "outreach_approval" | "manual_action";
   priority: "urgent" | "normal" | "low";
   title: string;
   description: string | null;
@@ -381,6 +381,32 @@ export interface TelegramChannel {
 
 export interface TelegramChannelListResponse {
   channels: TelegramChannel[];
+  total: number;
+}
+
+// --- Deals (Pipeline B → A bridge) ---
+
+export interface Deal {
+  id: string;
+  lead_id: string | null;
+  title: string;
+  status: string;
+  agreed_scope: string | null;
+  budget: number | null;
+  deadline: string | null;
+  pipeline_a_thread_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface DealDetail extends Deal {
+  client_context: Record<string, any> | null;
+  design_versions: Record<string, any>[] | null;
+  conversation_history: Record<string, any>[] | null;
+}
+
+export interface DealListResponse {
+  deals: Deal[];
   total: number;
 }
 

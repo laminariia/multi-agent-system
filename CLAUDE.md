@@ -91,14 +91,15 @@ docker/         — Dockerfile, docker-compose.yml
 - Upwork auto-submit is **FORBIDDEN** (ToS violation)
 - Email warm-up 6 weeks before production outreach
 
-## Current Status (Feb 2026)
+## Current Status (Mar 2026)
 
-- **2435+ tests** passing, grade A+ (99)
-- **Pipeline A**: fully implemented — Scout, Bid, HITL, Planner, Dev, Content, Design, Critic, HITL, Packager
+- **2490+ tests** passing, grade A+ (99)
+- **Pipeline A**: fully implemented — Scout, Bid, HITL (dev_launch), Planner, Dev, Content, Design, Critic, HITL (final_review), Packager
 - **Pipeline B**: fully implemented — GeoScout, Outreach, HITL, Email
+- **3 HITL gates**: bid_approval, dev_launch (safety gate), final_review
 - **Dashboard**: Remix + shadcn/ui, all CRUD pages, WebSocket real-time, Settings with encrypted credentials
 - **Deploy**: Railway (API + Dashboard as separate services)
-- **Last major change**: code quality reflex loop — SQL injection prevention, exception narrowing, structured logging
+- **Last major change**: hitl_dev_launch safety gate + LLM model registry sync with 6-tier system
 
 ## Documentation Index
 

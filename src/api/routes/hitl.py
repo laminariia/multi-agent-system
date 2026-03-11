@@ -123,6 +123,30 @@ _NEXT_ACTION_MAP: dict[str, dict[str, str]] = {
         "skip": "job_skipped",
         "later": "job_review_deferred",
     },
+    "agent_failure": {
+        "resume": "agent_will_retry",
+        "skip": "agent_skipped",
+        "manual": "manual_artifacts_provided",
+        "later": "agent_failure_deferred",
+    },
+    "delivery_hold": {
+        "deliver_now": "delivery_released_early",
+        "wait": "delivery_hold_continued",
+        "later": "delivery_hold_deferred",
+    },
+    "manual_action": {
+        "approve": "manual_action_completed",
+        "reject": "manual_action_rejected",
+        "skip": "manual_action_skipped",
+        "later": "manual_action_deferred",
+    },
+    "outreach_approval": {
+        "approve": "outreach_emails_will_be_sent",
+        "reject": "outreach_emails_discarded",
+        "edit": "outreach_emails_revised",
+        "skip": "outreach_skipped",
+        "later": "outreach_deferred",
+    },
 }
 
 
@@ -327,7 +351,16 @@ class HITLController(Controller):
         # Resume the paused pipeline if this HITL type has a graph to resume.
         # Fire-and-forget: the pipeline runs asynchronously; the HTTP
         # response returns immediately so the dashboard stays responsive.
-        _RESUMABLE_TYPES = {"bid_approval", "dev_launch", "plan_review", "email_approval", "final_review"}
+        _RESUMABLE_TYPES = {
+            "bid_approval",
+            "dev_launch",
+            "plan_review",
+            "email_approval",
+            "final_review",
+            "agent_failure",
+            "outreach_approval",
+            "delivery_hold",
+        }
         thread_id_from_payload = (item.payload or {}).get("thread_id")
         if item.type in _RESUMABLE_TYPES and thread_id_from_payload and data.action != "later":
             try:
@@ -460,7 +493,16 @@ class HITLController(Controller):
         )
 
         # Fire-and-forget resume for each resumable item
-        _RESUMABLE_TYPES = {"bid_approval", "dev_launch", "plan_review", "email_approval", "final_review"}
+        _RESUMABLE_TYPES = {
+            "bid_approval",
+            "dev_launch",
+            "plan_review",
+            "email_approval",
+            "final_review",
+            "agent_failure",
+            "outreach_approval",
+            "delivery_hold",
+        }
         for item_id_str in resolved_ids:
             item_id_uuid = uuid.UUID(item_id_str)
             item = items_by_id.get(item_id_uuid)

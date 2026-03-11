@@ -35,6 +35,9 @@ import type {
   TelegramChannelListResponse,
   PipelineProgress,
   ScoutConfig,
+  Deal,
+  DealDetail,
+  DealListResponse,
 } from "./types";
 
 declare global {
@@ -685,6 +688,61 @@ export async function updateTelegramChannel(
 export async function deleteTelegramChannel(id: number): Promise<{ status: string; id: number }> {
   return apiFetch<{ status: string; id: number }>(`/telegram-channels/${id}`, {
     method: "DELETE",
+  });
+}
+
+// --- Deals ---
+
+export async function fetchDeals(params?: {
+  status?: string;
+  search?: string;
+  sort?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<DealListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.sort) searchParams.set("sort", params.sort);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+  const query = searchParams.toString();
+  return apiFetch<DealListResponse>(`/deals${query ? `?${query}` : ""}`);
+}
+
+export async function fetchDeal(id: string): Promise<DealDetail> {
+  return apiFetch<DealDetail>(`/deals/${id}`);
+}
+
+export async function createDeal(data: {
+  title: string;
+  agreed_scope?: string;
+  budget?: number;
+  lead_id?: string;
+  deadline?: string;
+  client_context?: Record<string, any>;
+}): Promise<{ status: string; id: string; title: string }> {
+  return apiFetch(`/deals`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateDeal(
+  id: string,
+  data: Record<string, any>
+): Promise<{ status: string; id: string; updated_fields: string[] }> {
+  return apiFetch(`/deals/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function startDealDevelopment(
+  id: string
+): Promise<{ status: string; deal_id: string; thread_id: string; message: string }> {
+  return apiFetch(`/deals/${id}/start-development`, {
+    method: "POST",
   });
 }
 
