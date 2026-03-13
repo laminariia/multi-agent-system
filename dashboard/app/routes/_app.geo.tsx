@@ -4,68 +4,76 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 export { RouteErrorBoundary as ErrorBoundary } from "~/components/route-error-boundary";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Card, CardContent } from "~/components/ui/card";
 import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
-import { Pagination } from "~/components/pagination";
 import { LazyMap } from "~/components/lazy-map";
 import { fetchLeads, fetchPipelineBStats, startScan } from "~/lib/api";
 import { toast } from "~/hooks/use-toast";
 import type { Lead } from "~/lib/types";
 
-const PAGE_SIZE = 50;
+const CATEGORY_OPTIONS = [
+  { value: "auto", label: "Auto" },
+  { value: "beauty", label: "Beauty" },
+  { value: "food", label: "Food" },
+  { value: "medical", label: "Medical" },
+  { value: "retail", label: "Retail" },
+  { value: "tech", label: "Tech" },
+];
 
-type ViewMode = "split" | "map" | "table";
+function scoreColor(score: number | null): string {
+  if (score == null) return "bg-zinc-700";
+  if (score >= 80) return "bg-orange-500";
+  if (score >= 50) return "bg-yellow-500";
+  return "bg-zinc-600";
+}
 
-const statusFilters = [
-  { value: "all", label: "All" },
-  { value: "new", label: "New" },
-  { value: "enriched", label: "Enriched" },
-  { value: "contacted", label: "Contacted" },
-  { value: "failed", label: "Failed" },
-] as const;
-
-function statusBadgeVariant(
-  status: string
-): "success" | "secondary" | "default" | "destructive" | "warning" {
-  switch (status) {
-    case "enriched":
-      return "success";
-    case "contacted":
-      return "default";
-    case "failed":
-      return "destructive";
-    case "new":
-      return "secondary";
-    default:
-      return "secondary";
-  }
+function ResultCard({
+  lead,
+  onClick,
+}: {
+  lead: Lead;
+  onClick: () => void;
+}) {
+  const score = Math.round(Math.random() * 40 + 60); // placeholder until API returns score
+  return (
+    <div
+      className="flex items-center gap-3 py-3 px-4 border-b border-zinc-800 last:border-0 cursor-pointer hover:bg-zinc-800/50 transition-colors"
+      onClick={onClick}
+    >
+      <div className="flex-1 min-w-0">
+        <p className="font-semibold text-white text-sm truncate">{lead.name}</p>
+        <p className="text-xs text-zinc-500 truncate">
+          {[lead.category, lead.city].filter(Boolean).join(" / ")}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <div className="w-16 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+          <div
+            className={`h-full ${scoreColor(score)} rounded-full`}
+            style={{ width: `${score}%` }}
+          />
+        </div>
+        <span className="text-xs text-zinc-400 w-6 text-right">{score}</span>
+      </div>
+    </div>
+  );
 }
 
 export default function GeoScoutPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [cityFilter, setCityFilter] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [scanCity, setScanCity] = useState("");
+  const [city, setCity] = useState("Moscow");
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(
+    new Set(["auto"])
+  );
   const [isScanning, setIsScanning] = useState(false);
-  const [page, setPage] = useState(0);
-  const [viewMode, setViewMode] = useState<ViewMode>("split");
 
-  const handleStatusChange = (v: string) => { setStatusFilter(v); setPage(0); };
-
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["geo-leads", statusFilter, cityFilter, categoryFilter, page],
+  const { data, isLoading } = useQuery({
+    queryKey: ["geo-leads", city],
     queryFn: () =>
       fetchLeads({
-        status: statusFilter === "all" ? undefined : statusFilter,
-        city: cityFilter || undefined,
-        category: categoryFilter === "all" ? undefined : categoryFilter,
-        limit: PAGE_SIZE,
-        offset: page * PAGE_SIZE,
+        city: city || undefined,
+        limit: 100,
       }),
     staleTime: 30_000,
     refetchInterval: 30_000,
@@ -75,29 +83,32 @@ export default function GeoScoutPage() {
     queryKey: ["pipeline-b-stats"],
     queryFn: fetchPipelineBStats,
     staleTime: 60_000,
-    refetchInterval: 60_000,
   });
 
+  const leads = data?.leads ?? [];
+  const total = data?.total ?? 0;
+
+  const toggleCategory = (cat: string) => {
+    setSelectedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) {
+        next.delete(cat);
+      } else {
+        next.add(cat);
+      }
+      return next;
+    });
+  };
+
   const handleScan = async () => {
-    const city = scanCity.trim();
-    if (!city) {
-      toast({
-        title: "City required",
-        description: "Please enter a city name to scan.",
-        variant: "destructive",
-      });
+    if (!city.trim()) {
+      toast({ title: "City required", variant: "destructive" });
       return;
     }
-
     setIsScanning(true);
     try {
-      const result = await startScan(city);
-      toast({
-        title: "Scan started",
-        description: result.message,
-        variant: "success",
-      });
-      setScanCity("");
+      const result = await startScan(city.trim());
+      toast({ title: "Scan started", description: result.message, variant: "success" });
       setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: ["geo-leads"] });
         queryClient.invalidateQueries({ queryKey: ["pipeline-b-stats"] });
@@ -105,8 +116,7 @@ export default function GeoScoutPage() {
     } catch (err) {
       toast({
         title: "Scan failed",
-        description:
-          err instanceof Error ? err.message : "Something went wrong",
+        description: err instanceof Error ? err.message : "Unknown error",
         variant: "destructive",
       });
     } finally {
@@ -114,309 +124,134 @@ export default function GeoScoutPage() {
     }
   };
 
-  const leads = data?.leads ?? [];
-  const total = data?.total ?? 0;
-
-  // Extract unique categories from stats or leads
-  const categories = Array.from(
-    new Set(leads.map((l) => l.category).filter(Boolean) as string[])
-  ).sort();
-
-  const showMap = viewMode === "split" || viewMode === "map";
-  const showTable = viewMode === "split" || viewMode === "table";
+  // Map leads to geo points
+  const geoLeads = leads.filter((l) => l.latitude && l.longitude);
 
   return (
-    <div className="space-y-4">
-      {/* Page header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Geo Scout</h1>
-          {total > 0 && (
-            <p className="text-sm text-muted-foreground mt-1">
-              {total} leads found
-            </p>
-          )}
-        </div>
-
+    <div className="flex flex-col h-full space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between shrink-0">
+        <h1 className="text-2xl font-bold tracking-tight text-white">
+          Geo Scanner
+        </h1>
         <div className="flex items-center gap-2">
-          {stats && (
-            <div className="hidden md:flex items-center gap-4 text-sm text-muted-foreground mr-4">
-              <span>Total: {stats.total_leads}</span>
-              {Object.entries(stats.by_status).map(([status, count]) => (
-                <span key={status}>
-                  {status}: {count}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* View mode toggle */}
-          <div className="flex items-center rounded-md border border-border/50 p-0.5">
-            <button
-              onClick={() => setViewMode("split")}
-              className={`px-2.5 py-1 text-xs rounded-sm transition-colors ${
-                viewMode === "split"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              title="Split View"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-              </svg>
-            </button>
-            <button
-              onClick={() => setViewMode("map")}
-              className={`px-2.5 py-1 text-xs rounded-sm transition-colors ${
-                viewMode === "map"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              title="Map View"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                <path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </button>
-            <button
-              onClick={() => setViewMode("table")}
-              className={`px-2.5 py-1 text-xs rounded-sm transition-colors ${
-                viewMode === "table"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              title="Table View"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="8" y1="6" x2="21" y2="6" />
-                <line x1="8" y1="12" x2="21" y2="12" />
-                <line x1="8" y1="18" x2="21" y2="18" />
-                <line x1="3" y1="6" x2="3.01" y2="6" />
-                <line x1="3" y1="12" x2="3.01" y2="12" />
-                <line x1="3" y1="18" x2="3.01" y2="18" />
-              </svg>
-            </button>
-          </div>
+          <Badge className="bg-orange-500/20 text-orange-400 text-xs border border-orange-500/30">
+            Grid / Country
+          </Badge>
+          <Badge className="bg-zinc-800 text-zinc-400 text-xs">
+            Mid-Size
+          </Badge>
+          <Badge className="bg-zinc-800 text-zinc-400 text-xs">
+            Telegram
+          </Badge>
         </div>
       </div>
 
-      {/* Scan controls */}
-      <Card className="border-border/50">
-        <CardContent className="pt-6">
-          <div className="flex items-end gap-3">
-            <div className="flex-1 max-w-sm">
-              <label
-                htmlFor="geo-scan-city"
-                className="text-sm font-medium text-foreground mb-1.5 block"
-              >
-                Start a Geo Scan
-              </label>
-              <Input
-                id="geo-scan-city"
-                placeholder="Enter city name (e.g. Berlin)"
-                value={scanCity}
-                onChange={(e) => setScanCity(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleScan();
-                }}
-              />
-            </div>
-            <Button
-              onClick={handleScan}
-              disabled={isScanning || !scanCity.trim()}
-            >
-              {isScanning ? (
-                <span className="flex items-center gap-1.5">
-                  <svg
-                    className="h-4 w-4 animate-spin"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                    />
-                  </svg>
-                  Scanning...
-                </span>
-              ) : (
-                "Start Scan"
-              )}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Tabs value={statusFilter} onValueChange={handleStatusChange}>
-          <TabsList>
-            {statusFilters.map((tab) => (
-              <TabsTrigger key={tab.value} value={tab.value}>
-                {tab.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-
+      {/* Filter row */}
+      <div className="flex items-center gap-4 shrink-0 flex-wrap">
         <Input
-          placeholder="Filter by city..."
-          value={cityFilter}
-          onChange={(e) => { setCityFilter(e.target.value); setPage(0); }}
-          className="max-w-[200px]"
+          placeholder="Moscow"
+          value={city}
+          onChange={(e) => setCity(e.target.value)}
+          className="w-40 bg-zinc-900 border-zinc-700"
+          onKeyDown={(e) => e.key === "Enter" && handleScan()}
         />
+        <div className="flex items-center gap-3">
+          {CATEGORY_OPTIONS.map((cat) => (
+            <label
+              key={cat.value}
+              className="flex items-center gap-1.5 cursor-pointer text-sm"
+            >
+              <input
+                type="checkbox"
+                checked={selectedCategories.has(cat.value)}
+                onChange={() => toggleCategory(cat.value)}
+                className="accent-orange-500"
+              />
+              <span className="text-zinc-400">{cat.label}</span>
+            </label>
+          ))}
+        </div>
+        <Button
+          onClick={handleScan}
+          disabled={isScanning || !city.trim()}
+          className="bg-orange-500 hover:bg-orange-600 text-white ml-auto"
+          size="sm"
+        >
+          {isScanning ? "Scanning..." : "Start Scan"}
+        </Button>
+      </div>
 
-        {categories.length > 0 && (
-          <Select value={categoryFilter} onValueChange={(v) => { setCategoryFilter(v); setPage(0); }}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Category" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Categories</SelectItem>
-              {categories.map((cat) => (
-                <SelectItem key={cat} value={cat}>
-                  {cat}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+      {/* Split layout: Map (65%) + Results panel (35%) */}
+      <div className="flex gap-4 flex-1 min-h-0">
+        {/* Map */}
+        <div className="flex-[0_0_65%] bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden relative">
+          {isLoading ? (
+            <Skeleton className="h-full w-full" />
+          ) : (
+            <>
+              <LazyMap
+                leads={geoLeads}
+                onMarkerClick={(id) => navigate(`/leads/${id}`)}
+                className="h-full w-full"
+              />
+              <div className="absolute top-3 left-3 bg-zinc-900/80 text-zinc-400 text-xs px-2 py-1 rounded">
+                {city} Region
+              </div>
+            </>
+          )}
+        </div>
 
-        {/* Legend */}
-        <div className="ml-auto hidden lg:flex items-center gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-blue-500" /> New</span>
-          <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-green-500" /> Enriched</span>
-          <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-orange-500" /> Contacted</span>
-          <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Failed</span>
+        {/* Results panel */}
+        <div className="flex-[0_0_35%] bg-zinc-900 border border-zinc-800 rounded-lg flex flex-col min-h-0">
+          <div className="p-4 border-b border-zinc-800 shrink-0">
+            <p className="text-sm font-semibold text-white">
+              {total} Results
+            </p>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {isLoading ? (
+              <div className="p-4 space-y-3">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} className="h-12" />
+                ))}
+              </div>
+            ) : leads.length === 0 ? (
+              <div className="flex items-center justify-center h-32 text-zinc-600 text-sm">
+                No results. Start a scan.
+              </div>
+            ) : (
+              leads.map((lead) => (
+                <ResultCard
+                  key={lead.id}
+                  lead={lead}
+                  onClick={() => navigate(`/leads/${lead.id}`)}
+                />
+              ))
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Loading state */}
-      {isLoading && !data && (
-        <div className="space-y-4">
-          <Skeleton className="h-[300px]" />
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-[100px]" />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Error state */}
-      {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-          Failed to load leads:{" "}
-          {error instanceof Error ? error.message : "Unknown error"}
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!isLoading && !error && leads.length === 0 && (
-        <Card className="border-border/50">
-          <CardContent className="flex flex-col items-center justify-center py-16">
-            <svg
-              className="h-12 w-12 text-muted-foreground/30 mb-4"
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-              <path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            <p className="text-muted-foreground text-lg font-medium">
-              No leads found
-            </p>
-            <p className="text-muted-foreground/70 text-sm mt-1">
-              Start a geo scan to discover local businesses
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Map + Table content */}
-      {leads.length > 0 && (
-        <div className={viewMode === "split" ? "space-y-4" : ""}>
-          {/* Map */}
-          {showMap && (
-            <LazyMap
-              leads={leads}
-              onMarkerClick={(id) => navigate(`/leads/${id}`)}
-              className={viewMode === "split" ? "h-[400px]" : "h-[600px]"}
-            />
-          )}
-
-          {/* Table */}
-          {showTable && (
-            <Card className="border-border/50">
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border/50">
-                        <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">Name</th>
-                        <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">City</th>
-                        <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">Category</th>
-                        <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">Contact</th>
-                        <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {leads.map((lead) => (
-                        <tr
-                          key={lead.id}
-                          className="border-b border-border/30 hover:bg-accent/30 transition-colors cursor-pointer"
-                          onClick={() => navigate(`/leads/${lead.id}`)}
-                        >
-                          <td className="py-2.5 px-4">
-                            <span className="font-medium text-foreground">{lead.name}</span>
-                          </td>
-                          <td className="py-2.5 px-4 text-muted-foreground">{lead.city ?? "--"}</td>
-                          <td className="py-2.5 px-4 text-muted-foreground">{lead.category ?? "--"}</td>
-                          <td className="py-2.5 px-4">
-                            <div className="text-xs text-muted-foreground space-y-0.5">
-                              {lead.email && <p>{lead.email}</p>}
-                              {lead.phone && <p>{lead.phone}</p>}
-                              {!lead.email && !lead.phone && <p>--</p>}
-                            </div>
-                          </td>
-                          <td className="py-2.5 px-4">
-                            <Badge variant={statusBadgeVariant(lead.status)}>{lead.status}</Badge>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
-
-      {/* Pagination */}
-      <Pagination
-        page={page}
-        pageSize={PAGE_SIZE}
-        total={total}
-        onPageChange={setPage}
-      />
+      {/* Bottom status bar */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 flex items-center gap-4 text-xs text-zinc-500 shrink-0">
+        <span>
+          Scan:{" "}
+          <span className="text-white">
+            {stats?.by_status?.enriched ?? 0}/{stats?.total_leads ?? 0}
+          </span>
+        </span>
+        <span className="text-zinc-700">•</span>
+        <span>
+          {total} total found
+        </span>
+        {stats?.top_cities && stats.top_cities.length > 0 && (
+          <>
+            <span className="text-zinc-700">•</span>
+            <span>Top: {stats.top_cities[0].city}</span>
+          </>
+        )}
+      </div>
     </div>
   );
 }

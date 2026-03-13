@@ -17,12 +17,9 @@ const PAGE_SIZE = 24;
 
 const statusFilters = [
   { value: "all", label: "All" },
-  { value: "discovered", label: "New" },
-  { value: "qualified", label: "Qualified" },
-  { value: "bid_sent", label: "Bid Sent" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "completed", label: "Completed" },
-  { value: "disqualified", label: "Disqualified" },
+  { value: "qualified", label: "Can Handle" },
+  { value: "discovered", label: "Needs Review" },
+  { value: "disqualified", label: "Archived" },
 ] as const;
 
 const platformOptions = [
@@ -48,6 +45,8 @@ export default function JobsPage() {
   const [platformFilter, setPlatformFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState("newest");
+  const [budgetMin, setBudgetMin] = useState("");
+  const [budgetMax, setBudgetMax] = useState("");
   const [page, setPage] = useState(0);
   const [scanning, setScanning] = useState(false);
 
@@ -107,8 +106,17 @@ export default function JobsPage() {
     }
   };
 
-  const jobs = data?.jobs ?? [];
+  const allJobs = data?.jobs ?? [];
   const total = data?.total ?? 0;
+
+  // Client-side budget range filter
+  const jobs = allJobs.filter((j) => {
+    const min = budgetMin ? parseFloat(budgetMin) : null;
+    const max = budgetMax ? parseFloat(budgetMax) : null;
+    if (min != null && j.budget_max != null && j.budget_max < min) return false;
+    if (max != null && j.budget_min != null && j.budget_min > max) return false;
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -206,6 +214,37 @@ export default function JobsPage() {
         </div>
       </div>
 
+      {/* Budget Range filter */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground shrink-0">Budget:</span>
+        <Input
+          placeholder="Min $"
+          value={budgetMin}
+          onChange={(e) => { setBudgetMin(e.target.value); setPage(0); }}
+          className="w-[90px] h-8 text-sm"
+          type="number"
+          min={0}
+        />
+        <span className="text-muted-foreground">—</span>
+        <Input
+          placeholder="Max $"
+          value={budgetMax}
+          onChange={(e) => { setBudgetMax(e.target.value); setPage(0); }}
+          className="w-[90px] h-8 text-sm"
+          type="number"
+          min={0}
+        />
+        {(budgetMin || budgetMax) && (
+          <button
+            type="button"
+            onClick={() => { setBudgetMin(""); setBudgetMax(""); setPage(0); }}
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
       {/* Status filter tabs */}
       <Tabs value={statusFilter} onValueChange={handleStatusChange}>
         <TabsList>
@@ -260,12 +299,21 @@ export default function JobsPage() {
         </Card>
       )}
 
-      {/* Job grid */}
+      {/* Job list — full-width rows */}
       {jobs.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {jobs.map((job) => (
-            <JobCard key={job.id} job={job} />
-          ))}
+        <div className="space-y-2">
+          {jobs.map((job) => {
+            const score = job.score != null ? Math.round(job.score * 100) : null;
+            const borderColor =
+              job.status === "in_progress" ? "border-l-emerald-500" :
+              job.status === "qualified" ? "border-l-blue-500" :
+              job.status === "bid_sent" ? "border-l-amber-500" :
+              job.status === "disqualified" ? "border-l-rose-500" :
+              "border-l-zinc-600";
+            return (
+              <JobCard key={job.id} job={job} rowMode borderColor={borderColor} score={score} />
+            );
+          })}
         </div>
       )}
 

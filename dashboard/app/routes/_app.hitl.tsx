@@ -23,6 +23,7 @@ const filterTabs = [
   { value: "scope_creep", label: "Scope" },
   { value: "plan_review", label: "Plans" },
   { value: "alert", label: "Alerts" },
+  { value: "email_approval", label: "Email" },
 ] as const;
 
 export default function HITLPage() {
@@ -147,7 +148,7 @@ export default function HITLPage() {
       {/* Page header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="text-2xl font-bold tracking-tight text-white">
             HITL Queue
           </h1>
           {total > 0 && (
@@ -164,17 +165,17 @@ export default function HITLPage() {
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
           {stats && (
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+            <div className="flex items-center gap-4 text-sm text-zinc-400">
               <span>
                 Today: {stats.today.resolved} resolved
               </span>
-              <span className="text-border">|</span>
+              <span className="text-zinc-700">|</span>
               <span>
                 Avg: {stats.avg_resolution_time_minutes.toFixed(0)}m
               </span>
               {stats.today.expired > 0 && (
                 <>
-                  <span className="text-border">|</span>
+                  <span className="text-zinc-700">|</span>
                   <span className="text-destructive">
                     {stats.today.expired} expired
                   </span>
@@ -224,12 +225,13 @@ export default function HITLPage() {
           placeholder="Search by title..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full sm:w-[220px]"
+          className="w-full sm:w-[220px] bg-zinc-900 border-zinc-700"
         />
         <Button
           variant={bulkMode ? "default" : "outline"}
           size="sm"
           onClick={handleToggleBulkMode}
+          className={bulkMode ? "bg-orange-500 hover:bg-orange-600 text-white border-0" : "border-zinc-700"}
         >
           {bulkMode ? "Exit Bulk" : "Bulk Select"}
         </Button>
@@ -270,28 +272,69 @@ export default function HITLPage() {
               <polyline points="22 4 12 14.01 9 11.01" />
             </svg>
           </div>
-          <p className="text-foreground text-lg font-medium">
+          <p className="text-white text-lg font-medium">
             All clear
           </p>
-          <p className="text-muted-foreground text-sm mt-1 max-w-sm">
+          <p className="text-zinc-400 text-sm mt-1 max-w-sm">
             No pending items in the queue. You'll be notified when something needs your attention.
           </p>
         </div>
       )}
 
-      {/* Items grid */}
+      {/* Items list — full-width rows with priority left border */}
       {items.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {items.map((item) => (
-            <HITLCard
-              key={item.id}
-              item={item}
-              onResolve={handleResolve}
-              userRole={user?.role}
-              selected={bulkMode ? selectedIds.has(item.id) : undefined}
-              onSelect={bulkMode ? toggleSelect : undefined}
-            />
-          ))}
+        <div className="space-y-2">
+          {items.map((item) => {
+            const priorityBorder =
+              item.priority === "urgent" ? "border-l-rose-500" :
+              item.priority === "normal" ? "border-l-amber-500" :
+              "border-l-blue-500";
+            return (
+              <div
+                key={item.id}
+                className={`flex items-center gap-4 rounded-lg border border-zinc-800 border-l-4 px-4 py-3 bg-zinc-900 ${priorityBorder} ${bulkMode && selectedIds.has(item.id) ? "bg-zinc-800" : ""}`}
+              >
+                {bulkMode && (
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(item.id)}
+                    onChange={(e) => toggleSelect(item.id, e.target.checked)}
+                    className="h-4 w-4 shrink-0"
+                  />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <Badge variant={item.priority === "urgent" ? "destructive" : "secondary"} className="text-[10px] capitalize">
+                      {item.priority}
+                    </Badge>
+                    <span className="text-xs text-zinc-400 capitalize">{item.type.replace(/_/g, " ")}</span>
+                  </div>
+                  <p className="text-sm font-medium truncate text-zinc-200">{item.title}</p>
+                  {item.description && (
+                    <p className="text-xs text-zinc-500 truncate mt-0.5">{item.description}</p>
+                  )}
+                </div>
+                <span className="text-xs text-zinc-500 shrink-0 hidden sm:block">
+                  {item.expires_at ? `Expires ${new Date(item.expires_at).toLocaleDateString()}` : ""}
+                </span>
+                {!bulkMode && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {item.available_actions.slice(0, 3).map((action) => (
+                      <Button
+                        key={action}
+                        variant={action === "reject" ? "destructive" : "outline"}
+                        size="sm"
+                        className={`h-7 text-xs capitalize ${action === "approve" ? "bg-orange-500 hover:bg-orange-600 text-white border-0" : "border-zinc-700"}`}
+                        onClick={() => handleResolve(item.id, action)}
+                      >
+                        {action}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
       {/* Pagination */}
@@ -304,9 +347,9 @@ export default function HITLPage() {
 
       {/* Bulk action bar */}
       {bulkMode && selectedIds.size > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background p-4 shadow-lg">
+        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-800 bg-zinc-950 p-4 shadow-lg">
           <div className="mx-auto flex flex-col sm:flex-row max-w-screen-xl items-center justify-between gap-3 sm:gap-4">
-            <span className="text-sm font-medium text-foreground">
+            <span className="text-sm font-medium text-white">
               {selectedIds.size} selected
             </span>
             <div className="flex flex-wrap items-center justify-center gap-2 w-full sm:w-auto">

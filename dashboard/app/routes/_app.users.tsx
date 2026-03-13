@@ -4,11 +4,14 @@ export { RouteErrorBoundary as ErrorBoundary } from "~/components/route-error-bo
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Input } from "~/components/ui/input";
+import { Button } from "~/components/ui/button";
+import { Badge } from "~/components/ui/badge";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Pagination } from "~/components/pagination";
-import { UserCard } from "~/components/user-card";
 import { useAuthStore } from "~/stores/auth-store";
 import { toast } from "~/hooks/use-toast";
+import { cn } from "~/lib/utils";
+import { relativeTime } from "~/lib/utils";
 import {
   fetchUsers,
   approveUser,
@@ -18,12 +21,242 @@ import {
   deleteUser,
   transferOwnership,
 } from "~/lib/api";
+import type { User } from "~/lib/types";
 
 function isAdmin(role?: string): boolean {
   return role === "owner" || role === "co_owner";
 }
 
 const PAGE_SIZE = 10;
+
+function getInitials(name: string | null, email: string): string {
+  if (name) {
+    const words = name.trim().split(" ").filter(Boolean);
+    if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+    return name.slice(0, 2).toUpperCase();
+  }
+  return email.slice(0, 2).toUpperCase();
+}
+
+const AVATAR_COLORS = [
+  "bg-orange-500/20 text-orange-400",
+  "bg-blue-500/20 text-blue-400",
+  "bg-emerald-500/20 text-emerald-400",
+  "bg-purple-500/20 text-purple-400",
+  "bg-pink-500/20 text-pink-400",
+];
+
+function avatarColor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function StatusPill({ status }: { status: string }) {
+  const cfg: Record<string, string> = {
+    active: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+    pending_approval: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+    suspended: "bg-red-500/20 text-red-400 border-red-500/30",
+  };
+  const label: Record<string, string> = {
+    active: "Active",
+    pending_approval: "Pending",
+    suspended: "Suspended",
+  };
+  return (
+    <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium border", cfg[status] ?? "bg-zinc-700/50 text-zinc-400 border-zinc-600/30")}>
+      {label[status] ?? status}
+    </span>
+  );
+}
+
+interface UserTableProps {
+  users: User[];
+  currentUserId: string;
+  currentUserRole: string;
+  isLoading: boolean;
+  onApprove?: (id: string, role: string) => void;
+  onReject?: (id: string) => void;
+  onRoleChange?: (id: string, role: string) => void;
+  onSuspend?: (id: string) => void;
+  onReactivate?: (id: string) => void;
+  onDelete?: (id: string) => void;
+  onTransfer?: (id: string) => void;
+  showPendingActions?: boolean;
+}
+
+function UserTable({
+  users,
+  currentUserId,
+  currentUserRole,
+  isLoading,
+  onApprove,
+  onReject,
+  onRoleChange,
+  onSuspend,
+  onReactivate,
+  onDelete,
+  onTransfer,
+  showPendingActions,
+}: UserTableProps) {
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 rounded-lg" />)}
+      </div>
+    );
+  }
+
+  if (users.length === 0) {
+    return (
+      <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-border/50">
+        <p className="text-sm text-muted-foreground">No users found</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-border/30">
+      <table className="w-full text-sm">
+        <thead className="bg-zinc-900/50">
+          <tr className="border-b border-border/30">
+            <th className="text-left text-xs text-muted-foreground font-medium px-4 py-3">User</th>
+            <th className="text-left text-xs text-muted-foreground font-medium px-4 py-3">Email</th>
+            <th className="text-left text-xs text-muted-foreground font-medium px-4 py-3">Role</th>
+            <th className="text-left text-xs text-muted-foreground font-medium px-4 py-3">Status</th>
+            <th className="text-left text-xs text-muted-foreground font-medium px-4 py-3">Last Active</th>
+            <th className="text-right text-xs text-muted-foreground font-medium px-4 py-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {users.map((u) => {
+            const initials = getInitials(u.name, u.email);
+            const color = avatarColor(u.id);
+            const isSelf = u.id === currentUserId;
+            const isOwner = u.role === "owner";
+
+            return (
+              <tr key={u.id} className="border-b border-border/20 last:border-0 hover:bg-zinc-900/30 transition-colors">
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className={cn("h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0", color)}>
+                      {initials}
+                    </div>
+                    <span className="font-medium">{u.name ?? "—"}</span>
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-muted-foreground text-xs">{u.email}</td>
+                <td className="px-4 py-3">
+                  {u.status === "pending_approval" ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : (
+                    <Badge variant="outline" className="capitalize text-xs">{u.role}</Badge>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  <StatusPill status={u.status} />
+                </td>
+                <td className="px-4 py-3 text-xs text-muted-foreground">
+                  {u.last_login_at ? relativeTime(u.last_login_at) : "Never"}
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-1 justify-end">
+                    {/* Pending: Approve / Reject inline */}
+                    {showPendingActions && onApprove && onReject && (
+                      <>
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs bg-orange-500 hover:bg-orange-600 text-white"
+                          disabled={isLoading}
+                          onClick={() => onApprove(u.id, "operator")}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          disabled={isLoading}
+                          onClick={() => onReject(u.id)}
+                        >
+                          Reject
+                        </Button>
+                      </>
+                    )}
+
+                    {/* Active: role change, suspend, transfer */}
+                    {!showPendingActions && u.status === "active" && !isSelf && !isOwner && onRoleChange && onSuspend && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs"
+                          disabled={isLoading}
+                          onClick={() => {
+                            const nextRole = u.role === "operator" ? "viewer" : "operator";
+                            onRoleChange(u.id, nextRole);
+                          }}
+                        >
+                          {u.role === "operator" ? "→ Viewer" : "→ Operator"}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-destructive hover:text-destructive"
+                          disabled={isLoading}
+                          onClick={() => onSuspend(u.id)}
+                        >
+                          Suspend
+                        </Button>
+                      </>
+                    )}
+
+                    {/* Owner transfer */}
+                    {!showPendingActions && u.status === "active" && !isSelf && currentUserRole === "owner" && onTransfer && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs text-amber-400 hover:text-amber-400"
+                        disabled={isLoading}
+                        onClick={() => onTransfer(u.id)}
+                      >
+                        Transfer
+                      </Button>
+                    )}
+
+                    {/* Suspended: reactivate, delete */}
+                    {u.status === "suspended" && onReactivate && onDelete && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-emerald-400 hover:text-emerald-400"
+                          disabled={isLoading}
+                          onClick={() => onReactivate(u.id)}
+                        >
+                          Reactivate
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-destructive hover:text-destructive"
+                          disabled={isLoading}
+                          onClick={() => onDelete(u.id)}
+                        >
+                          Delete
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export default function UsersRoute() {
   const navigate = useNavigate();
@@ -36,11 +269,9 @@ export default function UsersRoute() {
   const [activePage, setActivePage] = useState(0);
   const [suspendedPage, setSuspendedPage] = useState(0);
 
-  // Debounce search input
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search);
-      // Reset pages on search change
       setPendingPage(0);
       setActivePage(0);
       setSuspendedPage(0);
@@ -48,14 +279,10 @@ export default function UsersRoute() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  // Admin-only guard (owner or co_owner)
   useEffect(() => {
-    if (user && !isAdmin(user.role)) {
-      navigate("/dashboard", { replace: true });
-    }
+    if (user && !isAdmin(user.role)) navigate("/dashboard", { replace: true });
   }, [user, navigate]);
 
-  // Queries per tab
   const pending = useQuery({
     queryKey: ["users", "pending_approval"],
     queryFn: () => fetchUsers({ status: "pending_approval" }),
@@ -74,15 +301,12 @@ export default function UsersRoute() {
     enabled: isAdmin(user?.role),
   });
 
-  // Client-side filtering by search
   const filterUsers = useMemo(() => {
     const q = debouncedSearch.toLowerCase();
     if (!q) return (users: typeof pending.data) => users?.users ?? [];
     return (users: typeof pending.data) =>
       (users?.users ?? []).filter(
-        (u) =>
-          (u.name?.toLowerCase().includes(q) ?? false) ||
-          u.email.toLowerCase().includes(q)
+        (u) => (u.name?.toLowerCase().includes(q) ?? false) || u.email.toLowerCase().includes(q)
       );
   }, [debouncedSearch]);
 
@@ -90,79 +314,48 @@ export default function UsersRoute() {
   const filteredActive = filterUsers(active.data);
   const filteredSuspended = filterUsers(suspended.data);
 
-  // Paginated slices
-  const paginatedPending = filteredPending.slice(
-    pendingPage * PAGE_SIZE,
-    (pendingPage + 1) * PAGE_SIZE
-  );
-  const paginatedActive = filteredActive.slice(
-    activePage * PAGE_SIZE,
-    (activePage + 1) * PAGE_SIZE
-  );
-  const paginatedSuspended = filteredSuspended.slice(
-    suspendedPage * PAGE_SIZE,
-    (suspendedPage + 1) * PAGE_SIZE
-  );
+  const paginatedPending = filteredPending.slice(pendingPage * PAGE_SIZE, (pendingPage + 1) * PAGE_SIZE);
+  const paginatedActive = filteredActive.slice(activePage * PAGE_SIZE, (activePage + 1) * PAGE_SIZE);
+  const paginatedSuspended = filteredSuspended.slice(suspendedPage * PAGE_SIZE, (suspendedPage + 1) * PAGE_SIZE);
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["users"] });
     queryClient.invalidateQueries({ queryKey: ["pending-users-count"] });
   };
 
-  // Mutations
   const approveMut = useMutation({
-    mutationFn: ({ id, role }: { id: string; role: string }) =>
-      approveUser(id, role),
-    onSuccess: () => {
-      toast({ title: "User approved" });
-      invalidateAll();
-    },
+    mutationFn: ({ id, role }: { id: string; role: string }) => approveUser(id, role),
+    onSuccess: () => { toast({ title: "User approved" }); invalidateAll(); },
     onError: (e) => toast({ title: "Error", description: String(e) }),
   });
 
   const rejectMut = useMutation({
     mutationFn: (id: string) => rejectUser(id),
-    onSuccess: () => {
-      toast({ title: "User rejected" });
-      invalidateAll();
-    },
+    onSuccess: () => { toast({ title: "User rejected" }); invalidateAll(); },
     onError: (e) => toast({ title: "Error", description: String(e) }),
   });
 
   const roleMut = useMutation({
-    mutationFn: ({ id, role }: { id: string; role: string }) =>
-      updateUserRole(id, role),
-    onSuccess: () => {
-      toast({ title: "Role updated" });
-      invalidateAll();
-    },
+    mutationFn: ({ id, role }: { id: string; role: string }) => updateUserRole(id, role),
+    onSuccess: () => { toast({ title: "Role updated" }); invalidateAll(); },
     onError: (e) => toast({ title: "Error", description: String(e) }),
   });
 
   const suspendMut = useMutation({
     mutationFn: (id: string) => updateUserStatus(id, "suspended"),
-    onSuccess: () => {
-      toast({ title: "User suspended" });
-      invalidateAll();
-    },
+    onSuccess: () => { toast({ title: "User suspended" }); invalidateAll(); },
     onError: (e) => toast({ title: "Error", description: String(e) }),
   });
 
   const reactivateMut = useMutation({
     mutationFn: (id: string) => updateUserStatus(id, "active"),
-    onSuccess: () => {
-      toast({ title: "User reactivated" });
-      invalidateAll();
-    },
+    onSuccess: () => { toast({ title: "User reactivated" }); invalidateAll(); },
     onError: (e) => toast({ title: "Error", description: String(e) }),
   });
 
   const deleteMut = useMutation({
     mutationFn: (id: string) => deleteUser(id),
-    onSuccess: () => {
-      toast({ title: "User deleted" });
-      invalidateAll();
-    },
+    onSuccess: () => { toast({ title: "User deleted" }); invalidateAll(); },
     onError: (e) => toast({ title: "Error", description: String(e) }),
   });
 
@@ -170,49 +363,42 @@ export default function UsersRoute() {
     mutationFn: (id: string) => transferOwnership(id),
     onSuccess: () => {
       toast({ title: "Ownership transferred" });
-      // Update local user state to co_owner
-      if (user) {
-        setUser({ ...user, role: "co_owner" });
-      }
+      if (user) setUser({ ...user, role: "co_owner" });
       invalidateAll();
     },
     onError: (e) => toast({ title: "Error", description: String(e) }),
   });
 
   const isAnyLoading =
-    approveMut.isPending ||
-    rejectMut.isPending ||
-    roleMut.isPending ||
-    suspendMut.isPending ||
-    reactivateMut.isPending ||
-    deleteMut.isPending ||
-    transferMut.isPending;
+    approveMut.isPending || rejectMut.isPending || roleMut.isPending ||
+    suspendMut.isPending || reactivateMut.isPending || deleteMut.isPending || transferMut.isPending;
 
-  if (!user || !isAdmin(user.role)) {
-    return null;
-  }
+  if (!user || !isAdmin(user.role)) return null;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Users</h1>
-        <p className="text-sm text-muted-foreground">
-          Manage user accounts, approve registrations, and assign roles.
-        </p>
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Users &amp; Access</h1>
+          <p className="text-sm text-muted-foreground">
+            Manage user accounts, approve registrations, and assign roles.
+          </p>
+        </div>
+        <Button className="bg-orange-500 hover:bg-orange-600 text-white" size="sm">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <line x1="19" y1="8" x2="19" y2="14" />
+            <line x1="22" y1="11" x2="16" y2="11" />
+          </svg>
+          Invite User
+        </Button>
       </div>
 
       {/* Search */}
       <div className="relative">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
+        <svg xmlns="http://www.w3.org/2000/svg" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="11" cy="11" r="8" />
           <path d="m21 21-4.3-4.3" />
         </svg>
@@ -223,21 +409,8 @@ export default function UsersRoute() {
           className="pl-9 pr-9 h-9"
         />
         {search && (
-          <button
-            type="button"
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => setSearch("")}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-4 w-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
+          <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors" onClick={() => setSearch("")}>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -245,8 +418,14 @@ export default function UsersRoute() {
         )}
       </div>
 
-      <Tabs defaultValue="pending">
+      <Tabs defaultValue="active">
         <TabsList>
+          <TabsTrigger value="active">
+            Active
+            <span className="ml-1.5 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-zinc-700 px-1.5 text-[10px] font-bold">
+              {filteredActive.length}
+            </span>
+          </TabsTrigger>
           <TabsTrigger value="pending">
             Pending
             {filteredPending.length > 0 && (
@@ -255,120 +434,70 @@ export default function UsersRoute() {
               </span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="active">
-            Active ({filteredActive.length})
-          </TabsTrigger>
           <TabsTrigger value="suspended">
-            Suspended ({filteredSuspended.length})
+            Suspended
+            <span className="ml-1.5 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-zinc-700 px-1.5 text-[10px] font-bold">
+              {filteredSuspended.length}
+            </span>
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="pending" className="space-y-3">
-          {pending.isLoading ? (
-            <LoadingSkeleton />
-          ) : filteredPending.length === 0 ? (
-            <EmptyState message={debouncedSearch ? "No matching users" : "No pending registrations"} />
-          ) : (
-            <>
-              {paginatedPending.map((u) => (
-                <UserCard
-                  key={u.id}
-                  user={u}
-                  currentUserId={user.id}
-                  currentUserRole={user.role}
-                  onApprove={(id, role) => approveMut.mutate({ id, role })}
-                  onReject={(id) => rejectMut.mutate(id)}
-                  isLoading={isAnyLoading}
-                />
-              ))}
-              <Pagination
-                page={pendingPage}
-                pageSize={PAGE_SIZE}
-                total={filteredPending.length}
-                onPageChange={setPendingPage}
-                className="mt-4"
-              />
-            </>
-          )}
+        <TabsContent value="active" className="space-y-3 mt-4">
+          <UserTable
+            users={paginatedActive}
+            currentUserId={user.id}
+            currentUserRole={user.role}
+            isLoading={active.isLoading || isAnyLoading}
+            onRoleChange={(id, role) => roleMut.mutate({ id, role })}
+            onSuspend={(id) => suspendMut.mutate(id)}
+            onTransfer={(id) => transferMut.mutate(id)}
+          />
+          <Pagination
+            page={activePage}
+            pageSize={PAGE_SIZE}
+            total={filteredActive.length}
+            onPageChange={setActivePage}
+            className="mt-4"
+          />
         </TabsContent>
 
-        <TabsContent value="active" className="space-y-3">
-          {active.isLoading ? (
-            <LoadingSkeleton />
-          ) : filteredActive.length === 0 ? (
-            <EmptyState message={debouncedSearch ? "No matching users" : "No active users"} />
-          ) : (
-            <>
-              {paginatedActive.map((u) => (
-                <UserCard
-                  key={u.id}
-                  user={u}
-                  currentUserId={user.id}
-                  currentUserRole={user.role}
-                  onRoleChange={(id, role) => roleMut.mutate({ id, role })}
-                  onSuspend={(id) => suspendMut.mutate(id)}
-                  onTransfer={(id) => transferMut.mutate(id)}
-                  isLoading={isAnyLoading}
-                />
-              ))}
-              <Pagination
-                page={activePage}
-                pageSize={PAGE_SIZE}
-                total={filteredActive.length}
-                onPageChange={setActivePage}
-                className="mt-4"
-              />
-            </>
-          )}
+        <TabsContent value="pending" className="space-y-3 mt-4">
+          <UserTable
+            users={paginatedPending}
+            currentUserId={user.id}
+            currentUserRole={user.role}
+            isLoading={pending.isLoading || isAnyLoading}
+            onApprove={(id, role) => approveMut.mutate({ id, role })}
+            onReject={(id) => rejectMut.mutate(id)}
+            showPendingActions
+          />
+          <Pagination
+            page={pendingPage}
+            pageSize={PAGE_SIZE}
+            total={filteredPending.length}
+            onPageChange={setPendingPage}
+            className="mt-4"
+          />
         </TabsContent>
 
-        <TabsContent value="suspended" className="space-y-3">
-          {suspended.isLoading ? (
-            <LoadingSkeleton />
-          ) : filteredSuspended.length === 0 ? (
-            <EmptyState message={debouncedSearch ? "No matching users" : "No suspended users"} />
-          ) : (
-            <>
-              {paginatedSuspended.map((u) => (
-                <UserCard
-                  key={u.id}
-                  user={u}
-                  currentUserId={user.id}
-                  currentUserRole={user.role}
-                  onReactivate={(id) => reactivateMut.mutate(id)}
-                  onDelete={(id) => deleteMut.mutate(id)}
-                  isLoading={isAnyLoading}
-                />
-              ))}
-              <Pagination
-                page={suspendedPage}
-                pageSize={PAGE_SIZE}
-                total={filteredSuspended.length}
-                onPageChange={setSuspendedPage}
-                className="mt-4"
-              />
-            </>
-          )}
+        <TabsContent value="suspended" className="space-y-3 mt-4">
+          <UserTable
+            users={paginatedSuspended}
+            currentUserId={user.id}
+            currentUserRole={user.role}
+            isLoading={suspended.isLoading || isAnyLoading}
+            onReactivate={(id) => reactivateMut.mutate(id)}
+            onDelete={(id) => deleteMut.mutate(id)}
+          />
+          <Pagination
+            page={suspendedPage}
+            pageSize={PAGE_SIZE}
+            total={filteredSuspended.length}
+            onPageChange={setSuspendedPage}
+            className="mt-4"
+          />
         </TabsContent>
       </Tabs>
-    </div>
-  );
-}
-
-function LoadingSkeleton() {
-  return (
-    <div className="space-y-3">
-      {[1, 2, 3].map((i) => (
-        <Skeleton key={i} className="h-[72px] rounded-lg" />
-      ))}
-    </div>
-  );
-}
-
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-border/50">
-      <p className="text-sm text-muted-foreground">{message}</p>
     </div>
   );
 }

@@ -421,3 +421,126 @@ export interface PipelineProgress {
   started_at: string | null;
   updated_at: string | null;
 }
+
+// --- Bids ---
+
+export interface Bid {
+  id: string;
+  job_id: string;
+  job_title: string | null;
+  platform: string;
+  bid_amount: number;
+  delivery_days: number | null;
+  cover_letter: string | null;
+  status: "draft" | "submitted" | "accepted" | "rejected" | "withdrawn";
+  platform_bid_id: string | null;
+  submitted_at: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface BidListResponse {
+  bids: Bid[];
+  total: number;
+}
+
+export interface BidStats {
+  total: number;
+  by_status: Record<string, number>;
+  avg_bid_amount: number | null;
+  win_rate: number | null;
+}
+
+// --- Projects ---
+
+export interface Project {
+  id: string;
+  job_id: string | null;
+  deal_id: string | null;
+  title: string;
+  status: "active" | "completed" | "on_hold" | "cancelled";
+  client_name: string | null;
+  budget: number | null;
+  deadline: string | null;
+  description: string | null;
+  artifacts: Record<string, any> | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface ProjectListResponse {
+  projects: Project[];
+  total: number;
+}
+
+// --- Portfolio ---
+
+export interface PortfolioProject {
+  id: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  tags: string[] | null;
+  tech_stack: string[] | null;
+  platform: string | null;
+  image_url: string | null;
+  demo_url: string | null;
+  source_url: string | null;
+  url: string | null;
+  client_name: string | null;
+  budget: number | null;
+  completed_at: string | null;
+  visible: boolean;
+  created_at: string;
+}
+
+export interface PortfolioListResponse {
+  projects: PortfolioProject[];
+  total: number;
+  published_count: number;
+  draft_count: number;
+}
+
+// --- Analytics ---
+
+export interface FunnelStep {
+  label: string;
+  count: number;
+  rate: number | null;
+}
+
+export interface CostBreakdown {
+  category: string;
+  amount: number;
+}
+
+export interface RevenueByPlatform {
+  platform: string;
+  revenue: number;
+  deals: number;
+}
+
+export interface LLMCostByAgent {
+  agent: string;
+  cost_usd: number;
+  calls: number;
+}
+
+export interface AnalyticsOverview {
+  period_days: number;
+  jobs_discovered: number;
+  bids_submitted: number;
+  deals_won: number;
+  revenue_total: number;
+  avg_deal_value: number | null;
+  pipeline_a_funnel: FunnelStep[];
+  pipeline_b_funnel: FunnelStep[];
+  cost_breakdown: CostBreakdown[];
+  revenue_by_platform: RevenueByPlatform[];
+  llm_cost_by_agent: LLMCostByAgent[];
+}
+
+export interface AnalyticsData {
+  overview: AnalyticsOverview;
+  generated_at: string;
+}

@@ -38,6 +38,14 @@ import type {
   Deal,
   DealDetail,
   DealListResponse,
+  Bid,
+  BidListResponse,
+  BidStats,
+  Project,
+  ProjectListResponse,
+  PortfolioProject,
+  PortfolioListResponse,
+  AnalyticsData,
 } from "./types";
 
 declare global {
@@ -750,4 +758,109 @@ export async function startDealDevelopment(
 
 export async function fetchPipelineProgress(jobId: string): Promise<PipelineProgress> {
   return apiFetch<PipelineProgress>(`/jobs/${jobId}/pipeline-progress`);
+}
+
+// --- Bids ---
+
+export async function fetchBids(params?: {
+  status?: string;
+  platform?: string;
+  job_id?: string;
+  search?: string;
+  sort?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<BidListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.platform) searchParams.set("platform", params.platform);
+  if (params?.job_id) searchParams.set("job_id", params.job_id);
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.sort) searchParams.set("sort", params.sort);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+
+  const query = searchParams.toString();
+  return apiFetch<BidListResponse>(`/bids${query ? `?${query}` : ""}`);
+}
+
+export async function fetchBidStats(): Promise<BidStats> {
+  return apiFetch<BidStats>("/bids/stats");
+}
+
+// --- Projects ---
+
+export async function fetchProjects(params?: {
+  status?: string;
+  pipeline?: string;
+  search?: string;
+  sort?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ProjectListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.pipeline) searchParams.set("pipeline", params.pipeline);
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.sort) searchParams.set("sort", params.sort);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+
+  const query = searchParams.toString();
+  return apiFetch<ProjectListResponse>(`/projects${query ? `?${query}` : ""}`);
+}
+
+// --- Portfolio ---
+
+export async function fetchPortfolio(params?: {
+  category?: string;
+  visible?: boolean;
+  status?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<PortfolioListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.category) searchParams.set("category", params.category);
+  if (params?.visible != null) searchParams.set("visible", String(params.visible));
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+
+  const query = searchParams.toString();
+  return apiFetch<PortfolioListResponse>(`/portfolio${query ? `?${query}` : ""}`);
+}
+
+export async function createPortfolioProject(data: {
+  title: string;
+  description?: string;
+  category?: string;
+  tags?: string[];
+  tech_stack?: string[];
+  platform?: string;
+  image_url?: string;
+  demo_url?: string;
+  source_url?: string;
+  url?: string;
+  client_name?: string;
+  budget?: number;
+  completed_at?: string;
+  visible?: boolean;
+}): Promise<PortfolioProject> {
+  return apiFetch<PortfolioProject>("/portfolio", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// --- Analytics ---
+
+export async function fetchAnalytics(params?: {
+  days?: number;
+}): Promise<AnalyticsData> {
+  const searchParams = new URLSearchParams();
+  if (params?.days) searchParams.set("days", String(params.days));
+  const query = searchParams.toString();
+  return apiFetch<AnalyticsData>(`/analytics${query ? `?${query}` : ""}`);
 }

@@ -854,7 +854,35 @@ class OrchestratorGoal(Base):
 
 
 # ---------------------------------------------------------------------------
-# 19. telegram_channels
+# 19. portfolio_projects
+# ---------------------------------------------------------------------------
+
+
+class PortfolioProject(Base):
+    """Portfolio project used as social proof in bids."""
+
+    __tablename__ = "portfolio_projects"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    platform: Mapped[str] = mapped_column(String(50), default="direct", server_default="direct")
+    status: Mapped[str] = mapped_column(String(20), default="draft", server_default="draft")
+    description: Mapped[str | None] = mapped_column(Text)
+    tech_stack: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    url: Mapped[str | None] = mapped_column(Text)
+    thumbnail_url: Mapped[str | None] = mapped_column(Text)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (Index("idx_portfolio_platform", "platform", "status"),)
+
+
+# ---------------------------------------------------------------------------
+# 20. telegram_channels
 # ---------------------------------------------------------------------------
 
 

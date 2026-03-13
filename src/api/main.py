@@ -35,7 +35,9 @@ from sqlalchemy import text as sa_text
 from src.api.dependencies import provide_db_session, provide_settings, provide_valkey
 from src.api.guards import jwt_auth
 from src.api.routes.agents import AgentController
+from src.api.routes.analytics import AnalyticsController
 from src.api.routes.auth import AuthController
+from src.api.routes.bids import BidController
 from src.api.routes.campaigns import CampaignController
 from src.api.routes.deals import DealController
 from src.api.routes.health import health_check
@@ -44,6 +46,8 @@ from src.api.routes.jobs import JobController
 from src.api.routes.metrics import MetricsController
 from src.api.routes.orchestrator import OrchestratorController
 from src.api.routes.pipeline_b import PipelineBController
+from src.api.routes.portfolio import PortfolioController
+from src.api.routes.projects import ProjectController
 from src.api.routes.settings import SettingsController
 from src.api.routes.telegram_channels import TelegramChannelController
 from src.api.routes.users import UserController
@@ -391,15 +395,19 @@ openapi_config = OpenAPIConfig(
 app = Litestar(
     route_handlers=[
         health_check,
+        AgentController,
+        AnalyticsController,
         AuthController,
+        BidController,
         CampaignController,
         DealController,
         HITLController,
-        AgentController,
         JobController,
         MetricsController,
         OrchestratorController,
         PipelineBController,
+        PortfolioController,
+        ProjectController,
         SettingsController,
         TelegramChannelController,
         UserController,
