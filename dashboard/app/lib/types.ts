@@ -502,6 +502,7 @@ export interface Project {
   deadline: string | null;
   description: string | null;
   artifacts: Record<string, any> | null;
+  progress: number | null;
   created_at: string;
   updated_at: string | null;
 }
