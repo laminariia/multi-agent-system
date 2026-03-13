@@ -220,6 +220,9 @@ export default function OutreachPage() {
                 </Badge>
               )}
             </TabsTrigger>
+            <TabsTrigger value="analytics">
+              Analytics
+            </TabsTrigger>
           </TabsList>
 
           {/* ===== Campaigns Tab — table rows ===== */}
@@ -350,6 +353,34 @@ export default function OutreachPage() {
               total={pendingTotal}
               onPageChange={setPendingPage}
             />
+          </TabsContent>
+
+          {/* ===== Analytics Tab ===== */}
+          <TabsContent value="analytics" className="mt-4">
+            <div className="grid grid-cols-4 gap-4">
+              <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
+                <p className="text-xs text-zinc-500 mb-1">Open Rate</p>
+                <p className="text-2xl font-bold text-white">{openRate}%</p>
+                <p className="text-xs text-zinc-500 mt-1">{totalOpened} of {totalSent} opened</p>
+              </div>
+              <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
+                <p className="text-xs text-zinc-500 mb-1">Reply Rate</p>
+                <p className="text-2xl font-bold text-white">{replyRate}%</p>
+                <p className="text-xs text-zinc-500 mt-1">{totalReplied} replies received</p>
+              </div>
+              <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
+                <p className="text-xs text-zinc-500 mb-1">Bounce Rate</p>
+                <p className="text-2xl font-bold text-white">
+                  {totalSent > 0 ? ((totalBounced / totalSent) * 100).toFixed(1) : "0"}%
+                </p>
+                <p className="text-xs text-zinc-500 mt-1">{totalBounced} bounced</p>
+              </div>
+              <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
+                <p className="text-xs text-zinc-500 mb-1">Total Sent</p>
+                <p className="text-2xl font-bold text-white">{totalSent}</p>
+                <p className="text-xs text-zinc-500 mt-1">across {campaignsTotal} campaigns</p>
+              </div>
+            </div>
           </TabsContent>
         </Tabs>
       )}

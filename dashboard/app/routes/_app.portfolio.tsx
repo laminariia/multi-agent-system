@@ -199,12 +199,6 @@ function ProjectDialog({
 
   const [form, setForm] = useState<AddProjectForm>(initialForm);
 
-  // Reset form when dialog opens with different project
-  const projectId = editProject?.id ?? null;
-  useState(() => {
-    setForm(initialForm);
-  });
-
   const set = (field: keyof AddProjectForm) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
@@ -528,6 +522,7 @@ export default function PortfolioPage() {
       )}
 
       <ProjectDialog
+        key={editProject?.id ?? "new"}
         open={dialogOpen}
         onClose={() => { setDialogOpen(false); setEditProject(null); }}
         editProject={editProject}

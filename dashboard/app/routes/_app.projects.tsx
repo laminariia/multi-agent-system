@@ -70,7 +70,16 @@ function ProjectCard({ project }: { project: Project }) {
       <div className="w-full h-1.5 bg-zinc-700 rounded-full mt-2">
         <div
           className="h-full bg-orange-500 rounded-full transition-all"
-          style={{ width: `${(project as Project & { progress?: number }).progress ?? (project.status === "completed" ? 100 : project.status === "active" ? 50 : project.status === "on_hold" ? 25 : 0)}%` }}
+          style={{
+            width: `${
+              project.progress ?? (
+                project.status === "completed" ? 100
+                : project.status === "active" ? 50
+                : project.status === "on_hold" ? 25
+                : 0
+              )
+            }%`,
+          }}
         />
       </div>
 

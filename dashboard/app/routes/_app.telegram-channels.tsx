@@ -30,6 +30,8 @@ const CATEGORY_TABS = [
   { value: "web_dev", label: "Web Dev" },
   { value: "design", label: "Design" },
   { value: "marketing", label: "Marketing" },
+  { value: "copywriting", label: "Copywriting" },
+  { value: "mobile", label: "Mobile" },
   { value: "general", label: "General" },
 ];
 
@@ -308,7 +310,7 @@ export default function TelegramChannelsRoute() {
             Telegram Channels
           </h1>
           <Badge className="bg-zinc-800 text-zinc-300 text-xs">
-            {channels.length}
+            {channels.length} channels ({channels.filter((c) => c.active).length} active)
           </Badge>
         </div>
         {isAdmin && (
