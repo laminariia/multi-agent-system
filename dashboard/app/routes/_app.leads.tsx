@@ -7,6 +7,13 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
 import { Pagination } from "~/components/pagination";
 import { fetchLeads, fetchPipelineBStats, startScan, enrichLead } from "~/lib/api";
 import { downloadCSV } from "~/lib/utils";
@@ -23,16 +30,30 @@ const statusFilters = [
   { value: "failed", label: "Failed" },
 ] as const;
 
-function temperatureLabel(lead: Lead): "Hot" | "Warm" | "Cold" | null {
-  // status-based temperature since Lead type doesn't carry a score field
-  if (lead.status === "contacted") return "Hot";
-  if (lead.status === "enriched") return "Warm";
-  if (lead.status === "new") return "Cold";
-  return null;
+const categoryFilters = [
+  { value: "all", label: "All Categories" },
+  { value: "auto", label: "Auto" },
+  { value: "medical", label: "Medical" },
+  { value: "restaurants", label: "Restaurants" },
+  { value: "beauty", label: "Beauty" },
+  { value: "furniture", label: "Furniture" },
+  { value: "other", label: "Other" },
+] as const;
+
+const sortOptions = [
+  { value: "newest", label: "Newest" },
+  { value: "temperature", label: "Temperature" },
+  { value: "score", label: "Score" },
+] as const;
+
+function temperatureLabel(lead: Lead): "Hot" | "Warm" | "Cold" {
+  const score = lead.lead_score ?? 0;
+  if (score >= 5) return "Hot";
+  if (score >= 3) return "Warm";
+  return "Cold";
 }
 
-function TemperatureBadge({ temp }: { temp: "Hot" | "Warm" | "Cold" | null }) {
-  if (!temp) return null;
+function TemperatureBadge({ temp }: { temp: "Hot" | "Warm" | "Cold" }) {
   const styles = {
     Hot: "bg-red-500 text-white",
     Warm: "bg-orange-500 text-white",
@@ -50,18 +71,24 @@ export default function LeadsPage() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("all");
   const [cityFilter, setCityFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
   const [scanCity, setScanCity] = useState("");
   const [isScanning, setIsScanning] = useState(false);
   const [page, setPage] = useState(0);
 
   const handleStatusChange = (v: string) => { setStatusFilter(v); setPage(0); };
+  const handleCategoryChange = (v: string) => { setCategoryFilter(v); setPage(0); };
+  const handleSortChange = (v: string) => { setSortBy(v); setPage(0); };
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["leads", statusFilter, cityFilter, page],
+    queryKey: ["leads", statusFilter, cityFilter, categoryFilter, sortBy, page],
     queryFn: () =>
       fetchLeads({
         status: statusFilter === "all" ? undefined : statusFilter,
         city: cityFilter || undefined,
+        category: categoryFilter === "all" ? undefined : categoryFilter,
+        sort: sortBy !== "newest" ? sortBy : undefined,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       }),
@@ -177,6 +204,30 @@ export default function LeadsPage() {
           onChange={(e) => { setCityFilter(e.target.value); setPage(0); }}
           className="w-48 bg-zinc-900 border-zinc-700"
         />
+        <Select value={categoryFilter} onValueChange={handleCategoryChange}>
+          <SelectTrigger className="w-44 bg-zinc-900 border-zinc-700">
+            <SelectValue placeholder="All Categories" />
+          </SelectTrigger>
+          <SelectContent>
+            {categoryFilters.map((c) => (
+              <SelectItem key={c.value} value={c.value}>
+                {c.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={sortBy} onValueChange={handleSortChange}>
+          <SelectTrigger className="w-36 bg-zinc-900 border-zinc-700">
+            <SelectValue placeholder="Sort by" />
+          </SelectTrigger>
+          <SelectContent>
+            {sortOptions.map((s) => (
+              <SelectItem key={s.value} value={s.value}>
+                {s.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Error */}
@@ -243,7 +294,13 @@ function LeadRow({ lead, onClick }: { lead: Lead; onClick?: () => void }) {
 
   return (
     <div
-      className="flex items-center gap-4 px-5 py-4 border-b border-zinc-800 last:border-0 hover:bg-zinc-800/40 transition-colors cursor-pointer"
+      className={`flex items-center gap-4 px-5 py-4 border-b border-zinc-800 last:border-0 hover:bg-zinc-800/40 transition-colors cursor-pointer ${
+        temp === "Hot"
+          ? "bg-red-500/5 border-l-2 border-l-red-500"
+          : temp === "Warm"
+          ? "bg-amber-500/5 border-l-2 border-l-amber-500"
+          : ""
+      }`}
       onClick={onClick}
     >
       <div className="flex-1 min-w-0">

@@ -171,6 +171,12 @@ class PipelineBController(Controller):
             "status": lead.status,
             "osm_id": lead.osm_id,
             "discovered_at": (lead.discovered_at.isoformat() if lead.discovered_at else None),
+            "lead_score": lead.lead_score if hasattr(lead, "lead_score") else None,
+            "temperature": lead.temperature if hasattr(lead, "temperature") else None,
+            "google_rating": (
+                float(lead.google_rating) if hasattr(lead, "google_rating") and lead.google_rating is not None else None
+            ),
+            "review_count": lead.review_count if hasattr(lead, "review_count") else None,
         }
 
     @post(

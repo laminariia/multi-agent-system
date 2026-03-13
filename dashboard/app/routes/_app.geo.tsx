@@ -34,7 +34,7 @@ function ResultCard({
   lead: Lead;
   onClick: () => void;
 }) {
-  const score = Math.round(Math.random() * 40 + 60); // placeholder until API returns score
+  const score = lead.lead_score ?? 0;
   return (
     <div
       className="flex items-center gap-3 py-3 px-4 border-b border-zinc-800 last:border-0 cursor-pointer hover:bg-zinc-800/50 transition-colors"

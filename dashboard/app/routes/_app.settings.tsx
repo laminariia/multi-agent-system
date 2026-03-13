@@ -85,13 +85,7 @@ const GEO_CATEGORIES: { value: string; label: string }[] = [
   { value: "pharmacies", label: "Pharmacies" },
 ];
 
-const DEFAULT_GEO_SELECTED = new Set(["auto_repair", "dental", "beauty", "med_clinics"]);
-
-const PROSPECT_RULES = [
-  "Only contact businesses with a published email address or contact form on their site",
-  "Prioritize businesses active on social media and with consistently positive reviews (3.5+ stars)",
-  "Skip chains",
-];
+const DEFAULT_GEO_SELECTED = ["auto_repair", "dental", "beauty", "med_clinics"];
 
 // --- Scout Config section ---
 
@@ -293,8 +287,91 @@ export default function SettingsPage() {
   const [testingKey, setTestingKey] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, CredentialTestResult>>({});
 
-  // Geo categories
-  const [geoSelected, setGeoSelected] = useState<Set<string>>(new Set(DEFAULT_GEO_SELECTED));
+  // Scout config (geo categories + prospect rules)
+  const [scoutConfig, setScoutConfig] = useState<ScoutConfig | null>(null);
+  const [loadingScoutConfig, setLoadingScoutConfig] = useState(true);
+  const [savingGeo, setSavingGeo] = useState(false);
+  const [newProspectRule, setNewProspectRule] = useState("");
+  const [savingProspectRules, setSavingProspectRules] = useState(false);
+
+  const loadScoutConfig = useCallback(async () => {
+    setLoadingScoutConfig(true);
+    try {
+      const data = await fetchScoutConfig();
+      setScoutConfig(data);
+    } catch {
+      toast({ title: "Failed to load Scout config", variant: "destructive" });
+    } finally {
+      setLoadingScoutConfig(false);
+    }
+  }, []);
+
+  const saveGeoCategories = useCallback(async (categories: string[]) => {
+    if (!scoutConfig) return;
+    setSavingGeo(true);
+    try {
+      const updated = { ...scoutConfig, geo_categories: categories };
+      await saveScoutConfig(updated);
+      setScoutConfig(updated);
+      toast({ title: "Geo categories saved" });
+    } catch (err) {
+      toast({
+        title: "Failed to save geo categories",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingGeo(false);
+    }
+  }, [scoutConfig]);
+
+  const saveProspectRules = useCallback(async (rules: string[]) => {
+    if (!scoutConfig) return;
+    setSavingProspectRules(true);
+    try {
+      const updated = { ...scoutConfig, prospect_rules: rules };
+      await saveScoutConfig(updated);
+      setScoutConfig(updated);
+      toast({ title: "Prospect rules saved" });
+    } catch (err) {
+      toast({
+        title: "Failed to save prospect rules",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingProspectRules(false);
+    }
+  }, [scoutConfig]);
+
+  const handleToggleGeoCategory = (value: string) => {
+    if (!scoutConfig) return;
+    const current = new Set(scoutConfig.geo_categories);
+    if (current.has(value)) current.delete(value);
+    else current.add(value);
+    const next = [...current];
+    setScoutConfig({ ...scoutConfig, geo_categories: next });
+    saveGeoCategories(next);
+  };
+
+  const handleAddProspectRule = () => {
+    if (!scoutConfig || !newProspectRule.trim()) return;
+    if (scoutConfig.prospect_rules.length >= 50) {
+      toast({ title: "Max 50 prospect rules", variant: "destructive" });
+      return;
+    }
+    const next = [...scoutConfig.prospect_rules, newProspectRule.trim()];
+    setScoutConfig({ ...scoutConfig, prospect_rules: next });
+    setNewProspectRule("");
+    saveProspectRules(next);
+  };
+
+  const handleRemoveProspectRule = (idx: number) => {
+    if (!scoutConfig) return;
+    const next = scoutConfig.prospect_rules.filter((_, i) => i !== idx);
+    setScoutConfig({ ...scoutConfig, prospect_rules: next });
+    saveProspectRules(next);
+  };
 
   const loadCredentials = useCallback(async () => {
     setLoadingCredentials(true);
@@ -313,6 +390,7 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => { loadCredentials(); }, [loadCredentials]);
+  useEffect(() => { loadScoutConfig(); }, [loadScoutConfig]);
 
   // --- Telegram ---
   const handleTelegramLink = async () => {
@@ -701,31 +779,36 @@ export default function SettingsPage() {
       {/* Scout Categories / Geo Targeting */}
       <Card className="border-border/50 bg-zinc-900">
         <CardHeader>
-          <CardTitle className="text-base">Scout Categories</CardTitle>
-          <CardDescription>Analyze data or list services to match</CardDescription>
+          <CardTitle className="text-base">Geo Categories</CardTitle>
+          <CardDescription>Business categories for geo-scout scanning</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {GEO_CATEGORIES.map(({ value, label }) => {
-              const checked = geoSelected.has(value);
-              return (
-                <label key={value} className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => {
-                      const next = new Set(geoSelected);
-                      if (checked) next.delete(value);
-                      else next.add(value);
-                      setGeoSelected(next);
-                    }}
-                    className="h-4 w-4 rounded accent-orange-500"
-                  />
-                  <span className="text-sm">{label}</span>
-                </label>
-              );
-            })}
-          </div>
+          {loadingScoutConfig ? (
+            <p className="text-sm text-muted-foreground">Loading...</p>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {GEO_CATEGORIES.map(({ value, label }) => {
+                  const checked = scoutConfig?.geo_categories?.includes(value) ?? false;
+                  return (
+                    <label key={value} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => handleToggleGeoCategory(value)}
+                        disabled={savingGeo}
+                        className="h-4 w-4 rounded accent-orange-500"
+                      />
+                      <span className="text-sm">{label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              {savingGeo && (
+                <p className="text-xs text-muted-foreground">Saving...</p>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -735,15 +818,49 @@ export default function SettingsPage() {
           <CardTitle className="text-base">Prospect Rules</CardTitle>
           <CardDescription>Who do we email, and specs</CardDescription>
         </CardHeader>
-        <CardContent>
-          <ul className="space-y-2">
-            {PROSPECT_RULES.map((rule, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-                <span className="text-orange-400 mt-0.5 shrink-0">•</span>
-                {rule}
-              </li>
-            ))}
-          </ul>
+        <CardContent className="space-y-4">
+          {loadingScoutConfig ? (
+            <p className="text-sm text-muted-foreground">Loading...</p>
+          ) : (
+            <>
+              <ul className="space-y-2">
+                {(scoutConfig?.prospect_rules ?? []).map((rule: string, i: number) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <span className="text-orange-400 mt-0.5 shrink-0">•</span>
+                    <span className="flex-1">{rule}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRemoveProspectRule(i)}
+                      disabled={savingProspectRules}
+                      className="text-destructive shrink-0 h-6 px-2 text-xs"
+                    >
+                      Remove
+                    </Button>
+                  </li>
+                ))}
+                {(scoutConfig?.prospect_rules ?? []).length === 0 && (
+                  <p className="text-sm text-zinc-600">No prospect rules defined yet.</p>
+                )}
+              </ul>
+              <div className="flex gap-2">
+                <Input
+                  value={newProspectRule}
+                  onChange={(e) => setNewProspectRule(e.target.value)}
+                  placeholder="e.g. Only contact businesses with 3.5+ stars"
+                  maxLength={500}
+                  onKeyDown={(e) => e.key === "Enter" && handleAddProspectRule()}
+                />
+                <Button
+                  variant="outline"
+                  onClick={handleAddProspectRule}
+                  disabled={!newProspectRule.trim() || savingProspectRules}
+                >
+                  Add
+                </Button>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 

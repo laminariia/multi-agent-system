@@ -151,20 +151,35 @@ export default function LeadDetailPage() {
 
   const mapLeads = lead.latitude != null && lead.longitude != null ? [lead] : [];
 
+  const score = lead?.lead_score ?? 0;
   const scoreBreakdown = [
-    { label: "Enrichment Quality", value: isEnriched ? 80 : 20 },
+    { label: "Overall Score", value: score },
     { label: "Contact Data", value: lead.email || lead.phone ? 90 : 10 },
     { label: "Social Presence", value: lead.social_links ? Math.min(100, Object.keys(lead.social_links).length * 25) : 0 },
     { label: "Website", value: lead.website ? 70 : 0 },
   ];
 
-  const aiRecs: string[] = isEnriched
-    ? [
+  const aiRecs: string[] = (() => {
+    // Try analysis_notes from enrichment_data first
+    const notes = enrichmentData.analysis_notes;
+    if (typeof notes === "string" && notes.trim()) {
+      return notes.split("\n").filter((line: string) => line.trim().length > 0);
+    }
+    // Try recommendations array from enrichment_data
+    const recs = enrichmentData.recommendations;
+    if (Array.isArray(recs) && recs.length > 0) {
+      return recs;
+    }
+    // Fallback for enriched leads without analysis
+    if (isEnriched) {
+      return [
         `Send personalized proposal referencing ${lead.category ?? "their"} industry`,
         `Include local market stats for ${lead.city ?? "their city"}`,
         "Mention relevant portfolio projects",
-      ]
-    : ["Enrich this lead first to unlock AI recommendations"];
+      ];
+    }
+    return ["Enrich this lead first to unlock AI recommendations"];
+  })();
 
   return (
     <div className="space-y-6">
@@ -184,6 +199,15 @@ export default function LeadDetailPage() {
               <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${statusBadgeClass(lead.status)}`}>
                 {lead.status}
               </span>
+              {lead.temperature && (
+                <span className={`px-2 py-0.5 rounded text-xs font-medium uppercase ${
+                  lead.temperature === "hot" ? "bg-red-500/20 text-red-400" :
+                  lead.temperature === "warm" ? "bg-amber-500/20 text-amber-400" :
+                  "bg-zinc-700 text-zinc-400"
+                }`}>
+                  {lead.temperature}
+                </span>
+              )}
               {lead.city && (
                 <span className="text-sm text-zinc-500">
                   {lead.city}{lead.country ? `, ${lead.country}` : ""}
@@ -283,6 +307,24 @@ export default function LeadDetailPage() {
                     <dd className="mt-0.5">
                       <Badge className="bg-zinc-800 text-zinc-300 text-[10px]">{lead.enrichment_source}</Badge>
                     </dd>
+                  </div>
+                )}
+                {lead.google_rating != null && (
+                  <div>
+                    <dt className="text-[10px] text-zinc-500 uppercase tracking-wider">Google Rating</dt>
+                    <dd className="text-sm text-white mt-0.5 flex items-center gap-1.5">
+                      <span className="text-amber-400">{"*".repeat(Math.round(lead.google_rating))}</span>
+                      <span>{lead.google_rating.toFixed(1)}</span>
+                      {lead.review_count != null && (
+                        <span className="text-zinc-500">({lead.review_count} reviews)</span>
+                      )}
+                    </dd>
+                  </div>
+                )}
+                {lead.review_count != null && lead.google_rating == null && (
+                  <div>
+                    <dt className="text-[10px] text-zinc-500 uppercase tracking-wider">Reviews</dt>
+                    <dd className="text-sm text-white mt-0.5">{lead.review_count} reviews</dd>
                   </div>
                 )}
                 {technologies.length > 0 && (

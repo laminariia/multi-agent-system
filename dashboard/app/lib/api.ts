@@ -46,6 +46,8 @@ import type {
   PortfolioProject,
   PortfolioListResponse,
   AnalyticsData,
+  HealthMetrics,
+  AgentPerformance,
 } from "./types";
 
 declare global {
@@ -788,6 +790,16 @@ export async function fetchBidStats(): Promise<BidStats> {
   return apiFetch<BidStats>("/bids/stats");
 }
 
+export async function updateBidStatus(
+  bidId: string,
+  status: string
+): Promise<{ id: string; status: string }> {
+  return apiFetch<{ id: string; status: string }>(`/bids/${bidId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
 // --- Projects ---
 
 export async function fetchProjects(params?: {
@@ -854,6 +866,24 @@ export async function createPortfolioProject(data: {
   });
 }
 
+export async function updatePortfolioProject(
+  id: string,
+  data: Record<string, any>,
+): Promise<{ id: string; updated_fields: string[] }> {
+  return apiFetch<{ id: string; updated_fields: string[] }>(`/portfolio/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deletePortfolioProject(
+  id: string,
+): Promise<void> {
+  await apiFetch<void>(`/portfolio/${id}`, {
+    method: "DELETE",
+  });
+}
+
 // --- Analytics ---
 
 export async function fetchAnalytics(params?: {
@@ -864,3 +894,49 @@ export async function fetchAnalytics(params?: {
   const query = searchParams.toString();
   return apiFetch<AnalyticsData>(`/analytics${query ? `?${query}` : ""}`);
 }
+
+// --- Health Metrics (real system data) ---
+
+export async function fetchHealthMetrics(): Promise<HealthMetrics> {
+  const report = await apiFetch<HealthReport>("/orchestrator/health");
+  return {
+    cpu_percent: report.cpu_percent ?? 0,
+    memory_percent: report.memory_percent ?? 0,
+    db_connections: report.db_connections ?? 0,
+    db_max_connections: report.db_max_connections ?? 50,
+    valkey_latency_ms: report.valkey_latency_ms ?? 0,
+  };
+}
+
+// --- Agent Performance (derived from logs + status) ---
+
+export async function fetchAgentPerformance(
+  name: string,
+): Promise<AgentPerformance> {
+  const [statusList, logs] = await Promise.all([
+    apiFetch<AgentStatusList>("/agents/"),
+    apiFetch<AgentLogList>(`/agents/${name}/logs?limit=500`),
+  ]);
+  const status = statusList.agents?.find(
+    (a) => a.name === name || a.display_name === name,
+  );
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const weekMap = new Map<string, number>();
+  for (const log of logs.logs ?? []) {
+    const d = new Date(log.timestamp);
+    const day = days[d.getDay()];
+    weekMap.set(day, (weekMap.get(day) ?? 0) + 1);
+  }
+  return {
+    agent_name: name,
+    weekly_tasks: days.map((d) => ({ day: d, tasks: weekMap.get(d) ?? 0 })),
+    uptime_percent:
+      status?.uptime_seconds != null
+        ? Math.min(99.9, (status.uptime_seconds / (7 * 86400)) * 100)
+        : 0,
+    llm_tokens_used: status?.llm_tokens_used ?? 0,
+    avg_task_duration_seconds: status?.avg_task_duration ?? 0,
+    success_rate: status?.success_rate ?? 0,
+  };
+}
+

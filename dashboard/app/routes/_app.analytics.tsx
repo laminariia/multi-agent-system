@@ -161,9 +161,9 @@ export default function AnalyticsPage() {
       )}
 
       {/* Row 1 — Metric Cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {isLoading ? (
-          Array.from({ length: 3 }).map((_, i) => (
+          Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="h-24" />
           ))
         ) : (
@@ -187,6 +187,32 @@ export default function AnalyticsPage() {
                   : "--"
               }
               sub={`${ov?.jobs_discovered ?? 0} jobs discovered`}
+            />
+            <MetricCard
+              label="Response Time"
+              value={
+                ov && ov.jobs_discovered > 0 && ov.bids_submitted > 0
+                  ? `${Math.round((days * 24) / Math.max(ov.bids_submitted, 1))}h`
+                  : "N/A"
+              }
+              sub="avg discovery to bid"
+              subColor="text-blue-400"
+            />
+            <MetricCard
+              label="ROI"
+              value={(() => {
+                const totalCosts = (ov?.cost_breakdown ?? []).reduce((s, c) => s + c.amount, 0);
+                if (!ov || totalCosts <= 0) return "N/A";
+                const roiVal = ((ov.revenue_total - totalCosts) / totalCosts * 100).toFixed(0);
+                return `${Number(roiVal) >= 0 ? "+" : ""}${Number(roiVal).toLocaleString()}%`;
+              })()}
+              sub="vs total costs"
+              subColor={
+                ov && (ov.cost_breakdown ?? []).reduce((s, c) => s + c.amount, 0) > 0 &&
+                ov.revenue_total > (ov.cost_breakdown ?? []).reduce((s, c) => s + c.amount, 0)
+                  ? "text-emerald-400"
+                  : "text-rose-400"
+              }
             />
           </>
         )}

@@ -20,7 +20,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
-import { fetchPortfolio, createPortfolioProject } from "~/lib/api";
+import {
+  fetchPortfolio,
+  createPortfolioProject,
+  updatePortfolioProject,
+  deletePortfolioProject,
+} from "~/lib/api";
 import type { PortfolioProject } from "~/lib/types";
 import { toast } from "~/hooks/use-toast";
 
@@ -32,7 +37,15 @@ function formatDate(iso: string | null): string {
   });
 }
 
-function PortfolioCard({ project }: { project: PortfolioProject }) {
+function PortfolioCard({
+  project,
+  onEdit,
+  onDelete,
+}: {
+  project: PortfolioProject;
+  onEdit: (p: PortfolioProject) => void;
+  onDelete: (p: PortfolioProject) => void;
+}) {
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden hover:border-zinc-700 transition-colors">
       {/* Image placeholder */}
@@ -96,6 +109,35 @@ function PortfolioCard({ project }: { project: PortfolioProject }) {
         {project.client_name && (
           <p className="text-[11px] text-zinc-500">{project.client_name}</p>
         )}
+        <div className="flex items-center gap-1.5 pt-2 border-t border-zinc-800">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs border-zinc-700 text-zinc-300"
+            onClick={() => onEdit(project)}
+          >
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs text-zinc-500 hover:text-destructive"
+            onClick={() => onDelete(project)}
+          >
+            Delete
+          </Button>
+          {(project.url || project.demo_url) && (
+            <a
+              href={project.url || project.demo_url || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto text-xs text-orange-400 hover:text-orange-300"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Preview
+            </a>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -131,21 +173,43 @@ const EMPTY_FORM: AddProjectForm = {
   client_name: "",
 };
 
-function AddProjectDialog({
+function ProjectDialog({
   open,
   onClose,
+  editProject,
 }: {
   open: boolean;
   onClose: () => void;
+  editProject?: PortfolioProject | null;
 }) {
   const queryClient = useQueryClient();
-  const [form, setForm] = useState<AddProjectForm>(EMPTY_FORM);
+  const isEdit = !!editProject;
+
+  const initialForm: AddProjectForm = editProject
+    ? {
+        title: editProject.title,
+        category: editProject.category ?? "",
+        description: editProject.description ?? "",
+        tags: editProject.tags?.join(", ") ?? "",
+        demo_url: editProject.demo_url ?? "",
+        source_url: editProject.source_url ?? "",
+        client_name: editProject.client_name ?? "",
+      }
+    : EMPTY_FORM;
+
+  const [form, setForm] = useState<AddProjectForm>(initialForm);
+
+  // Reset form when dialog opens with different project
+  const projectId = editProject?.id ?? null;
+  useState(() => {
+    setForm(initialForm);
+  });
 
   const set = (field: keyof AddProjectForm) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
-  const mutation = useMutation({
+  const createMutation = useMutation({
     mutationFn: () =>
       createPortfolioProject({
         title: form.title,
@@ -173,11 +237,40 @@ function AddProjectDialog({
     },
   });
 
+  const updateMutation = useMutation({
+    mutationFn: () =>
+      updatePortfolioProject(editProject!.id, {
+        title: form.title,
+        category: form.category || undefined,
+        description: form.description || undefined,
+        tags: form.tags
+          ? form.tags.split(",").map((s) => s.trim()).filter(Boolean)
+          : undefined,
+        demo_url: form.demo_url || undefined,
+        source_url: form.source_url || undefined,
+        client_name: form.client_name || undefined,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["portfolio"] });
+      toast({ title: "Project updated", variant: "success" });
+      onClose();
+    },
+    onError: (err) => {
+      toast({
+        title: "Failed to update project",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const isPending = createMutation.isPending || updateMutation.isPending;
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-md">
         <DialogHeader>
-          <DialogTitle>Add Portfolio Project</DialogTitle>
+          <DialogTitle>{isEdit ? "Edit Portfolio Project" : "Add Portfolio Project"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3 py-2">
           <div>
@@ -264,11 +357,68 @@ function AddProjectDialog({
             Cancel
           </Button>
           <Button
-            onClick={() => mutation.mutate()}
-            disabled={!form.title.trim() || mutation.isPending}
+            onClick={() => isEdit ? updateMutation.mutate() : createMutation.mutate()}
+            disabled={!form.title.trim() || isPending}
             className="bg-orange-500 hover:bg-orange-600 text-white"
           >
-            {mutation.isPending ? "Adding..." : "Add Project"}
+            {isPending
+              ? isEdit ? "Saving..." : "Adding..."
+              : isEdit ? "Save Changes" : "Add Project"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeleteProjectDialog({
+  project,
+  onClose,
+}: {
+  project: PortfolioProject;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deletePortfolioProject(project.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["portfolio"] });
+      toast({ title: "Project deleted", variant: "success" });
+      onClose();
+    },
+    onError: (err) => {
+      toast({
+        title: "Failed to delete project",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    },
+  });
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Delete project</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-zinc-400">
+          Are you sure you want to delete <strong>{project.title}</strong>? This action cannot be undone.
+        </p>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={onClose}
+            className="border-zinc-700"
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={deleteMutation.isPending}
+            onClick={() => deleteMutation.mutate()}
+          >
+            {deleteMutation.isPending ? "Deleting..." : "Delete"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -280,6 +430,8 @@ export default function PortfolioPage() {
   const [visibilityTab, setVisibilityTab] = useState("all");
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editProject, setEditProject] = useState<PortfolioProject | null>(null);
+  const [deleteProject, setDeleteProject] = useState<PortfolioProject | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["portfolio", visibilityTab, search],
@@ -308,7 +460,7 @@ export default function PortfolioPage() {
           <Badge className="bg-zinc-800 text-zinc-300 text-xs">{total}</Badge>
         </div>
         <Button
-          onClick={() => setDialogOpen(true)}
+          onClick={() => { setEditProject(null); setDialogOpen(true); }}
           className="bg-orange-500 hover:bg-orange-600 text-white"
           size="sm"
         >
@@ -355,7 +507,7 @@ export default function PortfolioPage() {
             Add your first portfolio project to get started.
           </p>
           <Button
-            onClick={() => setDialogOpen(true)}
+            onClick={() => { setEditProject(null); setDialogOpen(true); }}
             className="mt-4 bg-orange-500 hover:bg-orange-600 text-white"
             size="sm"
           >
@@ -365,15 +517,28 @@ export default function PortfolioPage() {
       ) : (
         <div className="grid grid-cols-3 gap-4">
           {projects.map((project) => (
-            <PortfolioCard key={project.id} project={project} />
+            <PortfolioCard
+              key={project.id}
+              project={project}
+              onEdit={(p) => { setEditProject(p); setDialogOpen(true); }}
+              onDelete={(p) => setDeleteProject(p)}
+            />
           ))}
         </div>
       )}
 
-      <AddProjectDialog
+      <ProjectDialog
         open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
+        onClose={() => { setDialogOpen(false); setEditProject(null); }}
+        editProject={editProject}
       />
+
+      {deleteProject && (
+        <DeleteProjectDialog
+          project={deleteProject}
+          onClose={() => setDeleteProject(null)}
+        />
+      )}
     </div>
   );
 }

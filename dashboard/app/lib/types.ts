@@ -33,7 +33,30 @@ export interface RegisterRequest {
 
 export interface HITLItem {
   id: string;
-  type: "bid_approval" | "code_review" | "delivery" | "revision" | "scope_creep" | "plan_review" | "alert" | "email_approval" | "final_review" | "job_review" | "dev_launch" | "agent_failure" | "delivery_hold" | "outreach_approval" | "manual_action";
+  type:
+    | "bid_approval"
+    | "code_review"
+    | "delivery"
+    | "revision"
+    | "scope_creep"
+    | "plan_review"
+    | "alert"
+    | "email_approval"
+    | "final_review"
+    | "job_review"
+    | "dev_launch"
+    | "agent_failure"
+    | "delivery_hold"
+    | "outreach_approval"
+    | "manual_action"
+    | "critic_escalation"
+    | "partial_failure"
+    | "final_delivery"
+    | "lead_card"
+    | "concept_review"
+    | "concept_approved"
+    | "design_review"
+    | "portfolio_review";
   priority: "urgent" | "normal" | "low";
   title: string;
   description: string | null;
@@ -87,6 +110,10 @@ export interface AgentStatus {
   current_task: string | null;
   restart_count: number;
   error_message: string | null;
+  uptime_seconds?: number;
+  llm_tokens_used?: number;
+  avg_task_duration?: number;
+  success_rate?: number;
 }
 
 export interface AgentStatusList {
@@ -164,6 +191,7 @@ export interface Lead {
   discovered_at: string | null;
   latitude: number | null;
   longitude: number | null;
+  lead_score: number | null;
 }
 
 export interface LeadDetail extends Lead {
@@ -176,6 +204,9 @@ export interface LeadDetail extends Lead {
   enrichment_cost: number | null;
   enrichment_data: Record<string, any> | null;
   osm_id: string | null;
+  temperature: string | null;
+  google_rating: number | null;
+  review_count: number | null;
 }
 
 export interface LeadListResponse {
@@ -256,6 +287,11 @@ export interface HealthReport {
   score: number;
   dimensions: Record<string, HealthDimension>;
   problems: HealthProblem[];
+  cpu_percent?: number;
+  memory_percent?: number;
+  db_connections?: number;
+  db_max_connections?: number;
+  valkey_latency_ms?: number;
 }
 
 export interface Phase {
@@ -321,6 +357,8 @@ export interface ScoutConfig {
   categories_auto: string[];
   categories_suggest: string[];
   custom_rules: string[];
+  geo_categories: string[];
+  prospect_rules: string[];
 }
 
 // --- Campaigns ---
@@ -543,4 +581,47 @@ export interface AnalyticsOverview {
 export interface AnalyticsData {
   overview: AnalyticsOverview;
   generated_at: string;
+}
+
+// --- Health Metrics (Orchestrator real data) ---
+
+export interface HealthMetrics {
+  cpu_percent: number;
+  memory_percent: number;
+  db_connections: number;
+  db_max_connections: number;
+  valkey_latency_ms: number;
+}
+
+// --- Agent Performance ---
+
+export interface AgentPerformance {
+  agent_name: string;
+  weekly_tasks: { day: string; tasks: number }[];
+  uptime_percent: number;
+  llm_tokens_used: number;
+  avg_task_duration_seconds: number;
+  success_rate: number;
+}
+
+// --- Bid Chat / Negotiation ---
+
+export type NegotiationStatus =
+  | "initial"
+  | "qualifying"
+  | "proposing"
+  | "negotiating"
+  | "closing";
+
+export interface BidMessage {
+  id: string;
+  sender: "ai" | "client" | "operator";
+  text: string;
+  timestamp: string;
+}
+
+export interface BidChat {
+  bid_id: string;
+  messages: BidMessage[];
+  negotiation_status: NegotiationStatus;
 }

@@ -12,7 +12,7 @@ import { ActivityFeed, type ActivityEvent } from "~/components/activity-feed";
 import { JobsByPlatformChart, HITLByTypeChart, AgentStatusChart, HITLTrendsChart } from "~/components/charts";
 import { SkeletonCard, SkeletonGrid } from "~/components/skeleton-card";
 import { EmptyState } from "~/components/empty-state";
-import { fetchAgentStatus, fetchHITLStats, fetchJobs, fetchJobStats, fetchHITLTrends, fetchPipelineBStats, fetchCredentials, fetchHITLPending, resolveHITL } from "~/lib/api";
+import { fetchAgentStatus, fetchHITLStats, fetchJobs, fetchJobStats, fetchHITLTrends, fetchPipelineBStats, fetchCredentials, fetchHITLPending, resolveHITL, fetchAnalytics } from "~/lib/api";
 import { OrchStatusWidget } from "~/components/orch-status-widget";
 import { toast } from "~/hooks/use-toast";
 
@@ -73,6 +73,12 @@ export default function DashboardPage() {
     queryFn: () => fetchHITLPending({ limit: 5 }),
     staleTime: 10_000,
     refetchInterval: 30_000,
+  });
+
+  const { data: analyticsData } = useQuery({
+    queryKey: ["analytics-overview"],
+    queryFn: () => fetchAnalytics({ days: 30 }),
+    staleTime: 300_000,
   });
 
   const agents = agentData?.agents ?? [];
@@ -140,6 +146,17 @@ export default function DashboardPage() {
     });
     return events.slice(0, 20);
   }, [agents]);
+
+  const upcomingItems = useMemo(() => {
+    const items = [...pendingApprovals];
+    items.sort((a, b) => {
+      if (!a.expires_at && !b.expires_at) return 0;
+      if (!a.expires_at) return 1;
+      if (!b.expires_at) return -1;
+      return new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime();
+    });
+    return items.slice(0, 3);
+  }, [pendingApprovals]);
 
   const hasError = !!agentError;
 
@@ -273,10 +290,10 @@ export default function DashboardPage() {
       )}
 
       {/* Metric cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
         {agentsLoading && !agentData ? (
           <>
-            {Array.from({ length: 5 }).map((_, i) => (
+            {Array.from({ length: 6 }).map((_, i) => (
               <SkeletonCard key={i} variant="metric" />
             ))}
           </>
@@ -323,6 +340,17 @@ export default function DashboardPage() {
               }
               label="Resolved Today"
               value={hitlStats?.today?.resolved ?? 0}
+            />
+            <MetricCard
+              index={4}
+              icon={
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="1" x2="12" y2="23" />
+                  <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
+                </svg>
+              }
+              label="Revenue"
+              value={analyticsData ? `$${(analyticsData.overview.revenue_total ?? 0).toLocaleString()}` : "--"}
             />
             <OrchStatusWidget />
           </>
@@ -534,6 +562,29 @@ export default function DashboardPage() {
           </Card>
         </div>
       </div>
+
+      {/* Upcoming Actions */}
+      <Card className="border-border/50 bg-zinc-900">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-medium">Upcoming Actions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {upcomingItems.length === 0 ? (
+            <p className="text-sm text-zinc-500">No pending deadlines</p>
+          ) : (
+            <ul className="space-y-2">
+              {upcomingItems.map((item) => (
+                <li key={item.id} className="flex items-center justify-between text-sm">
+                  <span className="text-zinc-300 truncate">{item.type.replace(/_/g, " ")}: {item.payload?.title ?? item.title ?? item.id}</span>
+                  <span className="text-xs text-orange-400 font-mono shrink-0 ml-2">
+                    {item.expires_at ? new Date(item.expires_at).toLocaleDateString() : "no deadline"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

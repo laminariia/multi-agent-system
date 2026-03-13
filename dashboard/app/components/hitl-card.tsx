@@ -29,6 +29,14 @@ const typeConfig: Record<
   delivery_hold: { label: "Delivery Hold", variant: "delivery" },
   outreach_approval: { label: "Outreach", variant: "bid" },
   manual_action: { label: "Manual", variant: "review" },
+  critic_escalation: { label: "Critic", variant: "alert" },
+  partial_failure: { label: "Failure", variant: "alert" },
+  final_delivery: { label: "Delivery", variant: "delivery" },
+  lead_card: { label: "Lead", variant: "bid" },
+  concept_review: { label: "Concept", variant: "plan" },
+  concept_approved: { label: "Approved", variant: "delivery" },
+  design_review: { label: "Design", variant: "review" },
+  portfolio_review: { label: "Portfolio", variant: "review" },
 };
 
 const actionVariants: Record<string, "default" | "success" | "warning" | "destructive" | "outline"> = {

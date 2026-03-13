@@ -7,7 +7,7 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { GoalList } from "~/components/goal-list";
 import { MilestoneTimeline } from "~/components/milestone-timeline";
 import { RunnerLogViewer } from "~/components/runner-log-viewer";
-import { fetchOrchestratorStatus, fetchAgentStatus, startOrchestrator, stopOrchestrator } from "~/lib/api";
+import { fetchOrchestratorStatus, fetchAgentStatus, startOrchestrator, stopOrchestrator, fetchHealthMetrics } from "~/lib/api";
 import { toast } from "~/hooks/use-toast";
 import { useState } from "react";
 import { cn } from "~/lib/utils";
@@ -61,6 +61,12 @@ export default function OrchestratorPage() {
     queryKey: ["agent-status"],
     queryFn: fetchAgentStatus,
     staleTime: 10_000,
+    refetchInterval: 30_000,
+  });
+
+  const { data: healthMetrics } = useQuery({
+    queryKey: ["health-metrics"],
+    queryFn: fetchHealthMetrics,
     refetchInterval: 30_000,
   });
 
@@ -197,7 +203,7 @@ export default function OrchestratorPage() {
               </div>
               <p className="text-2xl font-bold text-emerald-400">
                 {orchData?.uptime_seconds != null
-                  ? `${Math.min(99.9, 99 + Math.random() * 0.9).toFixed(1)}%`
+                  ? `${Math.floor(orchData.uptime_seconds / 3600)}h ${Math.floor((orchData.uptime_seconds % 3600) / 60)}m`
                   : "--"}
               </p>
             </CardContent>
@@ -216,10 +222,10 @@ export default function OrchestratorPage() {
             <CardTitle className="text-base font-medium">System Health</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
-            <HealthBar label="CPU" value={34} max={100} unit="%" />
-            <HealthBar label="Memory" value={67} max={100} unit="%" />
-            <HealthBar label="DB Connections" value={12} max={50} displayValue="12/50" unit="" />
-            <HealthBar label="Valkey Queue" value={845} max={5000} displayValue="845 ms" unit="" />
+            <HealthBar label="CPU" value={healthMetrics?.cpu_percent ?? 0} max={100} unit="%" />
+            <HealthBar label="Memory" value={healthMetrics?.memory_percent ?? 0} max={100} unit="%" />
+            <HealthBar label="DB Connections" value={healthMetrics?.db_connections ?? 0} max={healthMetrics?.db_max_connections ?? 50} displayValue={`${healthMetrics?.db_connections ?? 0}/${healthMetrics?.db_max_connections ?? 50}`} unit="" />
+            <HealthBar label="Valkey Queue" value={healthMetrics?.valkey_latency_ms ?? 0} max={5000} displayValue={`${healthMetrics?.valkey_latency_ms ?? 0} ms`} unit="" />
           </CardContent>
         </Card>
       </div>

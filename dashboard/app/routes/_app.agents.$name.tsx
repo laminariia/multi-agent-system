@@ -15,7 +15,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "~/components/ui/tooltip";
-import { fetchAgentStatus, fetchAgentLogs, restartAgent, pauseAgent, resumeAgent } from "~/lib/api";
+import { fetchAgentStatus, fetchAgentLogs, fetchAgentPerformance, restartAgent, pauseAgent, resumeAgent } from "~/lib/api";
 import { relativeTime, cn } from "~/lib/utils";
 import { toast } from "~/hooks/use-toast";
 import { useWsLogStream } from "~/hooks/use-ws-log-stream";
@@ -43,14 +43,6 @@ const levelBadge: Record<string, string> = {
   debug: "text-zinc-500",
 };
 
-// Mock weekly performance data — real data would come from a metrics endpoint
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-function mockWeeklyData() {
-  return DAYS.map((day) => ({
-    day,
-    tasks: Math.floor(Math.random() * 18) + 2,
-  }));
-}
 
 export default function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -59,7 +51,13 @@ export default function AgentDetailPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [weeklyData] = useState(mockWeeklyData);
+  const { data: perfData } = useQuery({
+    queryKey: ["agent-performance", name],
+    queryFn: () => fetchAgentPerformance(name!),
+    enabled: !!name,
+    staleTime: 60_000,
+  });
+  const weeklyData = perfData?.weekly_tasks ?? [];
 
   // Live WebSocket log stream
   const { logs: streamedLogs, isConnected, clearLogs } = useWsLogStream(name);
@@ -237,7 +235,7 @@ export default function AgentDetailPage() {
           <Card className="border-border/50 bg-zinc-900">
             <CardContent className="p-4">
               <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">LLM Tokens</p>
-              <p className="text-2xl font-bold mt-1 text-orange-400">{allLogs.length > 0 ? (allLogs.length * 47).toLocaleString() : "—"}</p>
+              <p className="text-2xl font-bold mt-1 text-orange-400">{perfData?.llm_tokens_used?.toLocaleString() ?? "0"}</p>
             </CardContent>
           </Card>
         </div>
@@ -400,7 +398,7 @@ export default function AgentDetailPage() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Uptime</p>
-                  <p className="font-semibold text-emerald-400">99.2%</p>
+                  <p className="font-semibold text-emerald-400">{perfData?.uptime_percent?.toFixed(1) ?? "--"}%</p>
                 </div>
               </div>
               <ResponsiveContainer width="100%" height={100}>

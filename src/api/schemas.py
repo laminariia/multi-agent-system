@@ -884,13 +884,28 @@ class ScoutConfigSchema(_BaseSchema):
         max_length=50,
         description="Free-text custom rules for Scout LLM (max 50)",
     )
+    geo_categories: list[str] = Field(
+        default_factory=lambda: ["auto_repair", "dental", "beauty", "med_clinics"],
+        description="Geo-scout business categories to scan",
+    )
+    prospect_rules: list[str] = Field(
+        default_factory=lambda: [
+            "Only contact businesses with a published email address or contact form on their site",
+            "Prioritize businesses active on social media and with consistently positive reviews (3.5+ stars)",
+            "Skip chains",
+        ],
+        description="Free-text prospect qualification rules (max 50)",
+    )
 
-    @field_validator("custom_rules")
+    @field_validator("custom_rules", "prospect_rules")
     @classmethod
     def _validate_rule_length(cls, v: list[str]) -> list[str]:
+        if len(v) > 50:
+            msg = f"Maximum 50 rules allowed, got {len(v)}"
+            raise ValueError(msg)
         for rule in v:
             if len(rule) > 500:
-                msg = f"Custom rule exceeds 500 characters: {len(rule)}"
+                msg = f"Rule exceeds 500 characters: {len(rule)}"
                 raise ValueError(msg)
         return v
 

@@ -5,7 +5,7 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import { Link } from "@remix-run/react";
-import { fetchAgentStatus, restartAgent, pauseAgent } from "~/lib/api";
+import { fetchAgentStatus, restartAgent, pauseAgent, resumeAgent } from "~/lib/api";
 import { relativeTime, cn } from "~/lib/utils";
 import { toast } from "~/hooks/use-toast";
 import type { AgentStatus } from "~/lib/types";
@@ -65,24 +65,73 @@ function getInitials(name: string, displayName: string | null): string {
   return source.slice(0, 2).toUpperCase();
 }
 
-function AgentCardNew({ agent }: { agent: AgentStatus }) {
+function AgentCardNew({ agent, onAction }: { agent: AgentStatus; onAction?: () => void }) {
   const initials = getInitials(agent.name, agent.display_name);
   const cfg = statusBadgeConfig[agent.status] ?? statusBadgeConfig.idle;
   const avatarCfg = avatarColors[agent.status] ?? avatarColors.idle;
   const borderColor = statusBorderColor[agent.status] ?? "border-l-border/50";
+
+  const handleRestart = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await restartAgent(agent.name);
+      toast({ title: `${agent.display_name || agent.name} restarted`, variant: "success" });
+      onAction?.();
+    } catch {
+      toast({ title: "Restart failed", variant: "destructive" });
+    }
+  };
+
+  const handlePause = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await pauseAgent(agent.name);
+      toast({ title: `${agent.display_name || agent.name} paused`, variant: "success" });
+      onAction?.();
+    } catch {
+      toast({ title: "Pause failed", variant: "destructive" });
+    }
+  };
+
+  const handleResume = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await resumeAgent(agent.name);
+      toast({ title: `${agent.display_name || agent.name} resumed`, variant: "success" });
+      onAction?.();
+    } catch {
+      toast({ title: "Resume failed", variant: "destructive" });
+    }
+  };
 
   return (
     <Link to={`/agents/${agent.name}`} className="block">
       <Card
         className={cn(
           "border border-l-4 border-border/50 transition-all hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 cursor-pointer bg-zinc-900",
-          borderColor
+          borderColor,
+          agent.status === "error" && "ring-1 ring-red-500/30 shadow-red-500/10 shadow-lg"
         )}
       >
         <CardContent className="p-4">
           <div className="flex items-start gap-3 mb-3">
-            <div className={cn("h-9 w-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0", avatarCfg)}>
-              {initials}
+            <div className="relative">
+              <div className={cn("h-9 w-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0", avatarCfg)}>
+                {initials}
+              </div>
+              <span
+                className={cn(
+                  "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-zinc-900",
+                  agent.status === "working" ? "bg-emerald-400 animate-pulse" :
+                  agent.status === "error" ? "bg-red-400 animate-pulse" :
+                  agent.status === "paused" ? "bg-orange-400" :
+                  agent.status === "dead" ? "bg-red-600" :
+                  "bg-zinc-500"
+                )}
+              />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold truncate">{agent.display_name || agent.name}</p>
@@ -104,10 +153,24 @@ function AgentCardNew({ agent }: { agent: AgentStatus }) {
             </p>
           )}
 
-          <div className="pt-2 border-t border-border/30">
+          <div className="pt-2 border-t border-border/30 flex items-center justify-between">
             <span className="text-[10px] text-muted-foreground">
               {agent.last_heartbeat ? relativeTime(agent.last_heartbeat) : "No heartbeat"}
             </span>
+            <div className="flex gap-1">
+              <Button size="sm" variant="outline" className="h-6 text-[10px] px-1.5" onClick={handleRestart}>
+                Restart
+              </Button>
+              {agent.status === "paused" ? (
+                <Button size="sm" variant="outline" className="h-6 text-[10px] px-1.5" onClick={handleResume}>
+                  Resume
+                </Button>
+              ) : (
+                <Button size="sm" variant="outline" className="h-6 text-[10px] px-1.5" onClick={handlePause}>
+                  Pause
+                </Button>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -233,9 +296,9 @@ export default function AgentsPage() {
               <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground/60 mb-4">
                 Pipeline A
               </h2>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {pipelineA.map((agent) => (
-                  <AgentCardNew key={agent.name} agent={agent} />
+                  <AgentCardNew key={agent.name} agent={agent} onAction={() => queryClient.invalidateQueries({ queryKey: ["agent-status"] })} />
                 ))}
               </div>
             </div>
@@ -246,9 +309,9 @@ export default function AgentsPage() {
               <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground/60 mb-4">
                 Pipeline B
               </h2>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {pipelineB.map((agent) => (
-                  <AgentCardNew key={agent.name} agent={agent} />
+                  <AgentCardNew key={agent.name} agent={agent} onAction={() => queryClient.invalidateQueries({ queryKey: ["agent-status"] })} />
                 ))}
               </div>
             </div>
@@ -259,9 +322,9 @@ export default function AgentsPage() {
               <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground/60 mb-4">
                 System
               </h2>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {system.map((agent) => (
-                  <AgentCardNew key={agent.name} agent={agent} />
+                  <AgentCardNew key={agent.name} agent={agent} onAction={() => queryClient.invalidateQueries({ queryKey: ["agent-status"] })} />
                 ))}
               </div>
             </div>
