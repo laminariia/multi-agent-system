@@ -68,11 +68,14 @@ export default function GeoScoutPage() {
   );
   const [isScanning, setIsScanning] = useState(false);
 
+  const categoryArray = [...selectedCategories];
+
   const { data, isLoading } = useQuery({
-    queryKey: ["geo-leads", city],
+    queryKey: ["geo-leads", city, categoryArray.sort().join(",")],
     queryFn: () =>
       fetchLeads({
         city: city || undefined,
+        category: categoryArray.length > 0 ? categoryArray.join(",") : undefined,
         limit: 100,
       }),
     staleTime: 30_000,
