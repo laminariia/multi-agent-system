@@ -276,8 +276,8 @@ class HybridCheckpointSaver(BaseCheckpointSaver):
                 """
                 INSERT INTO langgraph_checkpoints
                     (thread_id, checkpoint_id, parent_checkpoint_id, state_data,
-                     current_agent, status, requires_hitl)
-                VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
+                     current_agent, status, requires_hitl, created_at)
+                VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, NOW())
                 ON CONFLICT (thread_id, checkpoint_id)
                 DO UPDATE SET
                     state_data = $4::jsonb,

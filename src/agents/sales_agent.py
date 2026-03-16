@@ -684,7 +684,7 @@ class SalesAgent(ConstrainedAgent):
 # ======================================================================
 
 
-async def sales_agent_node(state: AgentState) -> AgentState:
+async def sales_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     """LangGraph node function that creates and invokes the SalesAgent."""
     from src.core.container import get_container  # noqa: PLC0415
 

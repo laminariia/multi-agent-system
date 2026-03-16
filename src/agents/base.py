@@ -395,7 +395,7 @@ class ConstrainedAgent(abc.ABC):
                     return update_state(state, status="failed", next_agent=None)
 
             except MASException as exc:
-                self._log.error("mas_error", thread_id=state["thread_id"], error=str(exc))
+                self._log.error("mas_error", thread_id=state.get("thread_id", "?"), error=str(exc))
                 self._record_metric("failed", 0)
                 await self._publish_progress_status(state, "failed")
                 state = append_error(state, f"Unrecoverable: {exc}")
@@ -404,7 +404,7 @@ class ConstrainedAgent(abc.ABC):
                 return update_state(state, status="failed", next_agent=None)
 
             except Exception as exc:
-                self._log.exception("unexpected_error", thread_id=state["thread_id"])
+                self._log.exception("unexpected_error", thread_id=state.get("thread_id", "?"))
                 self._record_metric("failed", 0)
                 state = append_error(state, f"Unexpected: {type(exc).__name__}: {exc}")
                 if self.agent_name in _RECOVERABLE_AGENTS:

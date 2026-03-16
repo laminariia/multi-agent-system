@@ -452,7 +452,7 @@ def apply_category_modifier(category: str, config: dict[str, Any]) -> float:
 # ======================================================================
 
 
-async def scout_node(state: AgentState) -> AgentState:
+async def scout_node(state: dict[str, Any]) -> dict[str, Any]:
     """LangGraph node function that creates and invokes the Scout Agent.
 
     This is the entry-point wired into the ``StateGraph``.  It pulls

@@ -710,7 +710,7 @@ class PlannerAgent(ConstrainedAgent):
 # ======================================================================
 
 
-async def planner_node(state: AgentState) -> AgentState:
+async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
     """LangGraph node function that creates and invokes the Planner Agent.
 
     This is the entry-point wired into the ``StateGraph``.

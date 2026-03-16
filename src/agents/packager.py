@@ -594,7 +594,7 @@ class PackagerAgent(ConstrainedAgent):
 # ======================================================================
 
 
-async def packager_node(state: AgentState) -> AgentState:
+async def packager_node(state: dict[str, Any]) -> dict[str, Any]:
     """LangGraph node function that creates and invokes the Packager Agent.
 
     This is the entry-point wired into the ``StateGraph``.

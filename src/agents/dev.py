@@ -514,7 +514,7 @@ class DevAgent(ConstrainedAgent):
 # ======================================================================
 
 
-async def dev_node(state: AgentState) -> AgentState:
+async def dev_node(state: dict[str, Any]) -> dict[str, Any]:
     """LangGraph node function that creates and invokes the Dev Agent.
 
     This is the entry-point wired into the ``StateGraph``.
