@@ -30,15 +30,14 @@ const HITL_TABS = [
   { value: "bid_approval", label: "Bids" },
   { value: "dev_launch", label: "Dev Launch" },
   { value: "plan_review", label: "Plans" },
-  { value: "critic_escalation", label: "Critic" },
-  { value: "partial_failure", label: "Failures" },
-  { value: "final_delivery", label: "Deliveries" },
-  { value: "lead_card", label: "Leads" },
+  { value: "code_review", label: "Critic" },
+  { value: "agent_failure", label: "Failures" },
+  { value: "final_review", label: "Deliveries" },
   { value: "concept_review", label: "Concepts" },
-  { value: "concept_approved", label: "Approved" },
-  { value: "design_review", label: "Design" },
   { value: "email_approval", label: "Emails" },
-  { value: "portfolio_review", label: "Portfolio" },
+  { value: "outreach_approval", label: "Outreach" },
+  { value: "scope_creep", label: "Scope Creep" },
+  { value: "alert", label: "Alerts" },
 ] as const;
 
 /* ------------------------------------------------------------------ */

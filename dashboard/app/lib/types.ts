@@ -49,14 +49,7 @@ export interface HITLItem {
     | "delivery_hold"
     | "outreach_approval"
     | "manual_action"
-    | "critic_escalation"
-    | "partial_failure"
-    | "final_delivery"
-    | "lead_card"
-    | "concept_review"
-    | "concept_approved"
-    | "design_review"
-    | "portfolio_review";
+    | "concept_review";
   priority: "urgent" | "normal" | "low";
   title: string;
   description: string | null;
