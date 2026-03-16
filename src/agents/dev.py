@@ -10,7 +10,7 @@ The Dev Agent:
 
 Role constraints: can WRITE code/tests/docs, CANNOT access external networks,
 CANNOT submit proposals.
-LLM: Claude Opus 4.6 (fallback Claude Sonnet 4.5).
+LLM: Claude Opus 4.6 (Tier 1: complex) / Claude Sonnet 4.6 (Tier 3: standard).
 """
 
 from __future__ import annotations

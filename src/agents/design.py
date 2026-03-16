@@ -12,7 +12,7 @@ In MVP phase, the Design Agent produces detailed JSON specs (colours, fonts,
 layout descriptions, responsive notes) rather than actual image files.
 
 Role constraints: can CREATE design artefacts, CANNOT execute code, CANNOT modify code files.
-LLM: Claude Sonnet 4.5 (fallback Claude Haiku 4.5).
+LLM: NanoBanana Pro / Gemini 3 Pro Image (Tier 4: Design).
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ class DesignAgent(ConstrainedAgent):
     Parameters
     ----------
     llm_client:
-        Shared :class:`LLMClient` instance (Claude Sonnet 4.5 primary).
+        Shared :class:`LLMClient` instance (NanoBanana Pro primary, Tier 4).
     heartbeat:
         Shared :class:`HeartbeatMonitor` for liveness pings.
     loop_detector:
@@ -277,7 +277,7 @@ class DesignAgent(ConstrainedAgent):
                     "design_type": design_type,
                     "deliverable_count": deliverable_count,
                 },
-                llm_model="claude-sonnet-4-5",
+                llm_model="nanobana-pro",
             )
             session.add(log_entry)
 

@@ -1,10 +1,13 @@
-"""Embedding service wrapping OpenAI text-embedding-3-large with rate limiting.
+"""Embedding service wrapping Google gemini-embedding-001 via OpenRouter.
 
 Provides both single-text and batch embedding methods.  A simple token-bucket
-rate limiter enforces OpenAI's RPM limit to avoid 429 errors.
+rate limiter enforces the RPM limit to avoid 429 errors.
 
 Embeddings are 3072-dimensional float vectors (``list[float]``).  No numpy
 dependency is used in this module.
+
+Model: google/gemini-embedding-001 (3072 dim, max 2048 input tokens).
+API: OpenRouter (OpenAI-compatible endpoint).
 """
 
 from __future__ import annotations
@@ -18,9 +21,9 @@ from langchain_openai import OpenAIEmbeddings
 
 logger = structlog.get_logger(__name__)
 
-# OpenAI default: 3 000 requests per minute (Tier 2+).
+# OpenRouter rate limit (conservative).
 _DEFAULT_MAX_REQUESTS_PER_MINUTE: int = 3000
-_EMBEDDING_MODEL: str = "text-embedding-3-large"
+_EMBEDDING_MODEL: str = "google/gemini-embedding-001"
 _EMBEDDING_DIM: int = 3072
 
 
@@ -61,26 +64,31 @@ class _TokenBucket:
 
 
 class EmbeddingService:
-    """Thin wrapper around OpenAIEmbeddings with rate limiting.
+    """Thin wrapper around OpenAIEmbeddings routed through OpenRouter.
 
     Parameters
     ----------
     api_key:
-        OpenAI API key.  Falls back to the ``OPENAI_API_KEY`` env var.
+        OpenRouter API key.  Falls back to the ``OPENROUTER_API_KEY`` env var.
+    base_url:
+        OpenRouter base URL.  Falls back to the ``OPENROUTER_BASE_URL`` env var.
     max_rpm:
-        Maximum embedding requests per minute (OpenAI Tier 2+: 3 000).
+        Maximum embedding requests per minute.
     """
 
     def __init__(
         self,
         api_key: str | None = None,
         *,
+        base_url: str | None = None,
         max_rpm: int = _DEFAULT_MAX_REQUESTS_PER_MINUTE,
     ) -> None:
-        resolved_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+        resolved_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
+        resolved_base = base_url or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
         self._embeddings = OpenAIEmbeddings(
             model=_EMBEDDING_MODEL,
             openai_api_key=resolved_key,
+            openai_api_base=resolved_base,
         )
         self._bucket = _TokenBucket(capacity=max_rpm, refill_period=60.0)
         self._dim = _EMBEDDING_DIM

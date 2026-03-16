@@ -7,7 +7,7 @@ control.  No delivery is ever auto-submitted.
 The Packager Agent:
 1. Collects all artifacts from state (dev, content, design agents).
 2. Reads ``delivery_type`` from state to determine packaging strategy.
-3. Calls the LLM (Claude Haiku 4.5) with PACKAGER_SYSTEM_PROMPT to generate
+3. Calls the LLM (DeepSeek V3.2, Tier 6) with PACKAGER_SYSTEM_PROMPT to generate
    a delivery package description and README.
 4. Validates completeness based on delivery_type requirements.
 5. Creates an HITL queue entry for final review.
@@ -15,7 +15,7 @@ The Packager Agent:
 
 Role constraints: can ASSEMBLE artifacts, CANNOT modify code, CANNOT submit
 without HITL approval.
-LLM: Claude Haiku 4.5 (no fallback).
+LLM: DeepSeek V3.2 (Tier 6: Simple).
 """
 
 from __future__ import annotations
@@ -584,7 +584,7 @@ class PackagerAgent(ConstrainedAgent):
                     "requires_hitl": True,
                     "thread_id": thread_id,
                 },
-                llm_model="claude-haiku-4-5",
+                llm_model="deepseek-v3.2",
             )
             session.add(log_entry)
 

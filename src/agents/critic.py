@@ -12,7 +12,7 @@ The Critic Agent:
 6. Logs the review decision to the ``agent_logs`` table.
 
 Role constraints: can REVIEW and SCORE, CANNOT modify code directly.
-LLM: GPT-4o (fallback Claude Sonnet 4.5).
+LLM: Claude Sonnet 4.6 (Tier 3: Content+Review).
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ class CriticAgent(ConstrainedAgent):
     Parameters
     ----------
     llm_client:
-        Shared :class:`LLMClient` instance (GPT-4o primary).
+        Shared :class:`LLMClient` instance (Claude Sonnet 4.6 primary, Tier 3).
     heartbeat:
         Shared :class:`HeartbeatMonitor` for liveness pings.
     loop_detector:
@@ -658,7 +658,7 @@ class CriticAgent(ConstrainedAgent):
                     "issues_count": issues_count,
                     "revision_count": revision_count,
                 },
-                llm_model="gpt-4o",
+                llm_model="claude-sonnet-4-6",
             )
             session.add(log_entry)
 

@@ -9,7 +9,7 @@ The Planner Agent:
 5. Logs all planning decisions to the ``agent_logs`` table.
 
 Role constraints: can PLAN tasks, CANNOT execute code, CANNOT submit proposals.
-LLM: Claude Opus 4.6 (fallback Claude Sonnet 4.5).
+LLM: Claude Opus 4.6 (Tier 1: Reasoning, fallback Claude Sonnet 4.6).
 """
 
 from __future__ import annotations

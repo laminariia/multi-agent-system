@@ -5,7 +5,7 @@ The ``requires_hitl`` field is ALWAYS set to ``True`` before this agent
 returns control.  No bid is ever auto-submitted.
 
 Role constraints: can GENERATE proposals, CANNOT submit bids directly.
-LLM: Gemini 3 Flash (fallback Claude Haiku).
+LLM: Gemini 3.1 Pro (Tier 2: Client-facing).
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ class BidAgent(ConstrainedAgent):
     Parameters
     ----------
     llm_client:
-        Shared :class:`LLMClient` instance (Gemini 3 Flash primary).
+        Shared :class:`LLMClient` instance (Gemini 3.1 Pro primary, Tier 2).
     heartbeat:
         Shared :class:`HeartbeatMonitor` for liveness pings.
     loop_detector:
@@ -440,7 +440,7 @@ class BidAgent(ConstrainedAgent):
                 bid_amount=Decimal(str(proposal["bid_amount"])),
                 estimated_days=proposal.get("delivery_days"),
                 status="hitl_pending",
-                generation_model="gemini-3-flash",
+                generation_model="gemini-3.1-pro",
             )
             session.add(bid)
 
@@ -529,7 +529,7 @@ class BidAgent(ConstrainedAgent):
                     "confidence_score": proposal.get("confidence_score"),
                     "milestones_count": len(proposal.get("milestones", [])),
                 },
-                llm_model="gemini-3-flash",
+                llm_model="gemini-3.1-pro",
             )
             session.add(log_entry)
 

@@ -19,7 +19,7 @@
 | **Backend API** | Litestar | 2.x | NOT FastAPI |
 | **Database** | PostgreSQL | 16+ | With extensions below |
 | **Vector Search** | pgvector | 0.7+ | HNSW indexes (vector_cosine_ops) |
-| **Embeddings** | OpenAI text-embedding-3-large | 3072 dim | Embedding model for vector search |
+| **Embeddings** | Google gemini-embedding-001 | 3072 dim | Via OpenRouter (OpenAI-compatible) |
 | **Cache/Queue** | Valkey | 8.1 | Redis-compatible fork |
 | **Frontend** | Remix | 2.x | NOT Next.js |
 | **UI Components** | shadcn/ui | latest | With Tailwind CSS |
@@ -188,7 +188,7 @@ def choose_sandbox(estimated_time_minutes: int) -> str:
 
 | Task Type | Model | Provider | Notes |
 |-----------|-------|----------|-------|
-| Embeddings | OpenAI text-embedding-3-large (3072 dim) | OpenAI API direct | Vector search, semantic cache |
+| Embeddings | Google gemini-embedding-001 (3072 dim) | OpenRouter API | Vector search, semantic cache |
 | Fast image drafts | Gemini 3 Flash | OpenRouter | Quick concept exploration |
 
 ### Dev Agent Routing Logic
@@ -263,7 +263,7 @@ OPENROUTER_API_KEY=         # All LLM calls: https://openrouter.ai/keys
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 
 # ==================== EMBEDDINGS (OpenAI direct) ====================
-OPENAI_API_KEY=             # text-embedding-3-large (3072 dim)
+OPENAI_API_KEY=             # Legacy (embeddings now via OPENROUTER_API_KEY)
 
 # ==================== SANDBOX ====================
 E2B_API_KEY=                # For quick tests only (<5 min)

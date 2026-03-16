@@ -37,14 +37,14 @@ Work ONLY on `auto/{date}/{slug}` branches. Never touch `main`/`master`. Tag bef
 | Cache | **Valkey 8.1** (Redis-compatible, BSD-3) |
 | Browser | Playwright + Stealth |
 | Frontend | Remix + shadcn/ui |
-| Embeddings | OpenAI text-embedding-3-large (3072 dim) |
+| Embeddings | Google gemini-embedding-001 (3072 dim, via OpenRouter) |
 | Deploy | Railway (Docker) |
 
 Full stack details: `TECH_STACK.md`
 
 ## LLM Strategy (OpenRouter)
 
-All LLM calls via **OpenRouter** (`OPENROUTER_API_KEY`). Embeddings via OpenAI direct.
+All LLM calls via **OpenRouter** (`OPENROUTER_API_KEY`). Embeddings also via OpenRouter (gemini-embedding-001).
 
 **6-Tier System** (canonical source: `MASTER-VISION.md` Section 4):
 - **Tier 1 (Reasoning):** Claude Opus 4.6 → Planner, Dev (complex), SalesAgent [PLANNED]

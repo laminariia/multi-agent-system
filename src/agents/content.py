@@ -9,7 +9,7 @@ The Content Agent:
 6. Logs every decision to the ``agent_logs`` table.
 
 Role constraints: can WRITE text, CANNOT execute code, CANNOT submit proposals.
-LLM: Claude Haiku 4.5 (fallback GPT-4o-mini).
+LLM: Claude Sonnet 4.6 (Tier 3: Content+Review).
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ class ContentAgent(ConstrainedAgent):
     Parameters
     ----------
     llm_client:
-        Shared :class:`LLMClient` instance (Claude Haiku 4.5 primary).
+        Shared :class:`LLMClient` instance (Claude Sonnet 4.6 primary, Tier 3).
     heartbeat:
         Shared :class:`HeartbeatMonitor` for liveness pings.
     loop_detector:
@@ -284,7 +284,7 @@ class ContentAgent(ConstrainedAgent):
                     "deliverable_count": deliverable_count,
                     "word_count": word_count,
                 },
-                llm_model="claude-haiku-4-5",
+                llm_model="claude-sonnet-4-6",
             )
             session.add(log_entry)
 

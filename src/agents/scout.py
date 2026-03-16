@@ -11,7 +11,7 @@ The Scout Agent:
 6. Logs every decision to the ``agent_logs`` table.
 
 Role constraints: can READ jobs, CANNOT submit bids, CANNOT modify projects.
-LLM: Gemini 3 Flash (fallback Claude Haiku).
+LLM: Gemini 2.5 Flash (Tier 5: Extraction).
 """
 
 from __future__ import annotations

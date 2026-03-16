@@ -9,8 +9,8 @@ COSINE).  Provides sub-millisecond lookup for active queries.
 **Cold layer (PostgreSQL):** pgvector with HNSW index (``<=>`` operator).
 Acts as persistent fallback and long-term audit store.
 
-Embeddings are produced by OpenAI ``text-embedding-3-large`` (3072 dimensions)
-via ``langchain_openai.OpenAIEmbeddings``.
+Embeddings are produced by Google ``gemini-embedding-001`` (3072 dimensions)
+via OpenRouter (OpenAI-compatible endpoint).
 """
 
 from __future__ import annotations
@@ -100,12 +100,14 @@ class SemanticCache:
         self.valkey = valkey
         self.db_pool = db_pool
         self.similarity_threshold = similarity_threshold
-        api_key = os.environ.get("OPENAI_API_KEY")
+        api_key = os.environ.get("OPENROUTER_API_KEY")
         if not api_key:
-            raise ValueError("OPENAI_API_KEY is required for semantic cache embeddings")
+            raise ValueError("OPENROUTER_API_KEY is required for semantic cache embeddings")
+        base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
         self._embeddings = OpenAIEmbeddings(
-            model="text-embedding-3-large",
+            model="google/gemini-embedding-001",
             openai_api_key=api_key,
+            openai_api_base=base_url,
         )
         self._index_created = False
 
@@ -373,7 +375,7 @@ class SemanticCache:
     # ------------------------------------------------------------------
 
     async def _embed(self, text: str) -> np.ndarray:
-        """Compute the 3072-dim embedding for *text*."""
+        """Compute the 3072-dim embedding for *text* via gemini-embedding-001."""
         raw = await self._embeddings.aembed_query(text)
         return np.array(raw, dtype=np.float32)
 

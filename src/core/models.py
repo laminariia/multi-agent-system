@@ -5,7 +5,7 @@ modern ``Mapped`` / ``mapped_column`` annotation style.
 
 Key conventions:
 - UUIDs as primary keys (``gen_random_uuid()`` server-side default)
-- ``Vector(3072)`` for OpenAI text-embedding-3-large embedding columns
+- ``Vector(3072)`` for gemini-embedding-001 embedding columns
 - HNSW indexes for vector columns (pgvector)
 - ``datetime.now(timezone.utc)`` for Python-side timestamp defaults
 - Async Alembic with asyncpg for migrations
@@ -737,7 +737,7 @@ class KnowledgeBase(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # Embedding for RAG — OpenAI text-embedding-3-large (3072 dim)
+    # Embedding for RAG — Google gemini-embedding-001 (3072 dim)
     embedding = mapped_column(Vector(3072))
 
     # Stats
@@ -771,7 +771,7 @@ class SemanticCache(Base):
     response: Mapped[str] = mapped_column(Text, nullable=False)
     query_type: Mapped[str] = mapped_column(Text, default="default", server_default="default")
 
-    # Embedding — OpenAI text-embedding-3-large (3072 dim)
+    # Embedding — Google gemini-embedding-001 (3072 dim)
     embedding = mapped_column(Vector(3072))
 
     hit_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
