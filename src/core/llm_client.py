@@ -137,16 +137,16 @@ MODELS: dict[str, ModelSpec] = {
 # NOTE: Gemini models are blocked on some OpenRouter accounts.
 # Using Claude Haiku as default cheap model, GPT-4o-mini as last-resort fallback.
 AGENT_MODEL_REGISTRY: dict[str, tuple[str, ...]] = {
-    "scout": ("gemini-3-flash", "deepseek-v3-2", "gpt-4o-mini"),  # Tier 5: Extraction
-    "bid": ("gemini-3.1-pro", "claude-sonnet-4-6", "gpt-4o-mini"),  # Tier 2: Client-facing
+    "scout": ("deepseek-v3-2", "gemini-3-flash", "gpt-4o-mini"),  # Tier 5: Extraction
+    "bid": ("claude-sonnet-4-6", "gemini-3-pro", "gpt-4o-mini"),  # Tier 2: Client-facing
     "planner": ("claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"),  # Tier 1: Reasoning
     "dev": ("claude-opus-4-6", "claude-sonnet-4-6", "gpt-4o-mini"),  # Tier 1/3: Reasoning + Content
-    "content": ("claude-sonnet-4-6", "gemini-3-flash", "gpt-4o-mini"),  # Tier 3: Content+Review
-    "design": ("nanobanana-pro", "gemini-3-flash", "gpt-4o-mini"),  # Tier 4: Design
+    "content": ("claude-sonnet-4-6", "deepseek-v3-2", "gpt-4o-mini"),  # Tier 3: Content+Review
+    "design": ("claude-sonnet-4-6", "deepseek-v3-2", "gpt-4o-mini"),  # Tier 4: Design (nanobanana unavailable)
     "critic": ("claude-sonnet-4-6", "gpt-4o", "claude-haiku-4-5"),  # Tier 3: Content+Review
     "packager": ("deepseek-v3-2", "claude-haiku-4-5", "gpt-4o-mini"),  # Tier 6: Simple
-    "geoscout": ("gemini-3-flash", "deepseek-v3-2", "gpt-4o-mini"),  # Tier 5: Extraction
-    "outreach": ("gemini-3.1-pro", "claude-sonnet-4-6", "gpt-4o-mini"),  # Tier 2: Client-facing
+    "geoscout": ("deepseek-v3-2", "gemini-3-flash", "gpt-4o-mini"),  # Tier 5: Extraction
+    "outreach": ("claude-sonnet-4-6", "gemini-3-pro", "gpt-4o-mini"),  # Tier 2: Client-facing
 }
 
 # ---------------------------------------------------------------------------

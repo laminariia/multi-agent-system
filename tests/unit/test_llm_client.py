@@ -52,8 +52,8 @@ async def test_call_uses_primary_model_for_scout():
 
         response, metrics = await client.call("scout", [HumanMessage(content="find jobs")])
 
-    assert metrics.model_id == "google/gemini-2.5-flash"
-    assert metrics.provider == "google"
+    assert metrics.model_id == "deepseek/deepseek-v3.2"
+    assert metrics.provider == "deepseek"
     assert metrics.was_fallback is False
     assert response.content == "scout result"
 

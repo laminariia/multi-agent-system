@@ -319,7 +319,7 @@ class TestModuleConstants:
         """_EMBEDDING_MODEL is correct."""
         from src.knowledge.embedding_service import _EMBEDDING_MODEL
 
-        assert _EMBEDDING_MODEL == "google/gemini-embedding-001"
+        assert _EMBEDDING_MODEL == "qwen/qwen3-embedding-8b"
 
     def test_embedding_dimension(self):
         """_EMBEDDING_DIM is 3072."""

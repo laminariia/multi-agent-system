@@ -9,7 +9,7 @@ COSINE).  Provides sub-millisecond lookup for active queries.
 **Cold layer (PostgreSQL):** pgvector with HNSW index (``<=>`` operator).
 Acts as persistent fallback and long-term audit store.
 
-Embeddings are produced by Google ``gemini-embedding-001`` (3072 dimensions)
+Embeddings are produced by Qwen3-Embedding-8B (3072 dimensions, Matryoshka)
 via OpenRouter (OpenAI-compatible endpoint).
 """
 
@@ -105,9 +105,11 @@ class SemanticCache:
             raise ValueError("OPENROUTER_API_KEY is required for semantic cache embeddings")
         base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
         self._embeddings = OpenAIEmbeddings(
-            model="google/gemini-embedding-001",
+            model="qwen/qwen3-embedding-8b",
             openai_api_key=api_key,
             openai_api_base=base_url,
+            dimensions=EMBEDDING_DIM,
+            check_embedding_ctx_length=False,
         )
         self._index_created = False
 
@@ -375,7 +377,7 @@ class SemanticCache:
     # ------------------------------------------------------------------
 
     async def _embed(self, text: str) -> np.ndarray:
-        """Compute the 3072-dim embedding for *text* via gemini-embedding-001."""
+        """Compute the 3072-dim embedding for *text* via qwen3-embedding-8b."""
         raw = await self._embeddings.aembed_query(text)
         return np.array(raw, dtype=np.float32)
 

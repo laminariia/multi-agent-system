@@ -19,7 +19,7 @@
 | **Backend API** | Litestar | 2.x | NOT FastAPI |
 | **Database** | PostgreSQL | 16+ | With extensions below |
 | **Vector Search** | pgvector | 0.7+ | HNSW indexes (vector_cosine_ops) |
-| **Embeddings** | Google gemini-embedding-001 | 3072 dim | Via OpenRouter (OpenAI-compatible) |
+| **Embeddings** | Qwen3-Embedding-8B | 3072 dim (Matryoshka) | Via OpenRouter (OpenAI-compatible) |
 | **Cache/Queue** | Valkey | 8.1 | Redis-compatible fork |
 | **Frontend** | Remix | 2.x | NOT Next.js |
 | **UI Components** | shadcn/ui | latest | With Tailwind CSS |
@@ -188,7 +188,7 @@ def choose_sandbox(estimated_time_minutes: int) -> str:
 
 | Task Type | Model | Provider | Notes |
 |-----------|-------|----------|-------|
-| Embeddings | Google gemini-embedding-001 (3072 dim) | OpenRouter API | Vector search, semantic cache |
+| Embeddings | Qwen3-Embedding-8B (3072 dim, Matryoshka) | OpenRouter API | Vector search, semantic cache |
 | Fast image drafts | Gemini 3 Flash | OpenRouter | Quick concept exploration |
 
 ### Dev Agent Routing Logic

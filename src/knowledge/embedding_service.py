@@ -1,4 +1,4 @@
-"""Embedding service wrapping Google gemini-embedding-001 via OpenRouter.
+"""Embedding service wrapping Qwen3-Embedding-8B via OpenRouter.
 
 Provides both single-text and batch embedding methods.  A simple token-bucket
 rate limiter enforces the RPM limit to avoid 429 errors.
@@ -6,7 +6,7 @@ rate limiter enforces the RPM limit to avoid 429 errors.
 Embeddings are 3072-dimensional float vectors (``list[float]``).  No numpy
 dependency is used in this module.
 
-Model: google/gemini-embedding-001 (3072 dim, max 2048 input tokens).
+Model: qwen/qwen3-embedding-8b (Matryoshka 32-4096 dims, 32K context).
 API: OpenRouter (OpenAI-compatible endpoint).
 """
 
@@ -23,7 +23,7 @@ logger = structlog.get_logger(__name__)
 
 # OpenRouter rate limit (conservative).
 _DEFAULT_MAX_REQUESTS_PER_MINUTE: int = 3000
-_EMBEDDING_MODEL: str = "google/gemini-embedding-001"
+_EMBEDDING_MODEL: str = "qwen/qwen3-embedding-8b"
 _EMBEDDING_DIM: int = 3072
 
 
@@ -89,6 +89,8 @@ class EmbeddingService:
             model=_EMBEDDING_MODEL,
             openai_api_key=resolved_key,
             openai_api_base=resolved_base,
+            dimensions=_EMBEDDING_DIM,
+            check_embedding_ctx_length=False,
         )
         self._bucket = _TokenBucket(capacity=max_rpm, refill_period=60.0)
         self._dim = _EMBEDDING_DIM

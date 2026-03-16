@@ -10,7 +10,7 @@
 - Launch with `litestar --app src.api.main:app run --reload`, NOT uvicorn.
 - Cache is **Valkey 8.1** (Redis-compatible). Use `valkey://` scheme.
 - DB is **PostgreSQL 16** via `timescale/timescaledb-ha:pg16` Docker image.
-- Embeddings are **Google gemini-embedding-001** (3072 dim) via OpenRouter. NOT text-embedding-3-large, NOT SentenceTransformer.
+- Embeddings are **Qwen3-Embedding-8B** (3072 dim, Matryoshka) via OpenRouter. NOT text-embedding-3-large, NOT SentenceTransformer.
 - WebSocket via **Litestar ChannelsPlugin**, NOT Socket.IO.
 - DB env var is `DATABASE_URL`, NOT `POSTGRES_URL`.
 - All LLM calls go through **OpenRouter** (`OPENROUTER_API_KEY` + `OPENROUTER_BASE_URL`).

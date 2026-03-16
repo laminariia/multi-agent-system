@@ -164,7 +164,7 @@ class Settings(BaseSettings):
             if not self.OPENROUTER_API_KEY:
                 raise ValueError("CRITICAL: OPENROUTER_API_KEY must be set in production")
             if not self.OPENAI_API_KEY:
-                _logger.info("OPENAI_API_KEY not set -- embeddings use OPENROUTER_API_KEY via gemini-embedding-001")
+                _logger.info("OPENAI_API_KEY not set -- embeddings use OPENROUTER_API_KEY via qwen3-embedding-8b")
         return self
 
     # ── Computed ─────────────────────────────────────────────────────────
