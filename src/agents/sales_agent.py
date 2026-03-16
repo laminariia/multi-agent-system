@@ -365,15 +365,44 @@ class SalesAgent(ConstrainedAgent):
         concept: dict[str, Any],
     ) -> str:
         """Create HITL queue entry for concept review. Returns HITL ID string."""
-        hitl_id = str(uuid.uuid4())
+        from src.core.database import get_db_session  # noqa: PLC0415
+        from src.core.models import HITLQueue  # noqa: PLC0415
+
+        hitl_id = uuid.uuid4()
+        deal_id = ctx.get("deal_id", "")
+        lead_info = ctx.get("lead_info", {})
+
+        async with get_db_session() as session:
+            hitl = HITLQueue(
+                id=hitl_id,
+                type="concept_review",
+                priority="normal",
+                title=f"Concept review: {lead_info.get('business_name', 'Unknown')[:200]}",
+                description=(
+                    f"Deal: {deal_id[:8]} | "
+                    f"City: {lead_info.get('city', '?')} | "
+                    f"Category: {lead_info.get('category', '?')} | "
+                    f"Est. cost: {concept.get('estimated_cost', '?')}"
+                ),
+                payload={
+                    "deal_id": deal_id,
+                    "lead_id": ctx.get("lead_id", ""),
+                    "concept": concept,
+                    "lead_info": lead_info,
+                    "source_agent": "sales_agent",
+                },
+                available_actions=["approve", "edit", "reject"],
+                status="pending",
+            )
+            session.add(hitl)
 
         self._log.info(
             "sales_concept_hitl_created",
-            hitl_id=hitl_id,
-            deal_id=ctx.get("deal_id"),
+            hitl_id=str(hitl_id),
+            deal_id=deal_id,
             concept_title=concept.get("title", "")[:80],
         )
-        return hitl_id
+        return str(hitl_id)
 
     # ------------------------------------------------------------------
     # Message storage (placeholder for DB integration)
@@ -385,7 +414,25 @@ class SalesAgent(ConstrainedAgent):
         role: str,
         text: str,
     ) -> None:
-        """Store a conversation message. Placeholder for DB persistence."""
+        """Store a conversation message as an AgentLog entry for persistence."""
+        from src.core.database import get_db_session  # noqa: PLC0415
+        from src.core.models import AgentLog  # noqa: PLC0415
+
+        async with get_db_session() as session:
+            log_entry = AgentLog(
+                id=uuid.uuid4(),
+                agent_name="sales_agent",
+                event_type="conversation_message",
+                message=text[:500],
+                details={
+                    "deal_id": deal_id,
+                    "role": role,
+                    "full_text": text,
+                },
+                llm_model="claude-opus-4-6",
+            )
+            session.add(log_entry)
+
         self._log.debug(
             "sales_message_stored",
             deal_id=deal_id,
@@ -405,19 +452,51 @@ class SalesAgent(ConstrainedAgent):
     ) -> dict[str, Any]:
         """Analyze competitors in the niche and region.
 
-        Uses BusinessAnalyzer data when available.
-        Returns stub structure ready for real API integration.
+        Queries existing leads in the same city+category to estimate
+        market density and website adoption rate.
         """
-        return {
-            "competitors": [],
-            "market_share": {
-                "with_website": 0,
-                "without_website": 0,
-                "total": 0,
-            },
-            "competitive_advantages": [],
-            "_note": "Connect BusinessAnalyzer + Google Places API for real data",
-        }
+        from sqlalchemy import func, select  # noqa: PLC0415
+
+        from src.core.database import get_db_session  # noqa: PLC0415
+        from src.core.models import Lead  # noqa: PLC0415
+
+        try:
+            async with get_db_session() as session:
+                # Count total businesses in same city+category
+                total_stmt = select(func.count(Lead.id)).where(Lead.city.ilike(f"%{city}%"), Lead.category == category)
+                total_result = await session.execute(total_stmt)
+                total = total_result.scalar() or 0
+
+                # Count those with websites
+                with_website_stmt = select(func.count(Lead.id)).where(
+                    Lead.city.ilike(f"%{city}%"),
+                    Lead.category == category,
+                    Lead.website_url.isnot(None),
+                    Lead.website_url != "",
+                )
+                with_website_result = await session.execute(with_website_stmt)
+                with_website = with_website_result.scalar() or 0
+
+            without_website = total - with_website
+
+            return {
+                "competitors": [],
+                "market_share": {
+                    "with_website": with_website,
+                    "without_website": without_website,
+                    "total": total,
+                },
+                "competitive_advantages": [
+                    "Professional website increases trust",
+                    f"{without_website} competitors in {city} have no web presence",
+                ]
+                if without_website > 0
+                else [],
+                "adoption_rate": round(with_website / total * 100, 1) if total > 0 else 0.0,
+            }
+        except Exception:
+            self._log.warning("competitor_analysis_failed", exc_info=True)
+            return {"competitors": [], "market_share": {"total": 0}, "competitive_advantages": []}
 
     async def get_market_insights(
         self,
@@ -426,15 +505,38 @@ class SalesAgent(ConstrainedAgent):
     ) -> dict[str, Any]:
         """Market data for the category in the city.
 
-        Returns stub structure ready for real data sources.
+        Aggregates stats from existing leads and deals in the DB.
         """
-        return {
-            "avg_project_cost": 0.0,
-            "demand_level": "medium",
-            "popular_services": [],
-            "growth_trend": "stable",
-            "_note": "Connect market data sources for real insights",
-        }
+        from sqlalchemy import func, select  # noqa: PLC0415
+
+        from src.core.database import get_db_session  # noqa: PLC0415
+        from src.core.models import Deal, Lead  # noqa: PLC0415
+
+        try:
+            async with get_db_session() as session:
+                # Count leads in this category+city
+                lead_count_stmt = select(func.count(Lead.id)).where(
+                    Lead.city.ilike(f"%{city}%"), Lead.category == category
+                )
+                lead_count = (await session.execute(lead_count_stmt)).scalar() or 0
+
+                # Avg deal value for won deals
+                avg_deal_stmt = select(func.avg(Deal.value)).where(Deal.status == "won", Deal.category == category)
+                avg_deal_result = await session.execute(avg_deal_stmt)
+                avg_value = avg_deal_result.scalar()
+
+            demand = "high" if lead_count > 50 else "medium" if lead_count > 10 else "low"
+
+            return {
+                "avg_project_cost": float(avg_value) if avg_value else 0.0,
+                "demand_level": demand,
+                "leads_in_area": lead_count,
+                "popular_services": ["website", "landing_page", "branding"],
+                "growth_trend": "stable",
+            }
+        except Exception:
+            self._log.warning("market_insights_failed", exc_info=True)
+            return {"avg_project_cost": 0.0, "demand_level": "medium", "leads_in_area": 0}
 
     async def generate_concept(
         self,
@@ -468,20 +570,40 @@ class SalesAgent(ConstrainedAgent):
     ) -> dict[str, Any]:
         """Send a message to the client via the specified channel.
 
-        Placeholder — connect to Telegram/Email sender for real delivery.
+        Supports telegram and email channels. Respects rate limits.
         """
-        self._log.info(
-            "sales_message_send",
-            lead_id=lead_id,
-            channel=channel,
-            length=len(text),
-        )
-        return {
-            "status": "queued",
-            "channel": channel,
-            "external_id": None,
-            "_note": "Connect channel sender (Telegram/Email) for real delivery",
-        }
+        self._log.info("sales_message_send", lead_id=lead_id, channel=channel, length=len(text))
+
+        if channel == "telegram":
+            try:
+                from src.enrichment.telegram_sender import TelegramDMSender  # noqa: PLC0415
+
+                sender = TelegramDMSender()
+                if not sender.is_configured:
+                    return {"status": "skipped", "channel": channel, "reason": "telegram_not_configured"}
+                await sender.connect()
+                try:
+                    result = await sender.send_dm(lead_id, text)
+                    if result is True:
+                        return {"status": "sent", "channel": "telegram", "external_id": lead_id}
+                    return {"status": "failed", "channel": "telegram", "reason": str(result)}
+                finally:
+                    await sender.disconnect()
+            except Exception:
+                self._log.warning("sales_telegram_send_failed", lead_id=lead_id, exc_info=True)
+                return {"status": "failed", "channel": "telegram", "reason": "exception"}
+
+        if channel == "email":
+            try:
+                from src.enrichment.email_sender import send_email  # noqa: PLC0415
+
+                success = await send_email(to_address=lead_id, subject="Project proposal", body=text)
+                return {"status": "sent" if success else "failed", "channel": "email"}
+            except Exception:
+                self._log.warning("sales_email_send_failed", lead_id=lead_id, exc_info=True)
+                return {"status": "failed", "channel": "email", "reason": "exception"}
+
+        return {"status": "skipped", "channel": channel, "reason": "unsupported_channel"}
 
     async def save_deal_context(
         self,
@@ -506,18 +628,55 @@ class SalesAgent(ConstrainedAgent):
         }
 
     async def get_battlecard(self, lead_id: str) -> dict[str, Any]:
-        """Get AI Battlecard from BusinessAnalyzer.
+        """Get AI Battlecard by running BusinessAnalyzer quick tier on the lead.
 
-        Placeholder — connect to BusinessAnalyzer.generate_battlecard() for real data.
+        Returns competitive intelligence for sales conversations.
         """
-        return {
-            "feature_matrix": {},
-            "market_share": {},
-            "competitor_weaknesses": [],
-            "objection_handlers": [],
-            "key_selling_points": [],
-            "_note": "Connect BusinessAnalyzer deep analysis for real battlecard",
-        }
+        from src.core.business_analyzer import BusinessAnalyzer  # noqa: PLC0415
+        from src.core.database import get_db_session  # noqa: PLC0415
+        from src.core.models import Lead  # noqa: PLC0415
+
+        try:
+            async with get_db_session() as session:
+                from sqlalchemy import select  # noqa: PLC0415
+
+                stmt = select(Lead).where(Lead.id == uuid.UUID(lead_id))
+                result = await session.execute(stmt)
+                lead = result.scalar_one_or_none()
+
+            if lead is None:
+                return {"error": "lead_not_found", "lead_id": lead_id}
+
+            analyzer = BusinessAnalyzer()
+            analysis = await analyzer.analyze(lead, tier="quick")
+
+            # Get competitor data from same city+category
+            competitors = await self.get_competitor_analysis(
+                business_name=lead.business_name or "",
+                city=lead.city or "",
+                category=lead.category or "",
+            )
+
+            return {
+                "website_exists": analysis.website.exists if analysis.website else False,
+                "has_ssl": analysis.website.ssl if analysis.website else False,
+                "market_share": competitors.get("market_share", {}),
+                "competitive_advantages": competitors.get("competitive_advantages", []),
+                "objection_handlers": [
+                    "We handle everything from design to launch",
+                    "Websites pay for themselves within 3-6 months",
+                    "We provide ongoing support after launch",
+                ],
+                "key_selling_points": [
+                    "Custom design, no templates",
+                    "Mobile-first responsive layout",
+                    "SEO optimization included",
+                    "Fast delivery (1-2 weeks)",
+                ],
+            }
+        except Exception:
+            self._log.warning("battlecard_generation_failed", lead_id=lead_id, exc_info=True)
+            return {"error": "analysis_failed", "lead_id": lead_id}
 
 
 # ======================================================================
