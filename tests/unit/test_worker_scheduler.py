@@ -38,6 +38,7 @@ def _mock_settings():
     mock_settings.HEARTBEAT_CLEANUP_MINUTES = 10
     mock_settings.PIPELINE_B_SCAN_INTERVAL_HOURS = 24
     mock_settings.PIPELINE_B_CITIES = ""
+    mock_settings.DATA_RETENTION_INTERVAL_HOURS = 6
     with patch("src.core.config.get_settings", return_value=mock_settings):
         yield mock_settings
 
@@ -194,7 +195,7 @@ class TestWorkerScheduler:
         assert "heartbeat_cleanup" in job_ids
         assert "dispatch_scheduled_messages" in job_ids
         assert "pipeline_b_scan" not in job_ids
-        assert len(jobs) == 4
+        assert len(jobs) == 5  # +data_retention
 
         await scheduler.stop()
 
@@ -236,7 +237,7 @@ class TestWorkerScheduler:
         jobs = scheduler._scheduler.get_jobs()
         job_ids = {j.id for j in jobs}
         assert "pipeline_b_scan" in job_ids
-        assert len(jobs) == 5
+        assert len(jobs) == 6  # +data_retention
 
         await scheduler.stop()
 
@@ -249,6 +250,7 @@ class TestWorkerScheduler:
             mock_s.METRICS_INTERVAL_SECONDS = 60
             mock_s.HEARTBEAT_CLEANUP_MINUTES = 10
             mock_s.PIPELINE_B_SCAN_INTERVAL_HOURS = 24
+            mock_s.DATA_RETENTION_INTERVAL_HOURS = 6
             mock_s.PIPELINE_B_CITIES = " Berlin , Munich , Hamburg "
             mock_gs.return_value = mock_s
 

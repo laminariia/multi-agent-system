@@ -63,6 +63,7 @@ class WorkerScheduler:
             if pipeline_b_cities is not None
             else [c.strip() for c in settings.PIPELINE_B_CITIES.split(",") if c.strip()]
         )
+        self._retention_interval = settings.DATA_RETENTION_INTERVAL_HOURS
 
     async def start(self) -> None:
         """Register all periodic jobs and start the scheduler."""
@@ -108,6 +109,14 @@ class WorkerScheduler:
                 kwargs={"cities": self._pipeline_b_cities},
             )
 
+        self._scheduler.add_job(
+            _run_data_retention,
+            trigger=IntervalTrigger(hours=self._retention_interval),
+            id="data_retention",
+            name="Data retention cleanup",
+            replace_existing=True,
+        )
+
         self._scheduler.start()
         logger.info(
             "scheduler_started",
@@ -116,6 +125,7 @@ class WorkerScheduler:
             heartbeat_interval_min=self._heartbeat_interval,
             pipeline_b_interval_hrs=self._pipeline_b_interval,
             pipeline_b_cities=self._pipeline_b_cities,
+            retention_interval_hrs=self._retention_interval,
         )
 
     async def stop(self) -> None:
@@ -269,3 +279,28 @@ async def _dispatch_scheduled_messages() -> None:
             logger.info("scheduled_messages_dispatched", count=count)
     except Exception:
         logger.debug("scheduled_message_dispatch_failed", exc_info=True)
+
+
+async def _run_data_retention() -> None:
+    """Purge stale rows from high-volume tables with distributed lock."""
+    from src.core.database import get_valkey
+
+    valkey = get_valkey()
+
+    lock_acquired = await valkey.set("data_retention:lock", "1", nx=True, ex=3600)
+    if not lock_acquired:
+        logger.debug("data_retention_skipped", reason="lock held by another instance")
+        return
+
+    try:
+        from src.core.data_retention import DataRetentionManager
+        from src.core.database import get_db_session
+
+        async with get_db_session() as session:
+            manager = DataRetentionManager(session)
+            results = await manager.run_all()
+            await session.commit()
+    except Exception:
+        logger.exception("data_retention_failed")
+    finally:
+        await valkey.delete("data_retention:lock")

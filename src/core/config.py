@@ -114,6 +114,15 @@ class Settings(BaseSettings):
     PIPELINE_B_SCAN_INTERVAL_HOURS: int = 24
     PIPELINE_B_CITIES: str = ""  # Comma-separated city names
 
+    # ── Data Retention ─────────────────────────────────────────────────
+    DATA_RETENTION_INTERVAL_HOURS: int = 6
+    RETENTION_AGENT_LOGS_DAYS: int = 90
+    RETENTION_CHECKPOINTS_DAYS: int = 30
+    RETENTION_CACHE_GRACE_HOURS: int = 0
+    RETENTION_HITL_DAYS: int = 90
+    RETENTION_AB_TEST_DAYS: int = 180
+    RETENTION_MESSAGES_DAYS: int = 30
+
     # ── Email / SMTP ─────────────────────────────────────────────────
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587
