@@ -30,6 +30,10 @@ class AnalyticsController(Controller):
     tags = ["analytics"]
 
     # -----------------------------------------------------------------
+    # GET /api/v1/analytics  (root — dashboard calls this with ?days=N)
+    # -----------------------------------------------------------------
+
+    # -----------------------------------------------------------------
     # GET /api/v1/analytics/overview
     # -----------------------------------------------------------------
 
@@ -41,6 +45,7 @@ class AnalyticsController(Controller):
     async def overview(
         self,
         db_session: AsyncSession,
+        days: int = 30,
     ) -> dict[str, Any]:
         """Return high-level KPIs for the dashboard overview cards."""
         # Jobs

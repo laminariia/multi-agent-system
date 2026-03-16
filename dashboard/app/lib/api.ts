@@ -892,7 +892,7 @@ export async function fetchAnalytics(params?: {
   const searchParams = new URLSearchParams();
   if (params?.days) searchParams.set("days", String(params.days));
   const query = searchParams.toString();
-  return apiFetch<AnalyticsData>(`/analytics${query ? `?${query}` : ""}`);
+  return apiFetch<AnalyticsData>(`/analytics/overview${query ? `?${query}` : ""}`);
 }
 
 // --- Health Metrics (real system data) ---

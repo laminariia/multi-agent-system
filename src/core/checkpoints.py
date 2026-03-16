@@ -125,6 +125,31 @@ class HybridCheckpointSaver(BaseCheckpointSaver):
         logger.debug("checkpoint_saved", thread_id=thread_id, checkpoint_id=checkpoint_id)
         return new_config
 
+    async def aput_writes(
+        self,
+        config: dict[str, Any],
+        writes: list[tuple[str, Any]],
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        """Store intermediate writes for a checkpoint task.
+
+        LangGraph 1.0.8+ calls this to persist per-task channel writes.
+        We store them in the Valkey hot cache keyed by thread + task_id.
+        """
+        thread_id = config["configurable"]["thread_id"]
+        checkpoint_id = config["configurable"].get("checkpoint_id", "")
+        key = f"cp_writes:{thread_id}:{checkpoint_id}:{task_id}"
+
+        serialized = json.dumps(
+            [{"channel": ch, "value": val} for ch, val in writes],
+            default=str,
+        )
+        try:
+            await self.valkey.set(key, serialized, ex=int(self.valkey_ttl.total_seconds()))
+        except Exception:
+            logger.debug("checkpoint_writes_store_failed", thread_id=thread_id, task_id=task_id)
+
     async def alist(
         self,
         config: dict[str, Any] | None,
