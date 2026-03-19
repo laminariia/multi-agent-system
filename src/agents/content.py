@@ -127,10 +127,16 @@ class ContentAgent(ConstrainedAgent):
         )
 
         # 7. Advance sequence index and let routing decide next agent.
+        #    During a revision loop the critic sends us back without changing
+        #    sequence position -- only bump the index on a fresh (non-revision)
+        #    pass so that routing advances to the next agent correctly.
+        is_revision = state.get("revision_severity") is not None
+        new_index = state["current_sequence_index"] if is_revision else state.get("current_sequence_index", 0) + 1
+
         return update_state(
             state,
             current_agent="content",
-            current_sequence_index=state.get("current_sequence_index", 0) + 1,
+            current_sequence_index=new_index,
             revision_target=None,
             revision_severity=None,
             artifacts=artifacts,

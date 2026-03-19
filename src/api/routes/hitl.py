@@ -27,6 +27,10 @@ from src.api.schemas import (
     HITLBulkResolveRequestSchema,
     HITLBulkResolveResponseSchema,
     HITLDetailResponseSchema,
+    HITLEditHistoryEntrySchema,
+    HITLEditHistoryResponseSchema,
+    HITLExpiringItemSchema,
+    HITLExpiringResponseSchema,
     HITLItemSchema,
     HITLPendingResponseSchema,
     HITLResolveRequestSchema,
@@ -500,10 +504,22 @@ class HITLController(Controller):
         item.resolved_by = request.user.id
         item.resolved_at = now
 
-        # If the action is "edit", merge the edited payload
+        # If the action is "edit", merge the edited payload and record history
         if data.action == "edit" and data.edited_payload is not None:
+            before_payload = dict(item.payload) if item.payload else {}
             merged_payload = {**item.payload, **data.edited_payload}
             item.payload = merged_payload
+
+            from src.core.models import HITLEditHistory  # noqa: PLC0415
+
+            history_entry = HITLEditHistory(
+                hitl_id=item.id,
+                edited_by=request.user.id,
+                before_payload=before_payload,
+                after_payload=merged_payload,
+                edit_type="field_edit",
+            )
+            db_session.add(history_entry)
 
         await db_session.flush()
 
@@ -938,4 +954,121 @@ class HITLController(Controller):
                 resolved=total_resolved,
                 pending=max(total_created - total_resolved, 0),
             ),
+        )
+
+    # -----------------------------------------------------------------
+    # GET /api/v1/hitl/{hitl_id}/history — edit history
+    # -----------------------------------------------------------------
+
+    @get(
+        "/{hitl_id:uuid}/history",
+        summary="Get HITL edit history",
+        description="Returns the chronological list of payload edits for a HITL item.",
+    )
+    async def get_edit_history(
+        self,
+        hitl_id: uuid.UUID,
+        db_session: AsyncSession,
+    ) -> HITLEditHistoryResponseSchema:
+        """Return all edit history entries for a given HITL item, ordered by edited_at ascending."""
+        from src.core.models import HITLEditHistory  # noqa: PLC0415
+
+        # Verify the HITL item exists
+        item_stmt = select(HITLQueue).where(HITLQueue.id == hitl_id)
+        item_result = await db_session.execute(item_stmt)
+        if item_result.scalar_one_or_none() is None:
+            raise NotFoundException(detail=f"HITL item {hitl_id} not found")
+
+        stmt = (
+            select(HITLEditHistory).where(HITLEditHistory.hitl_id == hitl_id).order_by(HITLEditHistory.edited_at.asc())
+        )
+        result = await db_session.execute(stmt)
+        rows = result.scalars().all()
+
+        entries = [
+            HITLEditHistoryEntrySchema(
+                id=row.id,
+                hitl_id=row.hitl_id,
+                edited_by=row.edited_by,
+                before_payload=row.before_payload,
+                after_payload=row.after_payload,
+                edit_type=row.edit_type,
+                edited_at=row.edited_at,
+            )
+            for row in rows
+        ]
+
+        return HITLEditHistoryResponseSchema(
+            hitl_id=hitl_id,
+            entries=entries,
+            total=len(entries),
+        )
+
+    # -----------------------------------------------------------------
+    # GET /api/v1/hitl/expiring — items nearing expiry
+    # -----------------------------------------------------------------
+
+    @get(
+        "/expiring",
+        summary="List HITL items nearing expiry",
+        description="Returns pending HITL items that will expire within the given threshold.",
+    )
+    async def list_expiring(
+        self,
+        db_session: AsyncSession,
+        threshold_hours: float = Parameter(default=6.0, ge=0.1, le=168.0, description="Hours until expiry threshold"),
+    ) -> HITLExpiringResponseSchema:
+        """Return pending HITL items expiring within *threshold_hours*."""
+        now = datetime.now(UTC)
+        threshold_dt = now + timedelta(hours=threshold_hours)
+
+        # Items with expires_at between now and now+threshold (i.e. expiring soon)
+        stmt = (
+            select(HITLQueue)
+            .where(
+                HITLQueue.status == "pending",
+                HITLQueue.expires_at.is_not(None),
+                HITLQueue.expires_at <= threshold_dt,
+            )
+            .order_by(HITLQueue.expires_at.asc())
+        )
+        result = await db_session.execute(stmt)
+        rows = result.scalars().all()
+
+        # Count expired-but-unresolved items (expires_at < now, still pending)
+        expired_stmt = select(func.count()).select_from(
+            select(HITLQueue)
+            .where(
+                HITLQueue.status == "pending",
+                HITLQueue.expires_at.is_not(None),
+                HITLQueue.expires_at < now,
+            )
+            .subquery()
+        )
+        expired_count = (await db_session.execute(expired_stmt)).scalar_one()
+
+        items: list[HITLExpiringItemSchema] = []
+        for row in rows:
+            total_ttl = (row.expires_at - row.created_at).total_seconds()
+            elapsed = (now - row.created_at).total_seconds()
+            remaining = (row.expires_at - now).total_seconds()
+            pct = min(max((elapsed / total_ttl) * 100.0, 0.0), 100.0) if total_ttl > 0 else 100.0
+
+            items.append(
+                HITLExpiringItemSchema(
+                    id=row.id,
+                    type=row.type,
+                    title=row.title,
+                    priority=row.priority,
+                    expires_at=row.expires_at,
+                    created_at=row.created_at,
+                    time_remaining_seconds=remaining,
+                    pct_elapsed=round(pct, 1),
+                )
+            )
+
+        return HITLExpiringResponseSchema(
+            items=items,
+            total=len(items),
+            expired_count=expired_count,
         )

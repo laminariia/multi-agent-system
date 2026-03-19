@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     HUNTER_API_KEY: str | None = None
     APOLLO_API_KEY: str | None = None
 
+    # ── Geo APIs (Russian markets) ────────────────────────────────────────
+    YANDEX_MAPS_API_KEY: str = ""
+    DGIS_API_KEY: str = ""
+
     # ── Proxy (BrightData) ───────────────────────────────────────────────
     BRIGHTDATA_USERNAME: str | None = None
     BRIGHTDATA_PASSWORD: str | None = None
@@ -95,6 +99,12 @@ class Settings(BaseSettings):
     HEARTBEAT_TIMEOUT_SECONDS: int = 180
     HEARTBEAT_MAX_RESTARTS: int = 3
     HEARTBEAT_MONITOR_POLL_SECONDS: int = 30
+
+    # ── Embedding Configuration ────────────────────────────────────────
+    EMBEDDING_PROVIDER: str = "openrouter"  # "openrouter" or "openai"
+    EMBEDDING_MODEL: str = "qwen/qwen3-embedding-8b"  # OpenRouter model ID
+    EMBEDDING_MODEL_OPENAI: str = "text-embedding-3-large"  # Fallback model
+    EMBEDDING_DIMENSIONS: int = 3072
 
     # ── Semantic Cache ────────────────────────────────────────────────
     SEMANTIC_CACHE_SIMILARITY_THRESHOLD: float = 0.92
@@ -164,6 +174,10 @@ class Settings(BaseSettings):
     # ── Telegram DM Outreach ─────────────────────────────────────────
     TELEGRAM_DM_MAX_PER_HOUR: int = 5
     TELEGRAM_DM_MIN_INTERVAL_SECONDS: int = 720
+
+    # ── LinkedIn OAuth ────────────────────────────────────────────────
+    LINKEDIN_CLIENT_ID: str = ""
+    LINKEDIN_CLIENT_SECRET: str = ""
 
     # ── Monitoring ───────────────────────────────────────────────────────
     LANGSMITH_API_KEY: str | None = None

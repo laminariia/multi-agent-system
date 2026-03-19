@@ -1,22 +1,45 @@
-FROM node:20-slim AS build
+# ──────────────────────────────────────────────────────────────────
+# Stage 1: Build — install all deps + compile Remix
+# ──────────────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Install dependencies first (layer cache optimisation)
 COPY package.json package-lock.json* ./
 RUN npm ci
 
+# Copy source and build
 COPY . .
 RUN mkdir -p public && npm run build
 
-FROM node:20-slim
+# ──────────────────────────────────────────────────────────────────
+# Stage 2: Production — minimal runtime image
+# ──────────────────────────────────────────────────────────────────
+FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-COPY --from=build /app/package.json /app/package-lock.json* ./
-RUN npm ci --omit=dev
+# Install curl for healthcheck (wget is available in alpine by default,
+# but curl gives consistent behaviour with the API Dockerfile)
+RUN apk add --no-cache curl
 
-COPY --from=build /app/build ./build
-COPY --from=build /app/public ./public
+# Non-root user for security
+RUN addgroup -g 1001 -S nodejs && adduser -S remix -u 1001 -G nodejs
+
+# Production dependencies only
+COPY --from=builder /app/package.json /app/package-lock.json* ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+# Copy built application
+COPY --from=builder --chown=remix:nodejs /app/build ./build
+COPY --from=builder --chown=remix:nodejs /app/public ./public
+
+USER remix
+
+ENV NODE_ENV=production
+ENV PORT=3000
+EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["sh", "-c", "curl -sf http://localhost:${PORT:-3000}/health || exit 1"]

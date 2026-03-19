@@ -132,6 +132,9 @@ class ScoutAgent(ConstrainedAgent):
                 self._log.info("all_jobs_filtered_by_category")
                 return update_state(state, current_agent="scout", next_agent=None, status="active")
 
+        # 2c. RAG: retrieve historical success context from ExperienceStore.
+        rag_context = await self._fetch_rag_context(new_jobs)
+
         # 3. Score and classify each new job via LLM.
         qualified_jobs: list[dict[str, Any]] = []
         review_jobs: list[dict[str, Any]] = []
@@ -140,7 +143,7 @@ class ScoutAgent(ConstrainedAgent):
         for batch_start in range(0, len(new_jobs), _MAX_JOBS_PER_BATCH):
             batch = new_jobs[batch_start : batch_start + _MAX_JOBS_PER_BATCH]
             try:
-                scored = await self._score_jobs(batch, custom_rules=custom_rules)
+                scored = await self._score_jobs(batch, custom_rules=custom_rules, rag_context=rag_context)
             except (LLMException, KeyError, ValueError):
                 logger.exception("Failed to score batch of %d jobs, marking as review", len(batch))
                 for job in batch:
@@ -288,6 +291,50 @@ class ScoutAgent(ConstrainedAgent):
         return filtered
 
     # ------------------------------------------------------------------
+    # RAG: experience store context
+    # ------------------------------------------------------------------
+
+    async def _fetch_rag_context(self, jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Retrieve historical estimation experiences from ExperienceStore.
+
+        Uses the first few job titles/descriptions to build a composite
+        query.  Returns an empty list on any failure -- RAG must never
+        block agent execution.
+        """
+        try:
+            from src.core.database import get_asyncpg_pool  # noqa: PLC0415
+            from src.knowledge.embedding_service import EmbeddingService  # noqa: PLC0415
+            from src.knowledge.experience_store import ExperienceStore  # noqa: PLC0415
+
+            pool = await get_asyncpg_pool()
+            if pool is None:
+                return []
+            store = ExperienceStore(
+                embedding_service=EmbeddingService(),
+                db_pool=pool,
+            )
+
+            # Build a composite query from the first 3 jobs.
+            query_parts: list[str] = []
+            for job in jobs[:3]:
+                if job.get("title"):
+                    query_parts.append(job["title"])
+                if job.get("description"):
+                    query_parts.append(job["description"][:200])
+            query_text = " ".join(query_parts)
+            if not query_text.strip():
+                return []
+
+            return await store.retrieve_context(
+                query=query_text,
+                category="estimation",
+                top_k=3,
+            )
+        except Exception:  # noqa: BLE001
+            self._log.debug("rag_retrieval_skipped", reason="store_unavailable")
+            return []
+
+    # ------------------------------------------------------------------
     # Platform fetching
     # ------------------------------------------------------------------
 
@@ -360,6 +407,7 @@ class ScoutAgent(ConstrainedAgent):
         self,
         jobs: list[dict[str, Any]],
         custom_rules: list[str] | None = None,
+        rag_context: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         """Send a batch of jobs to the LLM for scoring and classification.
 
@@ -371,6 +419,10 @@ class ScoutAgent(ConstrainedAgent):
             Optional free-text rules from Dashboard Settings that the
             operator defined.  Each rule is injected into the prompt so
             the LLM applies them during scoring.
+        rag_context:
+            Optional historical estimation experiences from the
+            ExperienceStore (RAG).  Injected into the prompt to help
+            the LLM make more informed scoring decisions.
         """
         jobs_text = json.dumps(jobs, indent=2, default=str, ensure_ascii=False)
 
@@ -384,6 +436,14 @@ class ScoutAgent(ConstrainedAgent):
             prompt_parts.append("Apply the following additional rules when scoring:")
             for idx, rule in enumerate(custom_rules, 1):
                 prompt_parts.append(f"  {idx}. {rule}")
+
+        if rag_context:
+            prompt_parts.append("\n# Historical Context (from past projects)")
+            prompt_parts.append("Use these past project outcomes to inform your scoring:")
+            for idx, r in enumerate(rag_context, 1):
+                sr = r.get("success_rate")
+                sr_text = f" (success rate: {sr:.0%})" if sr is not None else ""
+                prompt_parts.append(f"  {idx}. {r.get('title', 'Past project')}{sr_text}: {r.get('content', '')[:300]}")
 
         prompt_parts.append(f"\nJobs:\n{jobs_text}")
 

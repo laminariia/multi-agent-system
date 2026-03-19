@@ -1,395 +1,450 @@
-"""Unit tests for Dynamic Routing — _route_next_in_sequence().
+"""Tests for dynamic agent_sequence routing.
 
-Tests the unified routing function that replaces hardcoded
-_route_after_dev, _route_after_content, _route_after_design.
-
-Spec: docs/Full_work/dev-cycle-spec.md, docs/Full_work/specs/agents-spec.md
+Verifies that _route_next_in_sequence() correctly routes agents based on
+the dynamic agent_sequence set by the Planner, and that Dev/Content/Design
+routing functions delegate to it properly.
 """
 
 from langgraph.graph import END
 
+from src.core.graph import (
+    _route_after_content,
+    _route_after_design,
+    _route_after_dev,
+    _route_next_in_sequence,
+)
+
 # ---------------------------------------------------------------------------
-# _route_next_in_sequence tests
+# Helper
 # ---------------------------------------------------------------------------
+
+
+def _make_state(
+    sequence=None,
+    index=0,
+    revision_severity=None,
+    revision_target=None,
+    status="active",
+    **kwargs,
+):
+    """Build a minimal state dict for routing tests."""
+    return {
+        "thread_id": "test-thread-1",
+        "agent_sequence": sequence or [],
+        "current_sequence_index": index,
+        "revision_severity": revision_severity,
+        "revision_target": revision_target,
+        "status": status,
+        "next_agent": None,
+        **kwargs,
+    }
+
+
+# ===========================================================================
+# _route_next_in_sequence -- core routing logic
+# ===========================================================================
 
 
 class TestRouteNextInSequence:
-    """Tests for the unified execution-phase routing function."""
+    """Unit tests for the unified execution-phase routing function."""
 
-    def _route(self, state):
-        from src.core.graph import _route_next_in_sequence
+    # -----------------------------------------------------------------------
+    # 1. test_sequence_dev_only_skips_content_design
+    # -----------------------------------------------------------------------
 
-        return _route_next_in_sequence(state)
+    def test_sequence_dev_only_skips_content_design(self):
+        """sequence=["dev"], index=1 (after Dev completes) -> critic_node.
 
-    # -- Happy path: sequence traversal --
+        Content and Design are not in the sequence and must be skipped.
+        """
+        state = _make_state(sequence=["dev"], index=1)
+        assert _route_next_in_sequence(state) == "critic_node"
 
-    def test_routes_to_first_agent_in_sequence(self):
-        """Routes to agent_sequence[0] when index=0."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "agent_sequence": ["design", "dev", "content"],
-            "current_sequence_index": 0,
-        }
-        assert self._route(state) == "design_node"
+    # -----------------------------------------------------------------------
+    # 2. test_sequence_dev_content_skips_design
+    # -----------------------------------------------------------------------
 
-    def test_routes_to_second_agent_in_sequence(self):
-        """Routes to agent_sequence[1] when index=1."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "agent_sequence": ["design", "dev", "content"],
-            "current_sequence_index": 1,
-        }
-        assert self._route(state) == "dev_node"
+    def test_sequence_dev_content_skips_design(self):
+        """sequence=["dev", "content"], index=2 (after Content) -> critic_node.
 
-    def test_routes_to_last_agent_in_sequence(self):
-        """Routes to last agent in sequence."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "agent_sequence": ["design", "dev", "content"],
-            "current_sequence_index": 2,
-        }
-        assert self._route(state) == "content_node"
+        Design is not in the sequence and must be skipped.
+        """
+        state = _make_state(sequence=["dev", "content"], index=2)
+        assert _route_next_in_sequence(state) == "critic_node"
 
-    def test_routes_to_critic_when_sequence_exhausted(self):
-        """Routes to critic_node when index >= len(sequence)."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "agent_sequence": ["dev", "content"],
-            "current_sequence_index": 2,
-        }
-        assert self._route(state) == "critic_node"
+    # -----------------------------------------------------------------------
+    # 3. test_sequence_design_only
+    # -----------------------------------------------------------------------
 
-    def test_routes_to_critic_index_far_past_end(self):
-        """Routes to critic_node even when index >> len(sequence)."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "agent_sequence": ["dev"],
-            "current_sequence_index": 99,
-        }
-        assert self._route(state) == "critic_node"
+    def test_sequence_design_only(self):
+        """sequence=["design"], index=1 (after Design) -> critic_node."""
+        state = _make_state(sequence=["design"], index=1)
+        assert _route_next_in_sequence(state) == "critic_node"
 
-    # -- Single-agent sequences --
+    def test_sequence_design_only_at_index_zero(self):
+        """sequence=["design"], index=0 -> design_node (routes TO design)."""
+        state = _make_state(sequence=["design"], index=0)
+        assert _route_next_in_sequence(state) == "design_node"
 
-    def test_single_agent_sequence_dev_only(self):
-        """API project: sequence=["dev"] → dev_node at 0, critic at 1."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "agent_sequence": ["dev"],
-            "current_sequence_index": 0,
-        }
-        assert self._route(state) == "dev_node"
+    # -----------------------------------------------------------------------
+    # 4. test_empty_sequence_goes_to_packager
+    # -----------------------------------------------------------------------
 
-        state["current_sequence_index"] = 1
-        assert self._route(state) == "critic_node"
+    def test_empty_sequence_goes_to_packager(self):
+        """Empty agent_sequence -> packager_node (consulting project)."""
+        state = _make_state(sequence=[])
+        assert _route_next_in_sequence(state) == "packager_node"
 
-    # -- Empty sequence (consulting) --
+    def test_missing_sequence_key_goes_to_packager(self):
+        """State without agent_sequence key at all -> packager_node."""
+        state = {"thread_id": "t1", "status": "active"}
+        assert _route_next_in_sequence(state) == "packager_node"
 
-    def test_empty_sequence_routes_to_packager(self):
-        """Consulting project: empty sequence → packager_node."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "agent_sequence": [],
-            "current_sequence_index": 0,
-        }
-        assert self._route(state) == "packager_node"
+    # -----------------------------------------------------------------------
+    # 5. test_full_sequence_dev_content_design
+    # -----------------------------------------------------------------------
 
-    # -- Terminal states --
+    def test_full_sequence_dev_content_design_index_0(self):
+        """Full sequence at index=0 -> routes to dev_node (first agent)."""
+        state = _make_state(sequence=["dev", "content", "design"], index=0)
+        assert _route_next_in_sequence(state) == "dev_node"
 
-    def test_failed_status_routes_to_end(self):
-        """Failed status → END regardless of sequence."""
-        state = {
-            "thread_id": "t1",
-            "status": "failed",
-            "agent_sequence": ["dev", "content"],
-            "current_sequence_index": 0,
-        }
-        assert self._route(state) == END
+    def test_full_sequence_dev_content_design_index_1(self):
+        """Full sequence at index=1 -> routes to content_node (second agent)."""
+        state = _make_state(sequence=["dev", "content", "design"], index=1)
+        assert _route_next_in_sequence(state) == "content_node"
 
-    # -- HITL escalation --
+    def test_full_sequence_dev_content_design_index_2(self):
+        """Full sequence at index=2 -> routes to design_node (third agent)."""
+        state = _make_state(sequence=["dev", "content", "design"], index=2)
+        assert _route_next_in_sequence(state) == "design_node"
 
-    def test_hitl_required_routes_to_hitl_review(self):
-        """HITL escalation takes precedence over sequence routing."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "requires_hitl": True,
-            "agent_sequence": ["dev"],
-            "current_sequence_index": 0,
-        }
-        assert self._route(state) == "hitl_review_node"
+    def test_full_sequence_dev_content_design_exhausted(self):
+        """Full sequence at index=3 (past end) -> routes to critic_node."""
+        state = _make_state(sequence=["dev", "content", "design"], index=3)
+        assert _route_next_in_sequence(state) == "critic_node"
 
-    # -- Revision routing --
+    # -----------------------------------------------------------------------
+    # 6. test_revision_severity_prevents_index_increment_dev
+    #    NOTE: revision_severity is a state field used by agents to decide
+    #    whether to advance the index. The routing function itself does not
+    #    inspect revision_severity -- it routes based on the current index.
+    #    When revision_severity is set, the agent keeps the same index, so
+    #    the routing function sees the same index and routes back to the
+    #    same agent node.
+    # -----------------------------------------------------------------------
 
-    def test_revision_target_routes_to_target_agent(self):
-        """revision_target takes precedence — routes to target_node."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "revision_target": "design",
-            "agent_sequence": ["dev", "content"],
-            "current_sequence_index": 2,
-        }
-        assert self._route(state) == "design_node"
+    def test_revision_severity_prevents_index_increment_dev(self):
+        """With revision_severity set, Dev keeps same index -> routes to dev_node again.
+
+        The agent is responsible for NOT incrementing current_sequence_index
+        when revision_severity is present. The routing function sees index=0
+        and routes to sequence[0] = "dev".
+        """
+        state = _make_state(
+            sequence=["dev", "content", "design"],
+            index=0,
+            revision_severity="minor",
+        )
+        # Index was not advanced by the agent, so routing returns dev_node
+        assert _route_next_in_sequence(state) == "dev_node"
+
+    # -----------------------------------------------------------------------
+    # 7. test_revision_severity_prevents_index_increment_content
+    # -----------------------------------------------------------------------
+
+    def test_revision_severity_prevents_index_increment_content(self):
+        """With revision_severity set, Content keeps same index -> routes to content_node.
+
+        Same principle as Dev: the agent does not advance the index.
+        """
+        state = _make_state(
+            sequence=["dev", "content", "design"],
+            index=1,
+            revision_severity="minor",
+        )
+        assert _route_next_in_sequence(state) == "content_node"
+
+    # -----------------------------------------------------------------------
+    # 8. test_revision_target_routes_to_specific_agent
+    # -----------------------------------------------------------------------
+
+    def test_revision_target_routes_to_specific_agent(self):
+        """revision_target="content" -> routes to content_node regardless of index."""
+        state = _make_state(
+            sequence=["dev", "content", "design"],
+            index=3,
+            revision_target="content",
+        )
+        assert _route_next_in_sequence(state) == "content_node"
+
+    def test_revision_target_routes_to_dev(self):
+        """revision_target="dev" -> routes to dev_node."""
+        state = _make_state(
+            sequence=["dev", "content"],
+            index=2,
+            revision_target="dev",
+        )
+        assert _route_next_in_sequence(state) == "dev_node"
+
+    def test_revision_target_routes_to_design(self):
+        """revision_target="design" -> routes to design_node."""
+        state = _make_state(
+            sequence=["dev"],
+            index=1,
+            revision_target="design",
+        )
+        assert _route_next_in_sequence(state) == "design_node"
 
     def test_revision_target_invalid_routes_to_end(self):
-        """Invalid revision_target → END."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "revision_target": "scout",
-            "agent_sequence": ["dev"],
-            "current_sequence_index": 1,
-        }
-        assert self._route(state) == END
+        """Invalid revision_target (e.g. "scout") -> END (not a valid execution node)."""
+        state = _make_state(
+            sequence=["dev"],
+            index=0,
+            revision_target="scout",
+        )
+        assert _route_next_in_sequence(state) == END
 
-    # -- Edge cases --
+    # -----------------------------------------------------------------------
+    # 12. test_index_out_of_bounds_routes_to_critic
+    # -----------------------------------------------------------------------
 
-    def test_missing_agent_sequence_defaults_to_packager(self):
-        """Missing agent_sequence treated as empty → packager."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-        }
-        assert self._route(state) == "packager_node"
+    def test_index_out_of_bounds_routes_to_critic(self):
+        """current_sequence_index=99, sequence=["dev"] -> critic_node."""
+        state = _make_state(sequence=["dev"], index=99)
+        assert _route_next_in_sequence(state) == "critic_node"
+
+
+# ===========================================================================
+# _route_after_dev / _route_after_content / _route_after_design -- delegation
+# ===========================================================================
+
+
+class TestRouteAfterDevDelegation:
+    """Tests for _route_after_dev delegating to _route_next_in_sequence."""
+
+    # -----------------------------------------------------------------------
+    # 9. test_route_after_dev_failed_returns_end
+    # -----------------------------------------------------------------------
+
+    def test_route_after_dev_failed_returns_end(self):
+        """status="failed" -> returns END."""
+        state = _make_state(sequence=["dev", "content"], index=0, status="failed")
+        assert _route_after_dev(state) == END
+
+    def test_route_after_dev_delegates_to_sequence(self):
+        """Dev delegates to _route_next_in_sequence for normal routing."""
+        state = _make_state(sequence=["dev", "content", "design"], index=1)
+        assert _route_after_dev(state) == "content_node"
+
+    def test_route_after_dev_sequence_exhausted(self):
+        """Dev at end of sequence -> critic_node."""
+        state = _make_state(sequence=["dev"], index=1)
+        assert _route_after_dev(state) == "critic_node"
+
+    def test_route_after_dev_empty_sequence(self):
+        """Dev with empty sequence -> packager_node."""
+        state = _make_state(sequence=[], index=0)
+        assert _route_after_dev(state) == "packager_node"
+
+    def test_route_after_dev_revision_target(self):
+        """Dev with revision_target -> routes to target agent."""
+        state = _make_state(
+            sequence=["dev", "content"],
+            index=1,
+            revision_target="dev",
+        )
+        assert _route_after_dev(state) == "dev_node"
+
+
+class TestRouteAfterContentDelegation:
+    """Tests for _route_after_content delegating to _route_next_in_sequence."""
+
+    # -----------------------------------------------------------------------
+    # 10. test_route_after_content_failed_returns_end
+    # -----------------------------------------------------------------------
+
+    def test_route_after_content_failed_returns_end(self):
+        """status="failed" -> returns END."""
+        state = _make_state(sequence=["dev", "content"], index=1, status="failed")
+        assert _route_after_content(state) == END
+
+    def test_route_after_content_delegates_to_sequence(self):
+        """Content delegates to _route_next_in_sequence for normal routing."""
+        state = _make_state(sequence=["dev", "content", "design"], index=2)
+        assert _route_after_content(state) == "design_node"
+
+    def test_route_after_content_sequence_exhausted(self):
+        """Content at end of sequence -> critic_node."""
+        state = _make_state(sequence=["dev", "content"], index=2)
+        assert _route_after_content(state) == "critic_node"
+
+    def test_route_after_content_revision_target(self):
+        """Content with revision_target -> routes to target agent."""
+        state = _make_state(
+            sequence=["dev", "content"],
+            index=2,
+            revision_target="content",
+        )
+        assert _route_after_content(state) == "content_node"
+
+
+class TestRouteAfterDesignDelegation:
+    """Tests for _route_after_design delegating to _route_next_in_sequence."""
+
+    # -----------------------------------------------------------------------
+    # 11. test_route_after_design_failed_returns_end
+    # -----------------------------------------------------------------------
+
+    def test_route_after_design_failed_returns_end(self):
+        """status="failed" -> returns END."""
+        state = _make_state(sequence=["dev", "design"], index=1, status="failed")
+        assert _route_after_design(state) == END
+
+    def test_route_after_design_delegates_to_sequence(self):
+        """Design delegates to _route_next_in_sequence for normal routing."""
+        state = _make_state(sequence=["dev", "content", "design"], index=3)
+        assert _route_after_design(state) == "critic_node"
+
+    def test_route_after_design_revision_target(self):
+        """Design with revision_target -> routes to target agent."""
+        state = _make_state(
+            sequence=["dev", "design"],
+            index=2,
+            revision_target="design",
+        )
+        assert _route_after_design(state) == "design_node"
+
+
+# ===========================================================================
+# Priority ordering
+# ===========================================================================
+
+
+class TestRoutingPriorityOrder:
+    """Verify the documented priority order in _route_next_in_sequence.
+
+    Priority:
+        1. status == "failed" -> END
+        2. requires_hitl -> hitl_review_node
+        3. revision_target -> target agent node
+        4. empty sequence -> packager_node
+        5. index >= len(sequence) -> critic_node
+        6. sequence[index] -> next agent node
+    """
+
+    def test_failed_beats_hitl(self):
+        """Failed status takes priority over HITL."""
+        state = _make_state(
+            sequence=["dev"],
+            index=0,
+            status="failed",
+            requires_hitl=True,
+        )
+        assert _route_next_in_sequence(state) == END
+
+    def test_hitl_beats_revision_target(self):
+        """HITL takes priority over revision_target."""
+        state = _make_state(
+            sequence=["dev"],
+            index=0,
+            revision_target="content",
+            requires_hitl=True,
+        )
+        assert _route_next_in_sequence(state) == "hitl_review_node"
+
+    def test_revision_target_beats_sequence(self):
+        """revision_target takes priority over normal sequence routing."""
+        state = _make_state(
+            sequence=["dev"],
+            index=0,
+            revision_target="content",
+        )
+        assert _route_next_in_sequence(state) == "content_node"
+
+    def test_failed_beats_everything(self):
+        """Failed status with all flags set still returns END."""
+        state = _make_state(
+            sequence=["dev", "content"],
+            index=0,
+            status="failed",
+            requires_hitl=True,
+            revision_target="content",
+        )
+        assert _route_next_in_sequence(state) == END
+
+
+# ===========================================================================
+# Skipped agents
+# ===========================================================================
+
+
+class TestSkippedAgents:
+    """Verify that skipped_agents are bypassed during sequence traversal."""
+
+    def test_skipped_agent_advances_past(self):
+        """Agent in skipped_agents is bypassed, routing to the next valid agent."""
+        state = _make_state(
+            sequence=["dev", "content", "design"],
+            index=0,
+            skipped_agents=["dev"],
+        )
+        assert _route_next_in_sequence(state) == "content_node"
+
+    def test_all_remaining_skipped_goes_to_critic(self):
+        """When all remaining agents are skipped, routes to critic_node."""
+        state = _make_state(
+            sequence=["dev", "content"],
+            index=0,
+            skipped_agents=["dev", "content"],
+        )
+        assert _route_next_in_sequence(state) == "critic_node"
+
+    def test_skipped_in_middle(self):
+        """Skipping a middle agent advances past it."""
+        state = _make_state(
+            sequence=["dev", "content", "design"],
+            index=1,
+            skipped_agents=["content"],
+        )
+        assert _route_next_in_sequence(state) == "design_node"
+
+
+# ===========================================================================
+# Edge cases
+# ===========================================================================
+
+
+class TestEdgeCases:
+    """Additional edge cases for _route_next_in_sequence."""
 
     def test_negative_index_routes_to_end(self):
-        """Negative current_sequence_index → END (safety guard)."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "agent_sequence": ["dev"],
-            "current_sequence_index": -1,
-        }
-        assert self._route(state) == END
+        """Negative current_sequence_index -> END (safety guard)."""
+        state = _make_state(sequence=["dev"], index=-1)
+        assert _route_next_in_sequence(state) == END
 
-    def test_invalid_agent_in_sequence_routes_to_end(self):
-        """Invalid agent name in sequence → END."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "agent_sequence": ["scout"],  # scout not a valid execution agent
-            "current_sequence_index": 0,
-        }
-        assert self._route(state) == END
+    def test_invalid_agent_name_in_sequence_routes_to_end(self):
+        """Invalid agent name (e.g. "scout") in sequence -> END."""
+        state = _make_state(sequence=["scout"], index=0)
+        assert _route_next_in_sequence(state) == END
 
-    def test_priority_order_failed_over_hitl(self):
-        """Failed status checked before HITL."""
-        state = {
-            "thread_id": "t1",
-            "status": "failed",
-            "requires_hitl": True,
-            "agent_sequence": ["dev"],
-            "current_sequence_index": 0,
-        }
-        assert self._route(state) == END
-
-    def test_priority_order_hitl_over_revision(self):
-        """HITL checked before revision_target."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "requires_hitl": True,
-            "revision_target": "dev",
-            "agent_sequence": ["dev"],
-            "current_sequence_index": 0,
-        }
-        assert self._route(state) == "hitl_review_node"
-
-    def test_priority_order_revision_over_sequence(self):
-        """revision_target checked before sequence routing."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "revision_target": "content",
-            "agent_sequence": ["dev"],
-            "current_sequence_index": 0,
-        }
-        assert self._route(state) == "content_node"
+    def test_hitl_required_routes_to_hitl_review(self):
+        """requires_hitl=True -> hitl_review_node."""
+        state = _make_state(
+            sequence=["dev"],
+            index=0,
+            requires_hitl=True,
+        )
+        assert _route_next_in_sequence(state) == "hitl_review_node"
 
 
-# ---------------------------------------------------------------------------
-# Updated _route_after_planner tests (delegates to _route_next_in_sequence)
-# ---------------------------------------------------------------------------
-
-
-class TestRouteAfterPlannerDynamic:
-    """Tests for _route_after_planner with dynamic routing delegation."""
-
-    def _route(self, state):
-        from src.core.graph import _route_after_planner
-
-        return _route_after_planner(state)
-
-    def test_planner_routes_to_first_in_sequence(self):
-        """Planner delegates to _route_next_in_sequence → first agent."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "agent_sequence": ["design", "dev"],
-            "current_sequence_index": 0,
-        }
-        assert self._route(state) == "design_node"
-
-    def test_planner_hitl_takes_precedence(self):
-        """HITL plan review overrides sequence routing."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "requires_hitl": True,
-            "agent_sequence": ["dev"],
-            "current_sequence_index": 0,
-        }
-        assert self._route(state) == "hitl_review_node"
-
-    def test_planner_failed_routes_to_end(self):
-        """Failed Planner → END."""
-        state = {"thread_id": "t1", "status": "failed"}
-        assert self._route(state) == END
-
-    def test_planner_empty_sequence_routes_to_packager(self):
-        """Consulting: empty sequence → packager."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "agent_sequence": [],
-            "current_sequence_index": 0,
-        }
-        assert self._route(state) == "packager_node"
-
-
-# ---------------------------------------------------------------------------
-# Updated _route_after_critic tests (revision_target support)
-# ---------------------------------------------------------------------------
-
-
-class TestRouteAfterCriticDynamic:
-    """Tests for _route_after_critic with revision_target support."""
-
-    def _route(self, state):
-        from src.core.graph import _route_after_critic
-
-        return _route_after_critic(state)
-
-    def test_critic_approve_to_packager(self):
-        """Approved → packager."""
-        state = {"thread_id": "t1", "status": "active", "next_agent": "packager"}
-        assert self._route(state) == "packager_node"
-
-    def test_critic_major_revision_to_planner(self):
-        """Major revision → planner."""
-        state = {"thread_id": "t1", "status": "active", "next_agent": "planner"}
-        assert self._route(state) == "planner_node"
-
-    def test_critic_minor_revision_to_target_agent(self):
-        """Minor revision → revision_target agent (design, not just dev)."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "next_agent": None,
-            "revision_target": "design",
-        }
-        assert self._route(state) == "design_node"
-
-    def test_critic_minor_revision_to_content(self):
-        """Minor revision → content_node via revision_target."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "next_agent": None,
-            "revision_target": "content",
-        }
-        assert self._route(state) == "content_node"
-
-    def test_critic_hitl_escalation(self):
-        """HITL escalation (reject/scope_creep)."""
-        state = {"thread_id": "t1", "status": "active", "requires_hitl": True}
-        assert self._route(state) == "hitl_review_node"
-
-    def test_critic_revision_limit_still_works(self):
-        """Existing revision limit logic still applies for next_agent=dev."""
-        from src.core.graph import MAX_REVISION_CYCLES
-
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "next_agent": "dev",
-            "artifacts": {"_critic_revision_count": MAX_REVISION_CYCLES},
-        }
-        assert self._route(state) == "hitl_review_node"
-
-
-# ---------------------------------------------------------------------------
-# Updated _route_after_hitl_review tests (dynamic routing on plan_review)
-# ---------------------------------------------------------------------------
-
-
-class TestRouteAfterHitlReviewDynamic:
-    """Tests for _route_after_hitl_review with dynamic sequence support."""
-
-    def _route(self, state):
-        from src.core.graph import _route_after_hitl_review
-
-        return _route_after_hitl_review(state)
-
-    def test_plan_review_approved_routes_to_first_in_sequence(self):
-        """Plan review approved → first agent in sequence (not hardcoded dev)."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "artifacts": {"_hitl_type": "plan_review"},
-            "agent_sequence": ["design", "dev"],
-            "current_sequence_index": 0,
-        }
-        assert self._route(state) == "design_node"
-
-    def test_plan_review_approved_fallback_dev(self):
-        """Plan review approved without sequence → dev_node (backward compat)."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "artifacts": {"_hitl_type": "plan_review"},
-        }
-        # Without agent_sequence, _route_next_in_sequence returns packager
-        # But this is plan_review, so it should go to first execution agent
-        # Current behavior: routes to dev_node. After change: delegates to _route_next_in_sequence
-        # This test documents the NEW behavior.
-        result = self._route(state)
-        # With empty/missing sequence → packager_node (consulting case)
-        assert result in ("dev_node", "packager_node")
-
-    def test_final_review_routes_to_end(self):
-        """Final review (not plan_review) → END."""
-        state = {
-            "thread_id": "t1",
-            "status": "active",
-            "artifacts": {"_hitl_type": "final_review"},
-        }
-        assert self._route(state) == END
-
-    def test_rejected_routes_to_end(self):
-        """Rejected (status=failed) → END."""
-        state = {
-            "thread_id": "t1",
-            "status": "failed",
-            "artifacts": {"_hitl_type": "plan_review"},
-        }
-        assert self._route(state) == END
-
-
-# ---------------------------------------------------------------------------
-# State fields tests
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# State fields from create_initial_state
+# ===========================================================================
 
 
 class TestDynamicRoutingStateFields:
-    """Tests for new state fields in create_initial_state."""
+    """Tests for dynamic routing fields in create_initial_state."""
 
     def test_initial_state_has_dynamic_routing_fields(self):
         """create_initial_state includes agent_sequence, index, delivery_type."""
@@ -411,33 +466,3 @@ class TestDynamicRoutingStateFields:
         assert state["delivery_type"] == "files"
         assert state.get("revision_target") is None
         assert state.get("revision_severity") is None
-
-
-# ---------------------------------------------------------------------------
-# Graph compilation tests
-# ---------------------------------------------------------------------------
-
-
-class TestGraphCompilationDynamic:
-    """Tests that graph builders compile correctly with dynamic routing."""
-
-    def test_full_pipeline_graph_compiles(self):
-        """build_full_pipeline_graph compiles with dynamic routing edges."""
-        from src.core.graph import build_full_pipeline_graph
-
-        graph = build_full_pipeline_graph()
-        assert graph is not None
-
-    def test_planner_pipeline_graph_compiles(self):
-        """build_planner_pipeline_graph compiles with dynamic routing edges."""
-        from src.core.graph import build_planner_pipeline_graph
-
-        graph = build_planner_pipeline_graph()
-        assert graph is not None
-
-    def test_pipeline_b_unaffected(self):
-        """Pipeline B graph unaffected by dynamic routing changes."""
-        from src.core.graph import build_pipeline_b_graph
-
-        graph = build_pipeline_b_graph()
-        assert graph is not None

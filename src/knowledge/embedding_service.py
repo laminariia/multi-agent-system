@@ -23,8 +23,32 @@ logger = structlog.get_logger(__name__)
 
 # OpenRouter rate limit (conservative).
 _DEFAULT_MAX_REQUESTS_PER_MINUTE: int = 3000
-_EMBEDDING_MODEL: str = "qwen/qwen3-embedding-8b"
+_EMBEDDING_MODEL_DEFAULT: str = "qwen/qwen3-embedding-8b"
+_EMBEDDING_MODEL_OPENAI_DEFAULT: str = "text-embedding-3-large"
 _EMBEDDING_DIM: int = 3072
+
+# Backward-compatible alias (used by existing tests)
+_EMBEDDING_MODEL: str = _EMBEDDING_MODEL_DEFAULT
+
+
+def _resolve_embedding_config() -> tuple[str, str, str, int]:
+    """Load embedding config from Settings, falling back to defaults.
+
+    Returns:
+        Tuple of (provider, model, model_openai, dimensions).
+    """
+    try:
+        from src.core.config import get_settings  # noqa: PLC0415
+
+        s = get_settings()
+        return (
+            s.EMBEDDING_PROVIDER,
+            s.EMBEDDING_MODEL,
+            s.EMBEDDING_MODEL_OPENAI,
+            s.EMBEDDING_DIMENSIONS,
+        )
+    except Exception:  # noqa: BLE001
+        return ("openrouter", _EMBEDDING_MODEL_DEFAULT, _EMBEDDING_MODEL_OPENAI_DEFAULT, _EMBEDDING_DIM)
 
 
 class _TokenBucket:
@@ -83,21 +107,37 @@ class EmbeddingService:
         base_url: str | None = None,
         max_rpm: int = _DEFAULT_MAX_REQUESTS_PER_MINUTE,
     ) -> None:
-        resolved_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
-        resolved_base = base_url or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-        self._embeddings = OpenAIEmbeddings(
-            model=_EMBEDDING_MODEL,
-            openai_api_key=resolved_key,
-            openai_api_base=resolved_base,
-            dimensions=_EMBEDDING_DIM,
-            check_embedding_ctx_length=False,
-        )
+        provider, model, model_openai, dimensions = _resolve_embedding_config()
+
+        if provider == "openrouter":
+            resolved_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
+            resolved_base = base_url or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+            active_model = model
+            self._embeddings = OpenAIEmbeddings(
+                model=model,
+                openai_api_key=resolved_key,
+                openai_api_base=resolved_base,
+                dimensions=dimensions,
+                check_embedding_ctx_length=False,
+            )
+        else:
+            # OpenAI direct
+            resolved_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+            active_model = model_openai
+            self._embeddings = OpenAIEmbeddings(
+                model=model_openai,
+                openai_api_key=resolved_key,
+                dimensions=dimensions,
+                check_embedding_ctx_length=False,
+            )
+
         self._bucket = _TokenBucket(capacity=max_rpm, refill_period=60.0)
-        self._dim = _EMBEDDING_DIM
+        self._dim = dimensions
         logger.info(
             "embedding_service_initialized",
-            model=_EMBEDDING_MODEL,
-            dim=_EMBEDDING_DIM,
+            provider=provider,
+            model=active_model,
+            dim=dimensions,
             max_rpm=max_rpm,
         )
 

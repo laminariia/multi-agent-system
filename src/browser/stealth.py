@@ -7,6 +7,8 @@ the standard Playwright objects with:
 * ``playwright-stealth`` patches applied to every new page.
 * Human-like mouse movement (bezier curves), keystroke timing, and random delays.
 * Proxy support via BrightData residential proxies.
+* User-Agent rotation from a pool of 20+ real browser UA strings.
+* Canvas and WebGL fingerprint randomization scripts.
 
 CRITICAL:  ``connect_over_cdp()`` is NEVER used -- it exposes automation signals
 that are trivially detected by anti-bot systems.
@@ -35,13 +37,141 @@ _stealth = Stealth()
 logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
-# Default user-agent (realistic Windows Chrome)
+# User-Agent pool -- real Chrome/Firefox/Safari strings (updated monthly)
 # ---------------------------------------------------------------------------
-_DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
-)
+_UA_POOL: list[str] = [
+    # Chrome 131 -- Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    # Chrome 131 -- macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",  # noqa: E501
+    # Chrome 130 -- Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    # Chrome 131 -- Linux
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    # Firefox 132 -- Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
+    # Safari 18.1 -- macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",  # noqa: E501
+    # Chrome 130 -- macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",  # noqa: E501
+    # Chrome 129 -- Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    # Firefox 131 -- Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0",
+    # Firefox 132 -- macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0",
+    # Chrome 131 -- Windows 11
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.86 Safari/537.36",  # noqa: E501
+    # Chrome 130 -- Linux
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    # Safari 17.6 -- macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15",  # noqa: E501
+    # Firefox 131 -- Linux
+    "Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0",
+    # Chrome 128 -- Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    # Edge 131 -- Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",  # noqa: E501
+    # Chrome 129 -- macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",  # noqa: E501
+    # Firefox 130 -- Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0",
+    # Chrome 128 -- macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",  # noqa: E501
+    # Edge 130 -- Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",  # noqa: E501
+    # Chrome 131 -- ChromeOS
+    "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+]
+
+# Keep _DEFAULT_USER_AGENT for backward compatibility (referenced by tests / external code).
+_DEFAULT_USER_AGENT = _UA_POOL[0]
+
+
+def _get_random_ua() -> str:
+    """Return a random User-Agent string from the pool."""
+    return random.choice(_UA_POOL)  # noqa: S311
+
+
+# ---------------------------------------------------------------------------
+# Canvas fingerprint randomization script
+# ---------------------------------------------------------------------------
+_CANVAS_NOISE_SCRIPT = """
+(() => {
+    const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+    const origToBlob = HTMLCanvasElement.prototype.toBlob;
+
+    HTMLCanvasElement.prototype.toDataURL = function(type) {
+        const context = this.getContext('2d');
+        if (context && this.width > 0 && this.height > 0) {
+            try {
+                const imageData = context.getImageData(0, 0, this.width, this.height);
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    imageData.data[i] = imageData.data[i] ^ (Math.random() > 0.99 ? 1 : 0);
+                    imageData.data[i+1] = imageData.data[i+1] ^ (Math.random() > 0.99 ? 1 : 0);
+                    imageData.data[i+2] = imageData.data[i+2] ^ (Math.random() > 0.99 ? 1 : 0);
+                }
+                context.putImageData(imageData, 0, 0);
+            } catch(e) {}
+        }
+        return origToDataURL.apply(this, arguments);
+    };
+
+    HTMLCanvasElement.prototype.toBlob = function(callback, type, quality) {
+        const context = this.getContext('2d');
+        if (context && this.width > 0 && this.height > 0) {
+            try {
+                const imageData = context.getImageData(0, 0, this.width, this.height);
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    imageData.data[i] = imageData.data[i] ^ (Math.random() > 0.99 ? 1 : 0);
+                    imageData.data[i+1] = imageData.data[i+1] ^ (Math.random() > 0.99 ? 1 : 0);
+                    imageData.data[i+2] = imageData.data[i+2] ^ (Math.random() > 0.99 ? 1 : 0);
+                }
+                context.putImageData(imageData, 0, 0);
+            } catch(e) {}
+        }
+        return origToBlob.apply(this, arguments);
+    };
+})();
+"""
+
+# ---------------------------------------------------------------------------
+# WebGL fingerprint randomization script
+# ---------------------------------------------------------------------------
+_WEBGL_NOISE_SCRIPT = """
+(() => {
+    const _renderers = [
+        'ANGLE (NVIDIA, NVIDIA GeForce GTX 1080 Direct3D11 vs_5_0, D3D11)',
+        'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0, D3D11)',
+        'ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 Ti Direct3D11 vs_5_0, D3D11)',
+        'ANGLE (AMD, AMD Radeon RX 580 Direct3D11 vs_5_0, D3D11)',
+        'ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0, D3D11)',
+    ];
+    const _vendors = [
+        'Google Inc. (NVIDIA)',
+        'Google Inc. (AMD)',
+        'Google Inc. (Intel)',
+    ];
+    const _renderer = _renderers[Math.floor(Math.random() * _renderers.length)];
+    const _vendor = _vendors[Math.floor(Math.random() * _vendors.length)];
+
+    const _patchContext = function(proto) {
+        const getParam = proto.getParameter;
+        proto.getParameter = function(parameter) {
+            if (parameter === 37446) return _renderer;
+            if (parameter === 37445) return _vendor;
+            return getParam.apply(this, arguments);
+        };
+    };
+
+    if (typeof WebGLRenderingContext !== 'undefined') {
+        _patchContext(WebGLRenderingContext.prototype);
+    }
+    if (typeof WebGL2RenderingContext !== 'undefined') {
+        _patchContext(WebGL2RenderingContext.prototype);
+    }
+})();
+"""
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -189,6 +319,10 @@ class StealthPage:
         """Take a screenshot and return it as PNG bytes."""
         return await self._page.screenshot(**kwargs)
 
+    async def inner_text(self, selector: str, **kwargs: Any) -> str:
+        """Proxy for ``page.inner_text`` -- returns the inner text of the first matching element."""
+        return await self._page.inner_text(selector, **kwargs)
+
     # -- internal helpers --------------------------------------------------
 
     async def _bezier_move(self, target_x: float, target_y: float) -> None:
@@ -214,18 +348,8 @@ class StealthPage:
             t = i / steps
             inv_t = 1 - t
             # Cubic bezier formula: B(t) = (1-t)^3*P0 + 3(1-t)^2*t*P1 + 3(1-t)*t^2*P2 + t^3*P3
-            x = (
-                inv_t ** 3 * start_x
-                + 3 * inv_t ** 2 * t * cp1_x
-                + 3 * inv_t * t ** 2 * cp2_x
-                + t ** 3 * target_x
-            )
-            y = (
-                inv_t ** 3 * start_y
-                + 3 * inv_t ** 2 * t * cp1_y
-                + 3 * inv_t * t ** 2 * cp2_y
-                + t ** 3 * target_y
-            )
+            x = inv_t**3 * start_x + 3 * inv_t**2 * t * cp1_x + 3 * inv_t * t**2 * cp2_x + t**3 * target_x
+            y = inv_t**3 * start_y + 3 * inv_t**2 * t * cp1_y + 3 * inv_t * t**2 * cp2_y + t**3 * target_y
             await self._page.mouse.move(x, y)
             await asyncio.sleep(random.uniform(0.005, 0.02))  # noqa: S311
 
@@ -246,10 +370,21 @@ class StealthContext:
         self._log = logger.bind(component="stealth_context")
 
     async def new_page(self) -> StealthPage:
-        """Create a new page with ``playwright-stealth`` patches applied."""
+        """Create a new page with stealth patches and fingerprint randomization.
+
+        Applies in order:
+        1. ``playwright-stealth`` patches (webdriver flag, navigator props, etc.)
+        2. Canvas fingerprint noise (imperceptible pixel-level randomization)
+        3. WebGL renderer/vendor string randomization
+        """
         page = await self._context.new_page()
         await _stealth.apply_stealth_async(page)
-        self._log.debug("stealth_page_created")
+
+        # Inject fingerprint randomization scripts before any page navigation.
+        await page.add_init_script(_CANVAS_NOISE_SCRIPT)
+        await page.add_init_script(_WEBGL_NOISE_SCRIPT)
+
+        self._log.debug("stealth_page_created", fingerprint_scripts=True)
         return StealthPage(page, self._config)
 
     async def cookies(self) -> list[dict[str, Any]]:
@@ -351,12 +486,17 @@ class StealthBrowser:
 
     async def new_context(self, **kwargs: Any) -> StealthContext:
         """Create a new ``StealthContext`` with viewport, locale, timezone, and
-        user-agent pre-configured.
+        a randomly selected user-agent pre-configured.
+
+        A different User-Agent is chosen from :data:`_UA_POOL` for each new
+        context to reduce cross-session fingerprint correlation.
 
         Extra *kwargs* are forwarded to ``browser.new_context()``.
         """
         if self._browser is None:
             raise RuntimeError("Browser not launched.  Call ``await browser.launch()`` first.")
+
+        selected_ua = _get_random_ua()
 
         context_kwargs: dict[str, Any] = {
             "viewport": {
@@ -365,7 +505,7 @@ class StealthBrowser:
             },
             "locale": self._config.locale,
             "timezone_id": self._config.timezone_id,
-            "user_agent": _DEFAULT_USER_AGENT,
+            "user_agent": selected_ua,
         }
         context_kwargs.update(kwargs)
 
@@ -374,5 +514,6 @@ class StealthBrowser:
             "context_created",
             viewport=f"{self._config.viewport_width}x{self._config.viewport_height}",
             locale=self._config.locale,
+            user_agent=selected_ua[:60],
         )
         return StealthContext(raw_context, self._config)

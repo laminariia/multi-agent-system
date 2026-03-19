@@ -193,6 +193,60 @@ class ExperienceStore:
         ]
 
     # ------------------------------------------------------------------
+    # Retrieve context (unified RAG API for agents)
+    # ------------------------------------------------------------------
+
+    async def retrieve_context(
+        self,
+        query: str,
+        category: str | None = None,
+        top_k: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Retrieve similar experiences for RAG context injection.
+
+        A thin wrapper around :meth:`retrieve_similar` that returns plain
+        dicts suitable for direct injection into LLM prompts.  Errors are
+        handled gracefully -- an empty list is returned on any failure so
+        that calling agents are never blocked.
+
+        Args:
+            query: Search query (will be embedded via pgvector cosine search).
+            category: Filter by category (bid, code, negotiation, estimation).
+            top_k: Number of results to return.
+
+        Returns:
+            List of dicts with: content, category, similarity_score, metadata.
+        """
+        if not query or not query.strip():
+            return []
+
+        try:
+            results = await self.retrieve_similar(
+                query.strip(),
+                category=category,
+                top_k=top_k,
+                min_similarity=0.60,
+            )
+        except Exception:  # noqa: BLE001 — never block agent execution
+            logger.warning("retrieve_context_failed", exc_info=True)
+            return []
+
+        return [
+            {
+                "content": r.content,
+                "category": r.category,
+                "similarity_score": r.similarity or 0.0,
+                "title": r.title,
+                "success_rate": r.success_rate,
+                "metadata": {
+                    "id": r.id,
+                    "usage_count": r.usage_count,
+                },
+            }
+            for r in results
+        ]
+
+    # ------------------------------------------------------------------
     # Record outcome
     # ------------------------------------------------------------------
 

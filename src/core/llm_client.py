@@ -471,6 +471,143 @@ class LLMClient:
             details={"last_error": str(last_error)},
         )
 
+    async def generate_embedding(self, text: str) -> list[float]:
+        """Generate embedding using the configured provider with automatic fallback.
+
+        Primary provider is determined by ``Settings.EMBEDDING_PROVIDER``:
+
+        * ``"openrouter"`` (default) -- uses Qwen3-Embedding-8B via OpenRouter.
+        * ``"openai"`` -- uses OpenAI text-embedding-3-large directly.
+
+        When the primary provider is OpenRouter and the call fails, the method
+        transparently falls back to the OpenAI provider so callers never need
+        to handle provider switching themselves.
+
+        Both providers produce 3072-dimensional vectors, so all downstream
+        consumers (pgvector HNSW indexes, Valkey RediSearch) remain compatible.
+
+        Returns:
+            A list of 3072 floats representing the embedding vector.
+
+        Raises:
+            LLMException: When both providers fail.
+        """
+        from src.core.config import get_settings  # noqa: PLC0415
+
+        settings = get_settings()
+
+        if settings.EMBEDDING_PROVIDER == "openrouter":
+            try:
+                return await self._embed_via_openrouter(
+                    text,
+                    settings.EMBEDDING_MODEL,
+                    settings.EMBEDDING_DIMENSIONS,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "openrouter_embedding_failed_falling_back_to_openai",
+                    error=str(exc),
+                    model=settings.EMBEDDING_MODEL,
+                )
+                # Fallback to OpenAI
+                return await self._embed_via_openai(
+                    text,
+                    settings.EMBEDDING_MODEL_OPENAI,
+                    settings.EMBEDDING_DIMENSIONS,
+                )
+        else:
+            return await self._embed_via_openai(
+                text,
+                settings.EMBEDDING_MODEL_OPENAI,
+                settings.EMBEDDING_DIMENSIONS,
+            )
+
+    async def _embed_via_openrouter(
+        self,
+        text: str,
+        model: str,
+        dimensions: int,
+    ) -> list[float]:
+        """Generate embedding via the OpenRouter API (OpenAI-compatible)."""
+        import httpx  # noqa: PLC0415
+
+        api_key = self._api_key or os.environ.get("OPENROUTER_API_KEY", "")
+        base_url = self._base_url or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        url = f"{base_url.rstrip('/')}/embeddings"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "input": text,
+                    "dimensions": dimensions,
+                },
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            embedding: list[float] = data["data"][0]["embedding"]
+
+            if len(embedding) != dimensions:
+                raise LLMException(
+                    f"OpenRouter embedding dimension mismatch: expected {dimensions}, got {len(embedding)}",
+                    agent_name="embedding",
+                )
+
+            logger.debug(
+                "openrouter_embedding_generated",
+                model=model,
+                dimensions=len(embedding),
+            )
+            return embedding
+
+    async def _embed_via_openai(
+        self,
+        text: str,
+        model: str,
+        dimensions: int,
+    ) -> list[float]:
+        """Generate embedding via the OpenAI API directly."""
+        import httpx  # noqa: PLC0415
+
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.openai.com/v1/embeddings",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "input": text,
+                    "dimensions": dimensions,
+                },
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            embedding: list[float] = data["data"][0]["embedding"]
+
+            if len(embedding) != dimensions:
+                raise LLMException(
+                    f"OpenAI embedding dimension mismatch: expected {dimensions}, got {len(embedding)}",
+                    agent_name="embedding",
+                )
+
+            logger.debug(
+                "openai_embedding_generated",
+                model=model,
+                dimensions=len(embedding),
+            )
+            return embedding
+
     @staticmethod
     def _build_cache_key(messages: list[BaseMessage]) -> str:
         """Build a cache lookup key from the message list content."""

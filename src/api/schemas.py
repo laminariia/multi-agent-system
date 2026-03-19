@@ -328,6 +328,49 @@ class HITLDetailResponseSchema(_BaseSchema):
     locked_by: str | None = Field(default=None, description="User ID currently viewing this item (soft lock)")
 
 
+class HITLEditHistoryEntrySchema(_BaseSchema):
+    """A single edit history record for a HITL item."""
+
+    id: uuid.UUID
+    hitl_id: uuid.UUID
+    edited_by: uuid.UUID | None = Field(default=None, description="User who made the edit")
+    before_payload: dict[str, Any] = Field(default_factory=dict, description="Payload before the edit")
+    after_payload: dict[str, Any] = Field(default_factory=dict, description="Payload after the edit")
+    edit_type: str = Field(..., examples=["field_edit"], description="field_edit | full_replace | action_edit")
+    edited_at: datetime
+
+
+class HITLEditHistoryResponseSchema(_BaseSchema):
+    """List of edit history entries for a HITL item."""
+
+    hitl_id: uuid.UUID
+    entries: list[HITLEditHistoryEntrySchema] = Field(default_factory=list)
+    total: int = Field(default=0, ge=0, description="Total number of edit history entries")
+
+
+class HITLExpiringItemSchema(_BaseSchema):
+    """A HITL item approaching its expiry deadline."""
+
+    id: uuid.UUID
+    type: str
+    title: str
+    priority: str = Field(default="normal")
+    expires_at: datetime
+    created_at: datetime
+    time_remaining_seconds: float = Field(
+        ..., description="Seconds remaining until expiry (negative if already expired)"
+    )
+    pct_elapsed: float = Field(..., ge=0.0, le=100.0, description="Percentage of TTL elapsed (0-100)")
+
+
+class HITLExpiringResponseSchema(_BaseSchema):
+    """Response listing HITL items nearing expiry."""
+
+    items: list[HITLExpiringItemSchema] = Field(default_factory=list)
+    total: int = Field(default=0, ge=0)
+    expired_count: int = Field(default=0, ge=0, description="Count of expired but unresolved items")
+
+
 # =============================================================================
 # Agent schemas
 # =============================================================================

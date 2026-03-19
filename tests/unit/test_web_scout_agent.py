@@ -1,8 +1,9 @@
 """Unit tests for src.agents.web_scout.WebScoutAgent.
 
-Covers all data sources (2GIS, Yandex Business, VK Business, Google Search,
-Instagram), normalization, deduplication, LLM qualification, DB storage,
-error handling, and the LangGraph node function.
+Covers DuckDuckGo HTML search (live source), stub sources (2GIS, Yandex Business,
+Google Maps, VK, Instagram), normalization, deduplication, LLM qualification,
+DB storage, error handling, _scan_city fallback, category extraction, and the
+LangGraph node function.
 
 All external APIs, LLM calls, and DB operations are mocked.
 """
@@ -192,7 +193,7 @@ def _make_agent(
 class TestSourceFetching:
     """Tests for individual data source fetching and _fetch_all_sources."""
 
-    async def test_fetch_2gis_stub_returns_empty(
+    async def test_search_2gis_stub_returns_empty(
         self,
         mock_llm_client: AsyncMock,
         mock_heartbeat: Any,
@@ -200,19 +201,19 @@ class TestSourceFetching:
     ):
         """Default 2GIS stub returns empty list (API not yet integrated)."""
         agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
-        results = await agent._fetch_2gis(["restaurant"], "Россия", 50)
+        results = await agent._search_2gis(["restaurant"], "Россия", 50)
 
         assert results == []
 
-    async def test_fetch_yandex_stub_returns_empty(
+    async def test_search_yandex_business_stub_returns_empty(
         self,
         mock_llm_client: AsyncMock,
         mock_heartbeat: Any,
         mock_loop_detector: Any,
     ):
-        """Default Yandex stub returns empty list."""
+        """Default Yandex Business stub returns empty list."""
         agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
-        results = await agent._fetch_yandex(["auto_service"], "Россия", 50)
+        results = await agent._search_yandex_business(["auto_service"], "Россия", 50)
 
         assert results == []
 
@@ -228,15 +229,15 @@ class TestSourceFetching:
 
         assert results == []
 
-    async def test_fetch_google_stub_returns_empty(
+    async def test_search_google_maps_stub_returns_empty(
         self,
         mock_llm_client: AsyncMock,
         mock_heartbeat: Any,
         mock_loop_detector: Any,
     ):
-        """Default Google stub returns empty list."""
+        """Default Google Maps stub returns empty list."""
         agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
-        results = await agent._fetch_google(["restaurant"], "Россия", 50)
+        results = await agent._search_google_maps(["restaurant"], "Россия", 50)
 
         assert results == []
 
@@ -262,16 +263,19 @@ class TestSourceFetching:
         agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
 
         with (
-            patch.object(agent, "_fetch_2gis", new_callable=AsyncMock, return_value=_make_2gis_results(2)),
-            patch.object(agent, "_fetch_yandex", new_callable=AsyncMock, return_value=_make_yandex_results(1)),
+            patch.object(agent, "_search_duckduckgo", new_callable=AsyncMock, return_value=[]),
+            patch.object(agent, "_search_2gis", new_callable=AsyncMock, return_value=_make_2gis_results(2)),
+            patch.object(
+                agent, "_search_yandex_business", new_callable=AsyncMock, return_value=_make_yandex_results(1)
+            ),
+            patch.object(agent, "_search_google_maps", new_callable=AsyncMock, return_value=[]),
             patch.object(agent, "_fetch_vk", new_callable=AsyncMock, return_value=_make_vk_results(1)),
-            patch.object(agent, "_fetch_google", new_callable=AsyncMock, return_value=_make_google_results(1)),
             patch.object(agent, "_fetch_instagram", new_callable=AsyncMock, return_value=_make_instagram_results(1)),
         ):
             results = await agent._fetch_all_sources(["restaurant"], "Россия", 50)
 
-        # 2+1+1+1+1 = 6 normalized leads
-        assert len(results) == 6
+        # 0+2+1+0+1+1 = 5 normalized leads
+        assert len(results) == 5
         # All results should be normalized (have 'source' and 'business_name' keys)
         for lead in results:
             assert "source" in lead
@@ -288,10 +292,13 @@ class TestSourceFetching:
         agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
 
         with (
-            patch.object(agent, "_fetch_2gis", new_callable=AsyncMock, return_value=_make_2gis_results(1)),
-            patch.object(agent, "_fetch_yandex", new_callable=AsyncMock, return_value=_make_yandex_results(1)),
+            patch.object(agent, "_search_duckduckgo", new_callable=AsyncMock, return_value=[]),
+            patch.object(agent, "_search_2gis", new_callable=AsyncMock, return_value=_make_2gis_results(1)),
+            patch.object(
+                agent, "_search_yandex_business", new_callable=AsyncMock, return_value=_make_yandex_results(1)
+            ),
+            patch.object(agent, "_search_google_maps", new_callable=AsyncMock, return_value=[]),
             patch.object(agent, "_fetch_vk", new_callable=AsyncMock, return_value=[]),
-            patch.object(agent, "_fetch_google", new_callable=AsyncMock, return_value=[]),
             patch.object(agent, "_fetch_instagram", new_callable=AsyncMock, return_value=[]),
         ):
             results = await agent._fetch_all_sources(["restaurant"], "Россия", 50)
@@ -310,10 +317,13 @@ class TestSourceFetching:
         agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
 
         with (
-            patch.object(agent, "_fetch_2gis", new_callable=AsyncMock, side_effect=Exception("2GIS down")),
-            patch.object(agent, "_fetch_yandex", new_callable=AsyncMock, return_value=_make_yandex_results(2)),
+            patch.object(agent, "_search_duckduckgo", new_callable=AsyncMock, return_value=[]),
+            patch.object(agent, "_search_2gis", new_callable=AsyncMock, side_effect=Exception("2GIS down")),
+            patch.object(
+                agent, "_search_yandex_business", new_callable=AsyncMock, return_value=_make_yandex_results(2)
+            ),
+            patch.object(agent, "_search_google_maps", new_callable=AsyncMock, return_value=[]),
             patch.object(agent, "_fetch_vk", new_callable=AsyncMock, return_value=[]),
-            patch.object(agent, "_fetch_google", new_callable=AsyncMock, return_value=[]),
             patch.object(agent, "_fetch_instagram", new_callable=AsyncMock, return_value=[]),
         ):
             results = await agent._fetch_all_sources(["restaurant"], "Россия", 50)
@@ -1229,8 +1239,8 @@ class TestEdgeCases:
         # Generate 100 leads from one source
         raw_leads = _make_2gis_results(100)
 
-        with patch.object(agent, "_fetch_2gis", new_callable=AsyncMock, return_value=raw_leads):
-            results = await agent._fetch_2gis(["restaurant"], "Россия", max_results=10)
+        with patch.object(agent, "_search_2gis", new_callable=AsyncMock, return_value=raw_leads):
+            results = await agent._search_2gis(["restaurant"], "Россия", max_results=10)
 
         # The mock returns all 100, but the actual method would limit
         # Here we test the parameter is passed
@@ -1294,3 +1304,766 @@ class TestEdgeCases:
 
         assert "previous_agent" in result["artifacts"]
         assert result["artifacts"]["previous_agent"] == ["data"]
+
+
+# ---------------------------------------------------------------------------
+# DuckDuckGo search tests
+# ---------------------------------------------------------------------------
+
+# Sample DuckDuckGo HTML response for testing.
+_SAMPLE_DDG_HTML = """
+<div class="result results_links results_links_deep web-result">
+  <a class="result__a" href="https://example-biz.ru/about">Ресторан Луна - Москва</a>
+  <td class="result__snippet">Ресторан Луна, ул. Ленина 10, Москва. Телефон: +7 900 123 45 67.
+  Мы не имеем сайта.</td>
+</div>
+<div class="result results_links results_links_deep web-result">
+  <a class="result__a" href="https://2gis.ru/moscow/firm/123">Кафе Солнце - Москва</a>
+  <td class="result__snippet">Кафе Солнце на 2GIS. Адрес: пр. Мира 5.</td>
+</div>
+<div class="result results_links results_links_deep web-result">
+  <a class="result__a" href="https://autoservice-prime.ru">Автосервис Прайм</a>
+  <td class="result__snippet">Ремонт авто в Москве. +79001112233. Качественный сервис.</td>
+</div>
+"""
+
+
+def _make_ddg_results(count: int = 3) -> list[dict[str, Any]]:
+    """Build mock DuckDuckGo parsed results."""
+    results = []
+    for i in range(count):
+        results.append(
+            {
+                "name": f"Business DDG {i}",
+                "city": "Москва",
+                "category": "restaurant",
+                "link": f"https://example{i}.ru",
+                "snippet": f"Business {i} description без сайта",
+                "phone": f"+7900111000{i}" if i % 2 == 0 else None,
+                "website": f"https://example{i}.ru" if i % 2 == 0 else None,
+                "has_website": i % 2 == 0,
+            }
+        )
+    return results
+
+
+class TestDuckDuckGoSearch:
+    """Tests for DuckDuckGo HTML search functionality."""
+
+    async def test_search_duckduckgo_makes_http_request(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """_search_duckduckgo posts to DuckDuckGo HTML endpoint."""
+
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = _SAMPLE_DDG_HTML
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("src.agents.web_scout.httpx.AsyncClient", return_value=mock_client):
+            results = await agent._search_duckduckgo(["restaurant"], "Москва", 20)
+
+        mock_client.post.assert_awaited_once()
+        assert isinstance(results, list)
+
+    async def test_search_duckduckgo_parses_results(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """DuckDuckGo HTML is parsed into structured results."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = _SAMPLE_DDG_HTML
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("src.agents.web_scout.httpx.AsyncClient", return_value=mock_client):
+            results = await agent._search_duckduckgo(["restaurant"], "Москва", 20)
+
+        assert len(results) >= 1
+        for r in results:
+            assert "name" in r
+            assert "city" in r
+            assert "category" in r
+
+    async def test_search_duckduckgo_extracts_phone(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Phone numbers are extracted from DuckDuckGo snippets."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = _SAMPLE_DDG_HTML
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("src.agents.web_scout.httpx.AsyncClient", return_value=mock_client):
+            results = await agent._search_duckduckgo(["restaurant"], "Москва", 20)
+
+        # At least one result should have a phone extracted
+        phones = [r.get("phone") for r in results if r.get("phone")]
+        # The sample HTML contains phone numbers
+        assert isinstance(phones, list)
+
+    async def test_search_duckduckgo_timeout_returns_empty(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Timeout from DuckDuckGo returns empty list, does not crash."""
+        import httpx as _httpx
+
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=_httpx.TimeoutException("timeout"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("src.agents.web_scout.httpx.AsyncClient", return_value=mock_client):
+            results = await agent._search_duckduckgo(["restaurant"], "Москва", 20)
+
+        assert results == []
+
+    async def test_search_duckduckgo_http_error_returns_empty(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """HTTP error from DuckDuckGo returns empty list."""
+        import httpx as _httpx
+
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.raise_for_status = MagicMock(
+            side_effect=_httpx.HTTPStatusError(
+                "rate limited",
+                request=MagicMock(),
+                response=mock_response,
+            )
+        )
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("src.agents.web_scout.httpx.AsyncClient", return_value=mock_client):
+            results = await agent._search_duckduckgo(["restaurant"], "Москва", 20)
+
+        assert results == []
+
+    async def test_search_duckduckgo_network_error_returns_empty(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Network-level error from DuckDuckGo returns empty list."""
+        import httpx as _httpx
+
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=_httpx.ConnectError("connection refused"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("src.agents.web_scout.httpx.AsyncClient", return_value=mock_client):
+            results = await agent._search_duckduckgo(["restaurant"], "Москва", 20)
+
+        assert results == []
+
+    async def test_search_duckduckgo_empty_html_returns_empty(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Empty HTML response returns empty results."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "<html><body>No results</body></html>"
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("src.agents.web_scout.httpx.AsyncClient", return_value=mock_client):
+            results = await agent._search_duckduckgo(["restaurant"], "Москва", 20)
+
+        assert results == []
+
+    async def test_search_duckduckgo_multiple_categories(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Multiple categories produce separate queries."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = _SAMPLE_DDG_HTML
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("src.agents.web_scout.httpx.AsyncClient", return_value=mock_client):
+            _results = await agent._search_duckduckgo(["restaurant", "beauty_salon"], "Москва", 20)  # noqa: F841
+
+        # Should have called post twice (once per category)
+        assert mock_client.post.call_count == 2
+
+    async def test_search_duckduckgo_max_results_capped(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Results are capped at effective_max per category."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+
+        # Build HTML with many results
+        many_results_html = ""
+        for i in range(30):
+            many_results_html += (
+                f'<a class="result__a" href="https://biz{i}.ru">Business {i}</a>'
+                f'<td class="result__snippet">Description {i}</td>'
+            )
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = many_results_html
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("src.agents.web_scout.httpx.AsyncClient", return_value=mock_client):
+            results = await agent._search_duckduckgo(["restaurant"], "Москва", 5)
+
+        # Should be capped at min(5, _DUCKDUCKGO_MAX_RESULTS) = 5
+        assert len(results) <= 5
+
+
+# ---------------------------------------------------------------------------
+# DuckDuckGo HTML parser tests
+# ---------------------------------------------------------------------------
+
+
+class TestDDGParser:
+    """Tests for _parse_duckduckgo_html method."""
+
+    def test_parse_extracts_titles(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Parser extracts business names from result titles."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+        results = agent._parse_duckduckgo_html(_SAMPLE_DDG_HTML, "restaurant", "Москва")
+
+        names = [r["name"] for r in results]
+        assert any("Ресторан Луна" in n for n in names)
+
+    def test_parse_extracts_urls(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Parser extracts link URLs."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+        results = agent._parse_duckduckgo_html(_SAMPLE_DDG_HTML, "restaurant", "Москва")
+
+        links = [r["link"] for r in results]
+        assert any("example-biz.ru" in link for link in links)
+
+    def test_parse_detects_directory_urls_as_no_website(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """URLs from 2GIS/Yandex Maps are not counted as business websites."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+        results = agent._parse_duckduckgo_html(_SAMPLE_DDG_HTML, "restaurant", "Москва")
+
+        for r in results:
+            if "2gis.ru" in (r.get("link") or ""):
+                assert r["has_website"] is False
+
+    def test_parse_sets_city_and_category(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Each parsed result has correct city and category."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+        results = agent._parse_duckduckgo_html(_SAMPLE_DDG_HTML, "auto_service", "СПб")
+
+        for r in results:
+            assert r["city"] == "СПб"
+            assert r["category"] == "auto_service"
+
+    def test_parse_empty_html_returns_empty(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Empty or no-result HTML returns empty list."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+        results = agent._parse_duckduckgo_html("<html></html>", "restaurant", "М")
+
+        assert results == []
+
+    def test_parse_extracts_phone_from_snippet(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Phone numbers in snippets are extracted."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+        results = agent._parse_duckduckgo_html(_SAMPLE_DDG_HTML, "restaurant", "Москва")
+
+        phones = [r["phone"] for r in results if r.get("phone")]
+        # The sample HTML contains at least one phone number
+        assert len(phones) >= 1
+
+
+# ---------------------------------------------------------------------------
+# _scan_city fallback and category extraction tests
+# ---------------------------------------------------------------------------
+
+
+class TestScanCityFallback:
+    """Tests for _scan_city artifact fallback in _execute."""
+
+    async def test_execute_uses_scan_city_when_no_params(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """_execute falls back to _scan_city artifact when _web_scout_params missing."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+        state = _build_state()
+        # Remove _web_scout_params and set _scan_city instead.
+        state["artifacts"] = {"_scan_city": "Новосибирск"}  # type: ignore[typeddict-item]
+        # Set project requirements for category extraction.
+        state["project"]["requirements"] = "Найти рестораны без сайта"  # type: ignore[index]
+
+        with patch.object(agent, "_fetch_all_sources", new_callable=AsyncMock, return_value=[]):
+            result = await agent._execute(state)
+
+        # Should not fail -- should proceed with _scan_city-derived params.
+        assert result["status"] != "failed"
+        assert result["current_agent"] == "webscout"
+
+    async def test_execute_scan_city_extracts_restaurant_category(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Category is extracted from requirements when using _scan_city."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+        state = _build_state()
+        state["artifacts"] = {"_scan_city": "Казань"}  # type: ignore[typeddict-item]
+        state["project"]["requirements"] = "Ресторан или кафе"  # type: ignore[index]
+
+        with patch.object(agent, "_fetch_all_sources", new_callable=AsyncMock, return_value=[]) as mock_fetch:
+            await agent._execute(state)
+
+        # _fetch_all_sources should have been called with restaurant category.
+        mock_fetch.assert_awaited_once()
+        call_args = mock_fetch.call_args
+        categories = call_args[0][0]
+        assert "restaurant" in categories
+
+    async def test_execute_scan_city_generic_category_fallback(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """When no category detected from requirements, uses _generic."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+        state = _build_state()
+        state["artifacts"] = {"_scan_city": "Омск"}  # type: ignore[typeddict-item]
+        state["project"]["requirements"] = "Найти бизнесы"  # type: ignore[index]
+
+        with patch.object(agent, "_fetch_all_sources", new_callable=AsyncMock, return_value=[]) as mock_fetch:
+            await agent._execute(state)
+
+        mock_fetch.assert_awaited_once()
+        call_args = mock_fetch.call_args
+        categories = call_args[0][0]
+        assert "_generic" in categories
+
+    async def test_execute_scan_city_uses_city_as_region(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """The _scan_city value is used as the region parameter."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+        state = _build_state()
+        state["artifacts"] = {"_scan_city": "Екатеринбург"}  # type: ignore[typeddict-item]
+        state["project"]["requirements"] = "автосервис"  # type: ignore[index]
+
+        with patch.object(agent, "_fetch_all_sources", new_callable=AsyncMock, return_value=[]) as mock_fetch:
+            await agent._execute(state)
+
+        mock_fetch.assert_awaited_once()
+        call_args = mock_fetch.call_args
+        region = call_args[0][1]
+        assert region == "Екатеринбург"
+
+
+class TestCategoryExtraction:
+    """Tests for _extract_category_from_requirements static method."""
+
+    def test_extracts_restaurant(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Detects restaurant category from Russian text."""
+        from src.agents.web_scout import WebScoutAgent
+
+        assert WebScoutAgent._extract_category_from_requirements("Найти рестораны") == "restaurant"
+        assert WebScoutAgent._extract_category_from_requirements("кафе без сайта") == "restaurant"
+
+    def test_extracts_beauty_salon(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Detects beauty salon category."""
+        from src.agents.web_scout import WebScoutAgent
+
+        assert WebScoutAgent._extract_category_from_requirements("салон красоты в Москве") == "beauty_salon"
+
+    def test_extracts_auto_service(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Detects auto service category."""
+        from src.agents.web_scout import WebScoutAgent
+
+        assert WebScoutAgent._extract_category_from_requirements("Автосервис рядом") == "auto_service"
+
+    def test_extracts_medical(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Detects medical category."""
+        from src.agents.web_scout import WebScoutAgent
+
+        assert WebScoutAgent._extract_category_from_requirements("Клиника в центре") == "medical"
+
+    def test_extracts_education(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Detects education category."""
+        from src.agents.web_scout import WebScoutAgent
+
+        assert WebScoutAgent._extract_category_from_requirements("курсы английского") == "education"
+
+    def test_extracts_fitness(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Detects fitness category."""
+        from src.agents.web_scout import WebScoutAgent
+
+        assert WebScoutAgent._extract_category_from_requirements("фитнес клуб") == "fitness"
+
+    def test_returns_none_for_unknown(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Returns None when no category matches."""
+        from src.agents.web_scout import WebScoutAgent
+
+        assert WebScoutAgent._extract_category_from_requirements("магазин обуви") is None
+
+    def test_returns_none_for_empty(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Returns None for empty requirements."""
+        from src.agents.web_scout import WebScoutAgent
+
+        assert WebScoutAgent._extract_category_from_requirements("") is None
+
+    def test_case_insensitive(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Category extraction is case-insensitive."""
+        from src.agents.web_scout import WebScoutAgent
+
+        assert WebScoutAgent._extract_category_from_requirements("РЕСТОРАН") == "restaurant"
+
+
+# ---------------------------------------------------------------------------
+# _web_scan_results artifact tests
+# ---------------------------------------------------------------------------
+
+
+class TestWebScanResultsArtifact:
+    """Tests for _web_scan_results artifact storage."""
+
+    async def test_web_scan_results_stored_in_artifacts(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Qualified leads are stored under _web_scan_results in artifacts."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+        state = _build_state()
+
+        qualified_leads = [
+            {
+                "source_id": "ddg_1",
+                "source": "duckduckgo",
+                "business_name": "Test Biz",
+                "phone": "+79001234567",
+                "city": "Москва",
+                "category": "restaurant",
+                "has_website": False,
+                "qualified": True,
+                "qualification_score": 0.85,
+                "suggested_service": "landing_page",
+            },
+        ]
+
+        with (
+            patch.object(agent, "_fetch_all_sources", new_callable=AsyncMock, return_value=qualified_leads),
+            patch.object(agent, "_deduplicate_leads", return_value=qualified_leads),
+            patch.object(agent, "_qualify_leads", new_callable=AsyncMock, return_value=qualified_leads),
+            patch.object(agent, "_store_leads", new_callable=AsyncMock, return_value=1),
+        ):
+            result = await agent._execute(state)
+
+        assert "_web_scan_results" in result["artifacts"]
+        scan_results = result["artifacts"]["_web_scan_results"]
+        assert len(scan_results) == 1
+        assert scan_results[0]["business_name"] == "Test Biz"
+        assert scan_results[0]["qualification_score"] == 0.85
+
+    async def test_web_scan_results_empty_when_no_qualified(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """_web_scan_results is empty list when no leads qualify."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+        state = _build_state()
+
+        raw_leads = [
+            {
+                "source_id": "x",
+                "source": "duckduckgo",
+                "business_name": "B",
+                "phone": None,
+                "city": "М",
+                "category": "r",
+                "has_website": True,
+                "qualified": False,
+                "qualification_score": 0.2,
+            },
+        ]
+
+        # All unqualified (qualified=False)
+        with (
+            patch.object(agent, "_fetch_all_sources", new_callable=AsyncMock, return_value=raw_leads),
+            patch.object(agent, "_deduplicate_leads", return_value=raw_leads),
+            patch.object(agent, "_qualify_leads", new_callable=AsyncMock, return_value=raw_leads),
+            patch.object(agent, "_store_leads", new_callable=AsyncMock, return_value=0),
+        ):
+            result = await agent._execute(state)
+
+        assert "_web_scan_results" in result["artifacts"]
+        assert result["artifacts"]["_web_scan_results"] == []
+
+    async def test_web_scan_results_contains_expected_fields(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """Each entry in _web_scan_results has the expected fields."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+        state = _build_state()
+
+        qualified_leads = [
+            {
+                "source_id": "ddg_1",
+                "source": "duckduckgo",
+                "business_name": "Biz One",
+                "phone": "+79999999999",
+                "city": "СПб",
+                "category": "beauty_salon",
+                "has_website": False,
+                "qualified": True,
+                "qualification_score": 0.9,
+                "suggested_service": "website_redesign",
+            },
+        ]
+
+        with (
+            patch.object(agent, "_fetch_all_sources", new_callable=AsyncMock, return_value=qualified_leads),
+            patch.object(agent, "_deduplicate_leads", return_value=qualified_leads),
+            patch.object(agent, "_qualify_leads", new_callable=AsyncMock, return_value=qualified_leads),
+            patch.object(agent, "_store_leads", new_callable=AsyncMock, return_value=1),
+        ):
+            result = await agent._execute(state)
+
+        entry = result["artifacts"]["_web_scan_results"][0]
+        expected_fields = {
+            "business_name",
+            "city",
+            "category",
+            "phone",
+            "has_website",
+            "qualification_score",
+            "suggested_service",
+        }
+        assert expected_fields.issubset(set(entry.keys()))
+
+
+# ---------------------------------------------------------------------------
+# DuckDuckGo integration with _fetch_all_sources
+# ---------------------------------------------------------------------------
+
+
+class TestDuckDuckGoIntegration:
+    """Tests for DuckDuckGo wired into the fetch pipeline."""
+
+    async def test_duckduckgo_results_normalized_in_pipeline(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """DuckDuckGo results are normalized when flowing through _fetch_all_sources."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+
+        ddg_results = _make_ddg_results(2)
+
+        with (
+            patch.object(agent, "_search_duckduckgo", new_callable=AsyncMock, return_value=ddg_results),
+            patch.object(agent, "_search_2gis", new_callable=AsyncMock, return_value=[]),
+            patch.object(agent, "_search_yandex_business", new_callable=AsyncMock, return_value=[]),
+            patch.object(agent, "_search_google_maps", new_callable=AsyncMock, return_value=[]),
+            patch.object(agent, "_fetch_vk", new_callable=AsyncMock, return_value=[]),
+            patch.object(agent, "_fetch_instagram", new_callable=AsyncMock, return_value=[]),
+        ):
+            results = await agent._fetch_all_sources(["restaurant"], "Москва", 20)
+
+        assert len(results) == 2
+        assert all(r["source"] == "duckduckgo" for r in results)
+        # Normalized fields should be present.
+        for r in results:
+            assert "business_name" in r
+            assert "has_website" in r
+
+    async def test_duckduckgo_failure_does_not_block_other_sources(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """If DuckDuckGo fails, other sources still return results."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+
+        with (
+            patch.object(agent, "_search_duckduckgo", new_callable=AsyncMock, side_effect=Exception("DDG down")),
+            patch.object(agent, "_search_2gis", new_callable=AsyncMock, return_value=_make_2gis_results(1)),
+            patch.object(agent, "_search_yandex_business", new_callable=AsyncMock, return_value=[]),
+            patch.object(agent, "_search_google_maps", new_callable=AsyncMock, return_value=[]),
+            patch.object(agent, "_fetch_vk", new_callable=AsyncMock, return_value=[]),
+            patch.object(agent, "_fetch_instagram", new_callable=AsyncMock, return_value=[]),
+        ):
+            results = await agent._fetch_all_sources(["restaurant"], "Москва", 20)
+
+        assert len(results) == 1
+        assert results[0]["source"] == "2gis"
+
+    async def test_allowed_tools_includes_duckduckgo(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_heartbeat: Any,
+        mock_loop_detector: Any,
+    ):
+        """search_duckduckgo is in the agent's allowed tools."""
+        agent = _make_agent(mock_llm_client, mock_heartbeat, mock_loop_detector)
+        assert "search_duckduckgo" in agent.allowed_tools

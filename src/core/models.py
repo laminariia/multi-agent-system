@@ -60,6 +60,29 @@ def _utcnow() -> datetime:
 
 
 # ---------------------------------------------------------------------------
+# Soft-delete mixin
+# ---------------------------------------------------------------------------
+
+
+class SoftDeleteMixin:
+    """Mixin adding soft-delete support via ``deleted_at`` column.
+
+    Models using this mixin can be soft-deleted by setting ``deleted_at`` to a
+    UTC timestamp.  A ``NULL`` value means the row is live.  The column is
+    indexed with a partial index (``WHERE deleted_at IS NOT NULL``) so that
+    queries filtering on soft-deleted rows remain fast without penalising
+    normal reads.
+    """
+
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+        index=True,
+    )
+
+
+# ---------------------------------------------------------------------------
 # 1. users
 # ---------------------------------------------------------------------------
 
@@ -380,7 +403,7 @@ class Artifact(Base):
 # ---------------------------------------------------------------------------
 
 
-class HITLQueue(Base):
+class HITLQueue(SoftDeleteMixin, Base):
     __tablename__ = "hitl_queue"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -423,10 +446,56 @@ class HITLQueue(Base):
     project: Mapped[Project | None] = relationship(back_populates="hitl_items")
     task: Mapped[Task | None] = relationship(back_populates="hitl_items")
     resolved_by_user: Mapped[User | None] = relationship(back_populates="hitl_resolutions")
+    edit_history: Mapped[list[HITLEditHistory]] = relationship(
+        back_populates="hitl_item",
+        cascade="all, delete-orphan",
+        order_by="HITLEditHistory.edited_at",
+    )
 
     __table_args__ = (
         Index("idx_hitl_status", "status", "priority", "created_at"),
         Index("idx_hitl_type", "type", "status"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8b. hitl_edit_history — tracks payload changes on HITL edits
+# ---------------------------------------------------------------------------
+
+
+class HITLEditHistory(Base):
+    """Tracks payload changes when HITL items are edited during resolution."""
+
+    __tablename__ = "hitl_edit_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    hitl_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("hitl_queue.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    edited_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    before_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    after_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    edit_type: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        doc="field_edit | full_replace | action_edit",
+    )
+    edited_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    # Relationships
+    hitl_item: Mapped[HITLQueue] = relationship(
+        back_populates="edit_history",
+        foreign_keys=[hitl_id],
+    )
+    editor: Mapped[User | None] = relationship(foreign_keys=[edited_by])
+
+    __table_args__ = (
+        Index("idx_hitl_edit_history_hitl_id", "hitl_id"),
+        Index("idx_hitl_edit_history_edited_at", "edited_at"),
     )
 
 
@@ -616,7 +685,7 @@ class CampaignLead(Base):
 # ---------------------------------------------------------------------------
 
 
-class AgentLog(Base):
+class AgentLog(SoftDeleteMixin, Base):
     __tablename__ = "agent_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -790,7 +859,7 @@ class SemanticCache(Base):
 # ---------------------------------------------------------------------------
 
 
-class ABTestResult(Base):
+class ABTestResult(SoftDeleteMixin, Base):
     __tablename__ = "ab_test_results"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -959,7 +1028,7 @@ class Deal(Base):
 # ---------------------------------------------------------------------------
 
 
-class ScheduledMessage(Base):
+class ScheduledMessage(SoftDeleteMixin, Base):
     """Scheduled progress messages for delivery throttling (execution cloaking)."""
 
     __tablename__ = "scheduled_messages"

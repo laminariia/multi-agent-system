@@ -1,9 +1,13 @@
 """WebScout Agent -- discovers businesses without websites via nationwide web search.
 
-Searches multiple data sources across Russia (2GIS, Yandex Business, VK Business,
-Google Search, Instagram) to find businesses that lack websites or have poor digital
-presence. Results are normalized, deduplicated, qualified via LLM, and stored as
-Leads in PostgreSQL.
+Searches multiple data sources across Russia (DuckDuckGo, 2GIS, Yandex Business,
+Google Maps, VK Business, Instagram) to find businesses that lack websites or have
+poor digital presence. Results are normalized, deduplicated, qualified via LLM, and
+stored as Leads in PostgreSQL.
+
+DuckDuckGo HTML search is the primary live source (no API key required).
+Other sources (2GIS, Yandex Business, Google Maps) are stub-ready for future
+API integration.
 
 Pipeline B flow: WebScout -> Outreach -> [HITL] -> SalesAgent
 Spec: docs/Full_work/pipeline-b-spec.md (Phase 1B: Web Search)
@@ -14,8 +18,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any
 
+import httpx
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy import and_, select
@@ -33,20 +39,22 @@ from src.prompts.web_scout import QUALIFICATION_TEMPLATE, WEB_SCOUT_SYSTEM_PROMP
 
 logger = structlog.get_logger(__name__)
 
-# All five source fetchers are currently stubs (return empty lists).
-# Log a warning at import time so operators are aware during early deployments.
-logger.warning(
-    "webscout_all_sources_stub",
-    msg="All 5 WebScout source fetchers (2gis, yandex, vk, google, instagram) are stubs. "
-    "No real data will be fetched until API integrations are implemented.",
+# DuckDuckGo is live; other sources remain stubs pending API integration.
+logger.info(
+    "webscout_sources_status",
+    msg="DuckDuckGo HTML search is live. "
+    "Other sources (2gis, yandex, google_maps, vk, instagram) are stubs "
+    "pending API integration.",
 )
 
 # Tools that the WebScout Agent is allowed to invoke.
 WEBSCOUT_ALLOWED_TOOLS: list[str] = [
+    "search_duckduckgo",
     "search_2gis",
     "search_yandex",
     "search_vk",
     "search_google",
+    "search_google_maps",
     "search_instagram",
 ]
 
@@ -55,6 +63,18 @@ _MAX_LEADS_PER_BATCH = 10
 
 # Maximum name length for storage.
 _MAX_NAME_LENGTH = 255
+
+# DuckDuckGo HTML search configuration.
+_DUCKDUCKGO_URL = "https://html.duckduckgo.com/html/"
+_DUCKDUCKGO_TIMEOUT_SECONDS = 15
+_DUCKDUCKGO_MAX_RESULTS = 20
+
+# Regex patterns for parsing DuckDuckGo HTML results.
+_DDG_RESULT_RE_PATTERN = r'class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>'
+_DDG_SNIPPET_RE_PATTERN = r'class="result__snippet"[^>]*>(.*?)</(?:a|td|div)'
+
+# Phone pattern for extracting phone numbers from snippets.
+_PHONE_RE_PATTERN = r"(?:\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}"
 
 # ---------------------------------------------------------------------------
 # Google Dork templates (L10)
@@ -155,7 +175,29 @@ class WebScoutAgent(ConstrainedAgent):
         self._log.info("webscout_execute_start", thread_id=state["thread_id"])
 
         # 1. Extract scan parameters from state.
-        params = (state.get("artifacts") or {}).get("_web_scout_params")
+        #    Supports both _web_scout_params (full config) and _scan_city (simple city+category).
+        artifacts = state.get("artifacts") or {}
+        params = artifacts.get("_web_scout_params")
+
+        # Fallback: build params from _scan_city + project requirements.
+        if not params:
+            scan_city = artifacts.get("_scan_city")
+            if scan_city:
+                # Derive category from project requirements if available.
+                project = state.get("project") or {}
+                requirements = project.get("requirements", "")
+                category = self._extract_category_from_requirements(requirements)
+                params = {
+                    "categories": [category] if category else ["_generic"],
+                    "region": scan_city,
+                    "max_results_per_source": 20,
+                }
+                self._log.info(
+                    "webscout_params_from_scan_city",
+                    city=scan_city,
+                    category=category,
+                )
+
         if not params:
             self._log.error("webscout_no_params")
             return update_state(
@@ -218,7 +260,7 @@ class WebScoutAgent(ConstrainedAgent):
 
             # 6. Build updated state.
             artifacts = dict(state.get("artifacts") or {})
-            artifacts["web_scout_leads"] = {
+            scan_summary = {
                 "total_fetched": len(raw_leads),
                 "deduped_count": len(deduped),
                 "qualified_count": len(qualified_leads),
@@ -226,6 +268,20 @@ class WebScoutAgent(ConstrainedAgent):
                 "categories": categories,
                 "region": region,
             }
+            artifacts["web_scout_leads"] = scan_summary
+            # Also store under _web_scan_results for downstream consumers.
+            artifacts["_web_scan_results"] = [
+                {
+                    "business_name": lead.get("business_name"),
+                    "city": lead.get("city"),
+                    "category": lead.get("category"),
+                    "phone": lead.get("phone"),
+                    "has_website": lead.get("has_website", False),
+                    "qualification_score": lead.get("qualification_score", 0),
+                    "suggested_service": lead.get("suggested_service"),
+                }
+                for lead in qualified_leads
+            ]
 
             next_agent = "outreach" if stored_count > 0 else None
             return update_state(
@@ -256,19 +312,30 @@ class WebScoutAgent(ConstrainedAgent):
         region: str,
         max_results: int,
     ) -> list[dict[str, Any]]:
-        """Fetch leads from all data sources in parallel, normalizing each."""
+        """Fetch leads from all data sources in parallel, normalizing each.
+
+        DuckDuckGo is the primary live source. Other sources are stubs
+        pending API integration.
+        """
         tasks = [
-            asyncio.create_task(self._safe_fetch("2gis", self._fetch_2gis, categories, region, max_results)),
-            asyncio.create_task(self._safe_fetch("yandex", self._fetch_yandex, categories, region, max_results)),
+            asyncio.create_task(
+                self._safe_fetch("duckduckgo", self._search_duckduckgo, categories, region, max_results)
+            ),
+            asyncio.create_task(self._safe_fetch("2gis", self._search_2gis, categories, region, max_results)),
+            asyncio.create_task(
+                self._safe_fetch("yandex", self._search_yandex_business, categories, region, max_results)
+            ),
+            asyncio.create_task(
+                self._safe_fetch("google_maps", self._search_google_maps, categories, region, max_results)
+            ),
             asyncio.create_task(self._safe_fetch("vk", self._fetch_vk, categories, region, max_results)),
-            asyncio.create_task(self._safe_fetch("google", self._fetch_google, categories, region, max_results)),
             asyncio.create_task(self._safe_fetch("instagram", self._fetch_instagram, categories, region, max_results)),
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         all_leads: list[dict[str, Any]] = []
-        source_names = ["2gis", "yandex", "vk", "google", "instagram"]
+        source_names = ["duckduckgo", "2gis", "yandex", "google_maps", "vk", "instagram"]
         for idx, result in enumerate(results):
             source = source_names[idx] if idx < len(source_names) else "unknown"
             if isinstance(result, Exception):
@@ -296,35 +363,192 @@ class WebScoutAgent(ConstrainedAgent):
             return []
 
     # ------------------------------------------------------------------
-    # Individual source fetchers (stubs -- real impl connects to APIs)
+    # DuckDuckGo HTML search (live source -- no API key required)
     # ------------------------------------------------------------------
 
-    async def _fetch_2gis(
+    async def _search_duckduckgo(
         self,
         categories: list[str],
         region: str,
         max_results: int,
     ) -> list[dict[str, Any]]:
-        """Fetch business listings from 2GIS API.
+        """Search DuckDuckGo HTML for businesses matching categories in a region.
 
-        In production, this connects to 2GIS search API with category filters.
-        Currently returns empty -- API integration is a separate task.
+        Builds queries like ``"restaurant Москва без сайта"`` and parses the
+        HTML results page.  Extracts business name, URL, snippet, city, and
+        phone (when visible in snippet).
+
+        Args:
+            categories: Business categories to search for.
+            region: City or region name for geo-targeting.
+            max_results: Maximum results per category query.
+
+        Returns:
+            List of raw result dicts with keys: ``name``, ``city``,
+            ``category``, ``link``, ``snippet``, ``phone``, ``website``,
+            ``has_website``.
         """
-        self._log.info("fetch_2gis", categories=categories, region=region)
+
+        all_results: list[dict[str, Any]] = []
+        effective_max = min(max_results, _DUCKDUCKGO_MAX_RESULTS)
+
+        for category in categories:
+            query = f"{category} {region} без сайта"
+            self._log.info(
+                "duckduckgo_search",
+                query=query,
+                max_results=effective_max,
+            )
+
+            try:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(_DUCKDUCKGO_TIMEOUT_SECONDS),
+                    follow_redirects=True,
+                ) as client:
+                    resp = await client.post(
+                        _DUCKDUCKGO_URL,
+                        data={"q": query, "b": ""},
+                        headers={
+                            "User-Agent": (
+                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                "Chrome/131.0.0.0 Safari/537.36"
+                            ),
+                            "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.5",
+                        },
+                    )
+                    resp.raise_for_status()
+                    html = resp.text
+
+            except httpx.TimeoutException:
+                self._log.warning("duckduckgo_timeout", query=query)
+                continue
+            except httpx.HTTPStatusError as exc:
+                self._log.warning(
+                    "duckduckgo_http_error",
+                    query=query,
+                    status=exc.response.status_code,
+                )
+                continue
+            except httpx.HTTPError as exc:
+                self._log.warning("duckduckgo_error", query=query, error=str(exc))
+                continue
+
+            # Parse HTML results.
+            results = self._parse_duckduckgo_html(html, category, region)
+            all_results.extend(results[:effective_max])
+
+        return all_results
+
+    def _parse_duckduckgo_html(
+        self,
+        html: str,
+        category: str,
+        city: str,
+    ) -> list[dict[str, Any]]:
+        """Parse DuckDuckGo HTML response into structured business results.
+
+        Extracts links, titles, and snippets from the search results page.
+        Attempts to detect phone numbers and website presence from snippets.
+
+        Args:
+            html: Raw HTML from DuckDuckGo.
+            category: The category used in the search query.
+            city: The city/region used in the search query.
+
+        Returns:
+            List of parsed result dicts.
+        """
+
+        results: list[dict[str, Any]] = []
+
+        # Extract result links and titles.
+        link_matches = re.findall(_DDG_RESULT_RE_PATTERN, html, re.DOTALL)
+
+        # Extract snippets.
+        snippet_matches = re.findall(_DDG_SNIPPET_RE_PATTERN, html, re.DOTALL)
+
+        for idx, (url, raw_title) in enumerate(link_matches):
+            # Clean HTML tags from title.
+            title = re.sub(r"<[^>]+>", "", raw_title).strip()
+            if not title:
+                continue
+
+            # Get corresponding snippet if available.
+            snippet = ""
+            if idx < len(snippet_matches):
+                snippet = re.sub(r"<[^>]+>", "", snippet_matches[idx]).strip()
+
+            # Try to extract phone from snippet.
+            phone = None
+            phone_match = re.search(_PHONE_RE_PATTERN, snippet)
+            if phone_match:
+                phone = phone_match.group(0)
+
+            # Determine if result looks like a business website.
+            has_website = bool(url) and not any(
+                domain in url for domain in ["2gis.ru", "yandex.ru/maps", "google.com/maps", "vk.com", "instagram.com"]
+            )
+
+            results.append(
+                {
+                    "name": title,
+                    "city": city,
+                    "category": category,
+                    "link": url,
+                    "snippet": snippet,
+                    "phone": phone,
+                    "website": url if has_website else None,
+                    "has_website": has_website,
+                }
+            )
+
+        return results
+
+    # ------------------------------------------------------------------
+    # Stub sources (interface ready for future API integration)
+    # ------------------------------------------------------------------
+
+    async def _search_2gis(
+        self,
+        categories: list[str],
+        region: str,
+        max_results: int,
+    ) -> list[dict[str, Any]]:
+        """Search 2GIS for business listings.
+
+        Stub -- returns empty list. 2GIS API integration is a separate task
+        (Phase 3M). Interface accepts categories and region for future use.
+        """
+        self._log.info("search_2gis_stub", categories=categories, region=region)
         return []
 
-    async def _fetch_yandex(
+    async def _search_yandex_business(
         self,
         categories: list[str],
         region: str,
         max_results: int,
     ) -> list[dict[str, Any]]:
-        """Fetch business listings from Yandex Business API.
+        """Search Yandex Business directory for listings.
 
-        In production, uses Yandex Search API with 'no website' filters.
-        Currently returns empty -- API integration is a separate task.
+        Stub -- returns empty list. Yandex Business API not configured.
+        Interface accepts categories and region for future use.
         """
-        self._log.info("fetch_yandex", categories=categories, region=region)
+        self._log.info("search_yandex_business_stub", categories=categories, region=region)
+        return []
+
+    async def _search_google_maps(
+        self,
+        categories: list[str],
+        region: str,
+        max_results: int,
+    ) -> list[dict[str, Any]]:
+        """Search Google Maps / Places API for businesses.
+
+        Stub -- returns empty list. Google Maps API not configured.
+        Interface accepts categories and region for future use.
+        """
+        self._log.info("search_google_maps_stub", categories=categories, region=region)
         return []
 
     async def _fetch_vk(
@@ -335,25 +559,9 @@ class WebScoutAgent(ConstrainedAgent):
     ) -> list[dict[str, Any]]:
         """Fetch business communities from VK API.
 
-        In production, searches VK groups with type='page' (business pages),
-        filtering by activity and category.
-        Currently returns empty -- API integration is a separate task.
+        Stub -- returns empty list. VK API integration is a separate task.
         """
-        self._log.info("fetch_vk", categories=categories, region=region)
-        return []
-
-    async def _fetch_google(
-        self,
-        categories: list[str],
-        region: str,
-        max_results: int,
-    ) -> list[dict[str, Any]]:
-        """Fetch results from Google Custom Search API.
-
-        In production, uses queries like '[category] [city] без сайта'.
-        Currently returns empty -- API integration is a separate task.
-        """
-        self._log.info("fetch_google", categories=categories, region=region)
+        self._log.info("fetch_vk_stub", categories=categories, region=region)
         return []
 
     async def _fetch_instagram(
@@ -362,13 +570,48 @@ class WebScoutAgent(ConstrainedAgent):
         region: str,
         max_results: int,
     ) -> list[dict[str, Any]]:
-        """Fetch business accounts from Instagram (scraping / API).
+        """Fetch business accounts from Instagram.
 
-        In production, discovers business accounts without website links.
-        Currently returns empty -- requires Playwright stealth.
+        Stub -- returns empty list. Requires Playwright stealth integration.
         """
-        self._log.info("fetch_instagram", categories=categories, region=region)
+        self._log.info("fetch_instagram_stub", categories=categories, region=region)
         return []
+
+    # ------------------------------------------------------------------
+    # Category extraction helper
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_category_from_requirements(requirements: str) -> str | None:
+        """Extract a business category from free-text project requirements.
+
+        Performs simple keyword matching against known high-value categories.
+        Returns the first match or ``None`` if no category is detected.
+
+        Args:
+            requirements: Free-text project requirements string.
+
+        Returns:
+            Category string (e.g. ``"restaurant"``) or ``None``.
+        """
+        if not requirements:
+            return None
+
+        text = requirements.lower()
+        # Map of keywords to category identifiers.
+        category_keywords: dict[str, list[str]] = {
+            "restaurant": ["ресторан", "restaurant", "кафе", "cafe", "кофейн"],
+            "beauty_salon": ["салон красоты", "beauty", "парикмахер", "маникюр", "spa", "спа"],
+            "auto_service": ["автосервис", "auto service", "автомастерск", "шиномонтаж", "сто"],
+            "medical": ["клиника", "clinic", "стоматолог", "dentist", "врач", "doctor", "медицинск"],
+            "education": ["школа", "курсы", "courses", "обучение", "training", "репетитор"],
+            "fitness": ["фитнес", "fitness", "тренажёрн", "gym", "спортзал", "йога", "yoga"],
+        }
+        for category, keywords in category_keywords.items():
+            for keyword in keywords:
+                if keyword in text:
+                    return category
+        return None
 
     # ------------------------------------------------------------------
     # Lead normalization

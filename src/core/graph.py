@@ -133,6 +133,29 @@ async def _send_hitl_telegram_notification(
         return False
 
 
+def _extract_screenshot_url(artifacts: dict[str, Any]) -> str | None:
+    """Extract the screenshot URL/path from a design mockup artifact.
+
+    The Design Agent stores mockup data as a JSON string in
+    ``artifacts["design_mockup"][0]``.  Inside that JSON, the
+    ``screenshot_path`` field holds the screenshot location (when
+    Pencil.dev MCP was available during generation).
+
+    Returns:
+        The screenshot path string, or ``None`` if unavailable.
+    """
+    import json as _json  # noqa: PLC0415
+
+    mockup_raw = (artifacts.get("design_mockup") or [None])[0]
+    if mockup_raw is None:
+        return None
+    try:
+        mockup = _json.loads(mockup_raw)
+        return mockup.get("screenshot_path")
+    except (TypeError, ValueError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Bid submission node
 # ---------------------------------------------------------------------------
@@ -547,6 +570,7 @@ async def hitl_design_review_node(state: dict[str, Any]) -> dict[str, Any]:
                         "thread_id": state["thread_id"],
                         "design_revision": design_revision,
                         "design_spec": (artifacts.get("design_mockup") or [None])[0],
+                        "screenshot_url": _extract_screenshot_url(artifacts),
                     },
                     available_actions=["approve", "request_changes", "reject"],
                     status="pending",
@@ -629,7 +653,8 @@ async def hitl_design_approval_node(state: dict[str, Any]) -> dict[str, Any]:
                     ),
                     payload={
                         "thread_id": state["thread_id"],
-                        "screenshot_url": (artifacts.get("design_mockup") or [None])[0],
+                        "screenshot_url": _extract_screenshot_url(artifacts),
+                        "design_spec": (artifacts.get("design_mockup") or [None])[0],
                         "project_brief": project.get("requirements", ""),
                     },
                     available_actions=["approve", "request_changes", "reject"],
@@ -1054,60 +1079,36 @@ def _route_after_planner(state: dict[str, Any]) -> str:
 
 
 def _route_after_dev(state: dict[str, Any]) -> str:
-    """Route after the Dev Agent.
-
-    Returns:
-        ``"content_node"`` to proceed to Content Agent,
-        ``END`` on failure.
-    """
+    """Route after the Dev Agent using dynamic sequence routing."""
     if state.get("status") == "failed":
         logger.warning("dev_route_to_end_failed", thread_id=state["thread_id"])
         return END
 
-    if state.get("next_agent") == "content":
-        logger.info("dev_route_to_content", thread_id=state["thread_id"])
-        return "content_node"
-
-    logger.warning("dev_route_to_end_no_next", thread_id=state["thread_id"])
-    return END
+    result = _route_next_in_sequence(state)
+    logger.info("dev_route_dynamic", thread_id=state["thread_id"], target=result)
+    return result
 
 
 def _route_after_content(state: dict[str, Any]) -> str:
-    """Route after the Content Agent.
-
-    Returns:
-        ``"design_node"`` to proceed to Design Agent,
-        ``END`` on failure.
-    """
+    """Route after the Content Agent using dynamic sequence routing."""
     if state.get("status") == "failed":
         logger.warning("content_route_to_end_failed", thread_id=state["thread_id"])
         return END
 
-    if state.get("next_agent") == "design":
-        logger.info("content_route_to_design", thread_id=state["thread_id"])
-        return "design_node"
-
-    logger.warning("content_route_to_end_no_next", thread_id=state["thread_id"])
-    return END
+    result = _route_next_in_sequence(state)
+    logger.info("content_route_dynamic", thread_id=state["thread_id"], target=result)
+    return result
 
 
 def _route_after_design(state: dict[str, Any]) -> str:
-    """Route after the Design Agent.
-
-    Returns:
-        ``"critic_node"`` to proceed to quality review,
-        ``END`` on failure.
-    """
+    """Route after the Design Agent using dynamic sequence routing."""
     if state.get("status") == "failed":
         logger.warning("design_route_to_end_failed", thread_id=state["thread_id"])
         return END
 
-    if state.get("next_agent") == "critic":
-        logger.info("design_route_to_critic", thread_id=state["thread_id"])
-        return "critic_node"
-
-    logger.warning("design_route_to_end_no_next", thread_id=state["thread_id"])
-    return END
+    result = _route_next_in_sequence(state)
+    logger.info("design_route_dynamic", thread_id=state["thread_id"], target=result)
+    return result
 
 
 # ---------------------------------------------------------------------------

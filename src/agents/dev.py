@@ -101,11 +101,14 @@ class DevAgent(ConstrainedAgent):
         # 1b. Check if this is a revision cycle (critic feedback present).
         critic_feedback = self._extract_critic_feedback(state)
 
+        # 1c. RAG: retrieve similar code experiences from ExperienceStore.
+        rag_context = await self._fetch_rag_context(state, task_context)
+
         # 2. Build the LLM prompt with full project context.
         if critic_feedback:
-            user_content = self._build_revision_prompt(state, task_context, critic_feedback)
+            user_content = self._build_revision_prompt(state, task_context, critic_feedback, rag_context)
         else:
-            user_content = self._build_user_prompt(state, task_context)
+            user_content = self._build_user_prompt(state, task_context, rag_context)
 
         messages = [
             SystemMessage(content=DEV_SYSTEM_PROMPT),
@@ -179,15 +182,68 @@ class DevAgent(ConstrainedAgent):
         )
 
         # 7. Advance sequence index and let routing decide next agent.
+        #    During a revision loop the critic sends us back without changing
+        #    sequence position -- only bump the index on a fresh (non-revision)
+        #    pass so that routing advances to the next agent correctly.
+        is_revision = state.get("revision_severity") is not None
+        new_index = state["current_sequence_index"] if is_revision else state.get("current_sequence_index", 0) + 1
+
         return update_state(
             state,
             current_agent="dev",
-            current_sequence_index=state.get("current_sequence_index", 0) + 1,
+            current_sequence_index=new_index,
             revision_target=None,
             revision_severity=None,
             artifacts=artifacts,
             status="active",
         )
+
+    # ------------------------------------------------------------------
+    # RAG: experience store context
+    # ------------------------------------------------------------------
+
+    async def _fetch_rag_context(
+        self,
+        state: AgentState,
+        task_context: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Retrieve similar code experiences from ExperienceStore.
+
+        Returns an empty list on any failure -- RAG must never block
+        agent execution.
+        """
+        try:
+            from src.core.database import get_asyncpg_pool  # noqa: PLC0415
+            from src.knowledge.embedding_service import EmbeddingService  # noqa: PLC0415
+            from src.knowledge.experience_store import ExperienceStore  # noqa: PLC0415
+
+            pool = await get_asyncpg_pool()
+            if pool is None:
+                return []
+            store = ExperienceStore(
+                embedding_service=EmbeddingService(),
+                db_pool=pool,
+            )
+
+            # Build query from project requirements + task description.
+            query_parts: list[str] = []
+            project = state.get("project") or {}
+            if project.get("requirements"):
+                query_parts.append(project["requirements"][:300])
+            if task_context.get("description"):
+                query_parts.append(task_context["description"][:300])
+            query_text = " ".join(query_parts)
+            if not query_text.strip():
+                return []
+
+            return await store.retrieve_context(
+                query=query_text,
+                category="code",
+                top_k=3,
+            )
+        except Exception:  # noqa: BLE001
+            self._log.debug("rag_retrieval_skipped", reason="store_unavailable")
+            return []
 
     # ------------------------------------------------------------------
     # Critic revision feedback
@@ -217,6 +273,7 @@ class DevAgent(ConstrainedAgent):
         state: AgentState,
         task_context: dict[str, Any],
         critic_feedback: dict[str, Any],
+        rag_context: list[dict[str, Any]] | None = None,
     ) -> str:
         """Build a revision-aware prompt incorporating Critic Agent feedback.
 
@@ -284,6 +341,13 @@ class DevAgent(ConstrainedAgent):
                 parts.append(f"\n**This is revision #{rev_count}. Please fix ALL reported issues this time.**")
             except (ValueError, TypeError):
                 pass
+
+        # RAG: inject similar code experiences (useful even during revision).
+        if rag_context:
+            parts.append("\n## Similar Code Experiences (RAG)")
+            for idx, r in enumerate(rag_context, 1):
+                score = r.get("similarity_score", 0.0)
+                parts.append(f"\n--- Code Reference {idx} (similarity: {score:.2f}) ---\n{r.get('content', '')[:400]}")
 
         parts.append(
             "\n\nFix the issues above in your code. Keep working code unchanged. "
@@ -356,7 +420,12 @@ class DevAgent(ConstrainedAgent):
     # Prompt building
     # ------------------------------------------------------------------
 
-    def _build_user_prompt(self, state: AgentState, task_context: dict[str, Any]) -> str:
+    def _build_user_prompt(
+        self,
+        state: AgentState,
+        task_context: dict[str, Any],
+        rag_context: list[dict[str, Any]] | None = None,
+    ) -> str:
         """Build the user-facing prompt with project requirements and task details."""
         project = state.get("project") or {}
         parts: list[str] = []
@@ -386,6 +455,17 @@ class DevAgent(ConstrainedAgent):
                     parts.append(json.dumps(plan, indent=2, default=str, ensure_ascii=False)[:2000])
                 except (json.JSONDecodeError, TypeError):
                     parts.append(str(item)[:500])
+
+        # RAG: inject similar code experiences.
+        if rag_context:
+            parts.append("\n## Similar Code Experiences (RAG)")
+            for idx, r in enumerate(rag_context, 1):
+                score = r.get("similarity_score", 0.0)
+                sr = r.get("success_rate")
+                sr_text = f", success rate: {sr:.0%}" if sr is not None else ""
+                parts.append(
+                    f"\n--- Code Reference {idx} (similarity: {score:.2f}{sr_text}) ---\n{r.get('content', '')[:600]}"
+                )
 
         parts.append(
             "\n\nGenerate the code for this task. "

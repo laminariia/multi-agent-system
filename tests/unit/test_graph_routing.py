@@ -136,8 +136,13 @@ def test_route_after_planner_no_next():
 
 
 def test_route_after_dev_to_content():
-    """Dev routes to content_node when next_agent=content."""
-    state = {"thread_id": "t1", "status": "active", "next_agent": "content"}
+    """Dev routes to content_node via dynamic sequence routing."""
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "agent_sequence": ["dev", "content", "design"],
+        "current_sequence_index": 1,
+    }
     assert _route_after_dev(state) == "content_node"
 
 
@@ -148,9 +153,9 @@ def test_route_after_dev_failed():
 
 
 def test_route_after_dev_no_next():
-    """Dev routes to END when next_agent is missing."""
-    state = {"thread_id": "t1", "status": "active"}
-    assert _route_after_dev(state) == END
+    """Dev routes to packager when sequence is empty (no next agent)."""
+    state = {"thread_id": "t1", "status": "active", "agent_sequence": [], "current_sequence_index": 0}
+    assert _route_after_dev(state) == "packager_node"
 
 
 # ---------------------------------------------------------------------------
@@ -159,8 +164,13 @@ def test_route_after_dev_no_next():
 
 
 def test_route_after_content_to_design():
-    """Content routes to design_node when next_agent=design."""
-    state = {"thread_id": "t1", "status": "active", "next_agent": "design"}
+    """Content routes to design_node via dynamic sequence routing."""
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "agent_sequence": ["dev", "content", "design"],
+        "current_sequence_index": 2,
+    }
     assert _route_after_content(state) == "design_node"
 
 
@@ -176,8 +186,13 @@ def test_route_after_content_failed():
 
 
 def test_route_after_design_to_critic():
-    """Design routes to critic_node when next_agent=critic."""
-    state = {"thread_id": "t1", "status": "active", "next_agent": "critic"}
+    """Design routes to critic_node when sequence exhausted."""
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "agent_sequence": ["dev", "content", "design"],
+        "current_sequence_index": 3,
+    }
     assert _route_after_design(state) == "critic_node"
 
 

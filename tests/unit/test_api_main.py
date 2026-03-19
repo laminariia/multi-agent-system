@@ -517,18 +517,18 @@ class TestAppConfiguration:
         assert "content-type" in cors_config.allow_headers
 
     def test_rate_limit_config_300_per_minute(self) -> None:
-        """Should set rate limit to 300 requests per minute."""
-        from src.api.main import rate_limit_config
+        """JWT rate limiter uses 300 req/min default limit."""
+        from src.api.middleware.jwt_rate_limiter import DEFAULT_RATE_LIMIT
 
-        assert rate_limit_config.rate_limit == ("minute", 300)
+        assert DEFAULT_RATE_LIMIT == 300
 
     def test_rate_limit_config_excludes_health_schema_metrics(self) -> None:
-        """Should exclude /health, /schema, /metrics from rate limiting."""
-        from src.api.main import rate_limit_config
+        """JWT rate limiter excludes /health, /schema, /metrics from limiting."""
+        from src.api.middleware.jwt_rate_limiter import EXCLUDE_PATHS
 
-        assert "/health" in rate_limit_config.exclude
-        assert "/schema" in rate_limit_config.exclude
-        assert "/metrics" in rate_limit_config.exclude
+        assert "/health" in EXCLUDE_PATHS
+        assert "/schema" in EXCLUDE_PATHS
+        assert "/metrics" in EXCLUDE_PATHS
 
     def test_openapi_config_title_is_mas_api_version_1_0(self) -> None:
         """Should set OpenAPI title to 'MAS API' and version to '1.0'."""
