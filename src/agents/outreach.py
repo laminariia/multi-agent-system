@@ -180,22 +180,33 @@ class OutreachAgent(ConstrainedAgent):
             waterfall = await self._get_waterfall(user_id=user_id)
             enriched_leads = await self._enrich_leads(leads, waterfall)
 
+            # 2b. Run BusinessAnalyzer on enriched leads (best-effort).
+            analysis_results = await self._analyze_leads(enriched_leads)
+
             # 3. Generate messages for enriched leads (multi-channel).
             messages_drafted = 0
             channel_counts: dict[str, int] = {"email": 0, "telegram": 0}
             if enriched_leads:
                 campaign = await self._create_campaign(city)
                 artifacts["campaign_id"] = str(campaign.id)
-                messages_drafted, channel_counts = await self._generate_messages(
-                    enriched_leads, campaign
-                )
+                messages_drafted, channel_counts = await self._generate_messages(enriched_leads, campaign)
 
                 # 4. Create HITL request for batch approval.
                 if messages_drafted > 0:
                     hitl_id = await self._create_hitl_request(
-                        campaign, city, messages_drafted, channel_counts,
+                        campaign,
+                        city,
+                        messages_drafted,
+                        channel_counts,
                     )
                     artifacts["_outreach_hitl_id"] = str(hitl_id)
+
+            # 5. Create touch sequences for enriched leads.
+            touch_sequences = self._create_touch_sequences(enriched_leads)
+
+            # 5b. Persist touch sequences to DB (best-effort).
+            if touch_sequences:
+                await self._persist_touch_sequences(touch_sequences, artifacts.get("campaign_id"))
 
             enrichment_cost = float(waterfall.total_cost)
 
@@ -208,6 +219,8 @@ class OutreachAgent(ConstrainedAgent):
                 "emails_drafted": messages_drafted,
                 "channel_counts": channel_counts,
                 "enrichment_cost": enrichment_cost,
+                "analysis_results": analysis_results,
+                "touch_sequences": touch_sequences,
             }
 
             return update_state(
@@ -365,7 +378,9 @@ class OutreachAgent(ConstrainedAgent):
         return drafted, channel_counts
 
     async def _draft_message_for_lead(
-        self, lead: Lead, channel: ChannelType,
+        self,
+        lead: Lead,
+        channel: ChannelType,
     ) -> tuple[str | None, str]:
         """Call LLM to generate a personalized message for a single lead.
 
@@ -425,6 +440,161 @@ class OutreachAgent(ConstrainedAgent):
                 "schedule a free consultation."
             ),
         )
+
+    # ------------------------------------------------------------------
+    # Business analysis (best-effort)
+    # ------------------------------------------------------------------
+
+    async def _analyze_leads(self, leads: list[Lead]) -> list[dict[str, Any]]:
+        """Run BusinessAnalyzer on enriched leads.
+
+        Best-effort: if the analyzer fails for a lead, that lead is
+        skipped. If the entire analyzer fails to initialise, returns [].
+        """
+        from src.core.business_analyzer import BusinessAnalyzer  # noqa: PLC0415
+
+        results: list[dict[str, Any]] = []
+        try:
+            analyzer = BusinessAnalyzer()
+        except Exception:  # noqa: BLE001
+            self._log.warning("outreach_analyzer_init_failed", exc_info=True)
+            return results
+
+        for lead in leads:
+            try:
+                tier = getattr(lead, "analysis_tier", None) or "quick"
+                analysis = await analyzer.analyze(lead, tier=tier)
+                results.append(
+                    {
+                        "lead_id": str(lead.id),
+                        "name": lead.name,
+                        "tier": analysis.tier,
+                        "website_exists": analysis.website.exists,
+                    }
+                )
+            except Exception:  # noqa: BLE001
+                self._log.warning(
+                    "outreach_analyze_lead_failed",
+                    lead=lead.name,
+                    exc_info=True,
+                )
+                continue
+
+        self._log.info("outreach_leads_analyzed", total=len(leads), analyzed=len(results))
+        return results
+
+    # ------------------------------------------------------------------
+    # Touch sequence creation
+    # ------------------------------------------------------------------
+
+    def _create_touch_sequences(self, leads: list[Lead]) -> list[dict[str, Any]]:
+        """Create touch sequence records for enriched leads.
+
+        Builds follow-up schedules (Day 1/3/5/10) for each lead using
+        the TouchSequenceManager. The actual scheduling/cron is handled
+        by the API layer; this method only creates the data structures.
+        """
+        from src.core.touch_sequence import TOUCH_SCHEDULE, TouchSequenceManager  # noqa: PLC0415
+
+        sequences: list[dict[str, Any]] = []
+        try:
+            mgr = TouchSequenceManager()
+        except Exception:  # noqa: BLE001
+            self._log.warning("outreach_touch_mgr_init_failed", exc_info=True)
+            return sequences
+
+        for lead in leads:
+            try:
+                seq = mgr.create_sequence(str(lead.id))
+                # Build follow-up schedule from TOUCH_SCHEDULE
+                follow_ups = [
+                    {
+                        "day": step.day,
+                        "channel": mgr.resolve_channel(step, lead),
+                        "template": step.template,
+                        "auto_send": step.auto_send,
+                    }
+                    for step in TOUCH_SCHEDULE
+                ]
+                sequences.append(
+                    {
+                        "lead_id": str(lead.id),
+                        "lead_name": lead.name,
+                        "state": str(seq.state),
+                        "follow_ups": follow_ups,
+                    }
+                )
+            except Exception:  # noqa: BLE001
+                self._log.warning(
+                    "outreach_touch_seq_failed",
+                    lead=lead.name,
+                    exc_info=True,
+                )
+                continue
+
+        self._log.info("outreach_touch_sequences_created", count=len(sequences))
+        return sequences
+
+    # ------------------------------------------------------------------
+    # Touch sequence DB persistence (stub)
+    # ------------------------------------------------------------------
+
+    async def _persist_touch_sequences(
+        self,
+        sequences: list[dict[str, Any]],
+        campaign_id: str | None = None,
+    ) -> int:
+        """Persist touch sequences to the database as scheduled_touches artifacts.
+
+        Stores each sequence as a JSON blob in the agent_logs table (via HITL
+        payload) so that background schedulers can pick them up for follow-up
+        delivery. This is a best-effort operation; failures are logged but do
+        not block the pipeline.
+
+        Returns the number of sequences persisted.
+        """
+        persisted = 0
+        try:
+            async with get_db_session() as session:
+                for seq in sequences:
+                    try:
+                        log_entry = HITLQueue(
+                            type="scheduled_touch",
+                            priority="low",
+                            title=f"Touch sequence: {seq.get('lead_name', 'Unknown')}",
+                            description=(
+                                f"Follow-up sequence for lead {seq.get('lead_id', '?')} "
+                                f"with {len(seq.get('follow_ups', []))} scheduled touches."
+                            ),
+                            payload={
+                                "lead_id": seq.get("lead_id"),
+                                "lead_name": seq.get("lead_name"),
+                                "campaign_id": campaign_id,
+                                "state": seq.get("state"),
+                                "follow_ups": seq.get("follow_ups", []),
+                            },
+                            available_actions=["approve", "skip"],
+                            status="scheduled",
+                        )
+                        session.add(log_entry)
+                        persisted += 1
+                    except Exception:  # noqa: BLE001
+                        self._log.warning(
+                            "outreach_persist_touch_failed",
+                            lead_id=seq.get("lead_id"),
+                            exc_info=True,
+                        )
+                        continue
+                await session.commit()
+        except Exception:  # noqa: BLE001
+            self._log.warning("outreach_persist_touches_failed", exc_info=True)
+
+        self._log.info(
+            "outreach_touch_sequences_persisted",
+            persisted=persisted,
+            total=len(sequences),
+        )
+        return persisted
 
     # ------------------------------------------------------------------
     # HITL queue entry

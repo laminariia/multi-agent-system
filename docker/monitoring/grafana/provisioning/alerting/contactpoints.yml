@@ -1,0 +1,142 @@
+# Grafana Contact Points and Notification Policies for MAS
+# Per deploy-spec.md:
+#   critical  -> Telegram immediate
+#   warning   -> Dashboard webhook + batch Telegram every 30 min
+#   info      -> Dashboard webhook only
+
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: telegram-critical
+    receivers:
+      - uid: mas-telegram-critical
+        type: telegram
+        settings:
+          bottoken: "${TELEGRAM_BOT_TOKEN}"
+          chatid: "${TELEGRAM_CHAT_ID}"
+          parse_mode: HTML
+          disable_web_page_preview: true
+          message: |
+            <b>🚨 MAS CRITICAL ALERT</b>
+
+            <b>Alert:</b> {{ .CommonLabels.alertname }}
+            <b>Severity:</b> {{ .CommonLabels.severity }}
+            <b>Status:</b> {{ .Status }}
+
+            {{ range .Alerts }}
+            <b>Summary:</b> {{ .Annotations.summary }}
+            <b>Description:</b> {{ .Annotations.description }}
+            <b>Started:</b> {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+            {{ if .EndsAt }}<b>Resolved:</b> {{ .EndsAt.Format "2006-01-02 15:04:05 UTC" }}{{ end }}
+            {{ end }}
+
+            <a href="{{ .ExternalURL }}">View in Grafana</a>
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: telegram-warning
+    receivers:
+      - uid: mas-telegram-warning
+        type: telegram
+        settings:
+          bottoken: "${TELEGRAM_BOT_TOKEN}"
+          chatid: "${TELEGRAM_CHAT_ID}"
+          parse_mode: HTML
+          disable_web_page_preview: true
+          message: |
+            <b>⚠️ MAS Warning (batch)</b>
+
+            {{ range .Alerts }}
+            • <b>{{ .Labels.alertname }}</b>: {{ .Annotations.summary }}
+            {{ end }}
+
+            <i>{{ len .Alerts }} alert(s) in this batch</i>
+            <a href="{{ .ExternalURL }}">View in Grafana</a>
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: dashboard-webhook
+    receivers:
+      - uid: mas-dashboard-webhook
+        type: webhook
+        settings:
+          url: "http://api:8000/api/v1/webhooks/grafana"
+          httpMethod: POST
+          maxAlerts: "25"
+          username: ""
+          password: ""
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: email-alerts
+    receivers:
+      - uid: mas-email-alerts
+        type: email
+        settings:
+          addresses: "${ALERT_EMAIL:-admin@example.com}"
+          singleEmail: true
+          message: |
+            MAS Alert Notification
+
+            Alert: {{ .CommonLabels.alertname }}
+            Severity: {{ .CommonLabels.severity }}
+            Status: {{ .Status }}
+
+            {{ range .Alerts }}
+            Summary: {{ .Annotations.summary }}
+            Description: {{ .Annotations.description }}
+            Started: {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+            {{ end }}
+        disableResolveMessage: false
+
+policies:
+  - orgId: 1
+    receiver: dashboard-webhook
+    group_by:
+      - grafana_folder
+      - alertname
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    routes:
+      # Critical alerts -> Telegram immediately + email
+      - receiver: telegram-critical
+        matchers:
+          - severity = critical
+        group_wait: 10s
+        group_interval: 1m
+        repeat_interval: 5m
+        continue: true
+      - receiver: email-alerts
+        matchers:
+          - severity = critical
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 1h
+        continue: false
+
+      # Warning alerts -> Dashboard webhook + batch Telegram every 30 min
+      - receiver: dashboard-webhook
+        matchers:
+          - severity = warning
+        group_wait: 5m
+        group_interval: 10m
+        repeat_interval: 30m
+        continue: true
+      - receiver: telegram-warning
+        matchers:
+          - severity = warning
+        group_wait: 5m
+        group_interval: 30m
+        repeat_interval: 30m
+        continue: false
+
+      # Info alerts -> Dashboard webhook only (no Telegram/email)
+      - receiver: dashboard-webhook
+        matchers:
+          - severity = info
+        group_wait: 10m
+        group_interval: 30m
+        repeat_interval: 4h
+        continue: false

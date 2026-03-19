@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import structlog
 from litestar import Litestar, MediaType, Request, Response
@@ -26,7 +27,6 @@ from litestar.channels.backends.redis import RedisChannelsPubSubBackend
 from litestar.config.cors import CORSConfig
 from litestar.exceptions import HTTPException
 from litestar.middleware import AbstractMiddleware
-from litestar.middleware.rate_limit import RateLimitConfig
 from litestar.openapi import OpenAPIConfig
 from litestar.openapi.plugins import RedocRenderPlugin, SwaggerRenderPlugin
 from litestar.types import Receive, Scope, Send
@@ -43,13 +43,15 @@ from src.api.routes.deals import DealController
 from src.api.routes.health import health_check
 from src.api.routes.hitl import HITLController
 from src.api.routes.jobs import JobController
-from src.api.routes.metrics import MetricsController
+from src.api.routes.metrics import ApiV1MetricsController, MetricsController
 from src.api.routes.orchestrator import OrchestratorController
 from src.api.routes.pipeline_b import PipelineBController
 from src.api.routes.portfolio import PortfolioController
 from src.api.routes.projects import ProjectController
 from src.api.routes.settings import SettingsController
 from src.api.routes.telegram_channels import TelegramChannelController
+from src.api.routes.telegram_webhook import TelegramWebhookController
+from src.api.routes.unsubscribe import UnsubscribeController
 from src.api.routes.users import UserController
 from src.api.schemas import ErrorResponseSchema, ErrorSchema
 from src.api.websocket import (
@@ -346,13 +348,18 @@ cors_config = CORSConfig(
     allow_credentials=True,
 )
 
-# Default rate limit (applied globally; per-route overrides are set on controllers).
-# Set high because Railway reverse proxy collapses all client IPs into one
-# internal address — IP-based limiting effectively caps ALL users together.
-rate_limit_config = RateLimitConfig(
-    rate_limit=("minute", 300),
-    exclude=["/health", "/schema", "/swagger", "/redoc", "/metrics"],
-)
+# Per-user JWT rate limiting via Valkey.
+# Replaces IP-based RateLimitConfig which was useless on Railway (all IPs
+# collapse to a single internal address).
+_valkey_for_rate_limit = get_valkey()
+
+
+def _jwt_rate_limit_middleware_factory(app: Any) -> Any:
+    """Create the JWT rate limiter middleware wrapping the given ASGI app."""
+    from src.api.middleware.jwt_rate_limiter import JWTRateLimiterMiddleware
+
+    return JWTRateLimiterMiddleware(app=app, valkey=_valkey_for_rate_limit)
+
 
 # ChannelsPlugin for WebSocket real-time events
 _valkey_for_channels = get_valkey()
@@ -404,12 +411,15 @@ app = Litestar(
         HITLController,
         JobController,
         MetricsController,
+        ApiV1MetricsController,
         OrchestratorController,
         PipelineBController,
         PortfolioController,
         ProjectController,
         SettingsController,
         TelegramChannelController,
+        TelegramWebhookController,
+        UnsubscribeController,
         UserController,
         ws_handler,
     ],
@@ -425,7 +435,7 @@ app = Litestar(
         Exception: _generic_exception_handler,  # type: ignore[dict-item]
     },
     cors_config=cors_config,
-    middleware=[rate_limit_config.middleware, SecurityHeadersMiddleware],
+    middleware=[_jwt_rate_limit_middleware_factory, SecurityHeadersMiddleware],
     plugins=[channels_plugin],
     openapi_config=openapi_config,
     lifespan=[lifespan],

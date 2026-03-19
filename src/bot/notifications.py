@@ -29,6 +29,11 @@ _TYPE_EMOJI: dict[str, str] = {
     "delivery": "\U0001f4e6",
     "revision": "\U0001f504",
     "alert": "\u26a0\ufe0f",
+    "outreach_approval": "\U0001f4e7",
+    "dev_launch": "\U0001f680",
+    "final_review": "\U0001f3c1",
+    "design_review": "\U0001f3a8",
+    "design_client_approval": "\U0001f465",
 }
 
 # ---------------------------------------------------------------------------
@@ -57,6 +62,31 @@ _TYPE_BUTTONS: dict[str, list[dict[str, str]]] = {
     "alert": [
         {"text": "\u2705 Ack", "callback_data": "hitl:approve:{uuid_hex}"},
         {"text": "\u274c Skip", "callback_data": "hitl:skip:{uuid_hex}"},
+    ],
+    "outreach_approval": [
+        {"text": "\u2705 Approve", "callback_data": "hitl:approve:{uuid_hex}"},
+        {"text": "\u274c Skip", "callback_data": "hitl:skip:{uuid_hex}"},
+        {"text": "\u270f\ufe0f Edit", "callback_data": "hitl:edit:{uuid_hex}"},
+    ],
+    "dev_launch": [
+        {"text": "\u2705 Launch", "callback_data": "hitl:approve:{uuid_hex}"},
+        {"text": "\u274c Skip", "callback_data": "hitl:skip:{uuid_hex}"},
+        {"text": "\u23f8\ufe0f Later", "callback_data": "hitl:later:{uuid_hex}"},
+    ],
+    "final_review": [
+        {"text": "\u2705 Approve", "callback_data": "hitl:approve:{uuid_hex}"},
+        {"text": "\u274c Reject", "callback_data": "hitl:reject:{uuid_hex}"},
+        {"text": "\u23f8\ufe0f Later", "callback_data": "hitl:later:{uuid_hex}"},
+    ],
+    "design_review": [
+        {"text": "\u2705 Approve", "callback_data": "hitl:design_approve:{uuid_hex}"},
+        {"text": "\u270f\ufe0f Revise", "callback_data": "hitl:design_revise:{uuid_hex}"},
+        {"text": "\u274c Reject", "callback_data": "hitl:design_reject:{uuid_hex}"},
+    ],
+    "design_client_approval": [
+        {"text": "\u2705 Approved", "callback_data": "hitl:client_approved:{uuid_hex}"},
+        {"text": "\u270f\ufe0f Changes", "callback_data": "hitl:client_changes:{uuid_hex}"},
+        {"text": "\u274c Rejected", "callback_data": "hitl:client_rejected:{uuid_hex}"},
     ],
 }
 
@@ -189,9 +219,7 @@ class TelegramNotifier:
         lines.append(f"\nID: <code>{hitl_item.id}</code>")
 
         if hitl_item.expires_at:
-            lines.append(
-                f"Expires: {hitl_item.expires_at.strftime('%Y-%m-%d %H:%M UTC')}"
-            )
+            lines.append(f"Expires: {hitl_item.expires_at.strftime('%Y-%m-%d %H:%M UTC')}")
 
         text = "\n".join(lines)
 
@@ -223,8 +251,4 @@ class TelegramNotifier:
 
 def _esc(text: str) -> str:
     """Escape special HTML characters for Telegram HTML parse mode."""
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

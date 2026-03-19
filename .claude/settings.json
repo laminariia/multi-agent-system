@@ -1,6 +1,11 @@
 {
   "permissions": {
     "allow": [
+      "Write",
+      "Edit",
+      "Read",
+      "Glob",
+      "Grep",
       "WebSearch",
       "Bash(ruff check:*)",
       "Bash(ruff format:*)",
@@ -9,10 +14,18 @@
       "Bash(git diff:*)",
       "Bash(git log:*)",
       "Bash(git branch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
       "Bash(alembic:*)",
       "Bash(node:*)",
       "Bash(npm:*)",
-      "Bash(npx:*)"
+      "Bash(npx:*)",
+      "Bash(mkdir:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(cd:*)",
+      "Bash(python:*)",
+      "Bash(pip:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

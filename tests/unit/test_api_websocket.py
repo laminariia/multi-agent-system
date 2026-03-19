@@ -40,12 +40,12 @@ class TestChannelConstants:
         assert CHANNEL_HITL_RESOLVED in _DEFAULT_CHANNELS
         assert CHANNEL_NOTIFICATION in _DEFAULT_CHANNELS
 
-    def test_project_update_not_in_defaults(self) -> None:
-        """Project updates are per-project, not broadcast by default."""
-        assert CHANNEL_PROJECT_UPDATE not in _DEFAULT_CHANNELS
+    def test_project_update_in_defaults(self) -> None:
+        """Project updates auto-subscribed for authenticated users (H15 fix)."""
+        assert CHANNEL_PROJECT_UPDATE in _DEFAULT_CHANNELS
 
     def test_default_channels_count(self) -> None:
-        assert len(_DEFAULT_CHANNELS) == 8
+        assert len(_DEFAULT_CHANNELS) == 10
 
 
 # ---------------------------------------------------------------------------

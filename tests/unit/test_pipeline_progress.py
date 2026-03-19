@@ -630,3 +630,100 @@ class TestPipelineProgressSchema:
         assert "thread_id" in data
         assert "completed_agents" in data
         assert isinstance(data["completed_agents"], list)
+
+
+# ===========================================================================
+# 5. Progress percentage + WebSocket event format (L1 feature)
+# ===========================================================================
+
+
+class TestProgressPercentage:
+    """calculate_progress_pct computes correct percentage."""
+
+    @pytest.mark.asyncio
+    async def test_zero_percent_at_start(self) -> None:
+        from src.core.pipeline_progress import PipelineProgressTracker
+
+        valkey = AsyncMock()
+        tracker = PipelineProgressTracker(valkey)
+        progress = {"completed_agents": [], "total_agents": 6}
+        assert tracker.calculate_progress_pct(progress) == 0
+
+    @pytest.mark.asyncio
+    async def test_fifty_percent_midway(self) -> None:
+        from src.core.pipeline_progress import PipelineProgressTracker
+
+        valkey = AsyncMock()
+        tracker = PipelineProgressTracker(valkey)
+        progress = {
+            "completed_agents": ["planner", "dev", "content"],
+            "total_agents": 6,
+        }
+        assert tracker.calculate_progress_pct(progress) == 50
+
+    @pytest.mark.asyncio
+    async def test_hundred_percent_complete(self) -> None:
+        from src.core.pipeline_progress import PipelineProgressTracker
+
+        valkey = AsyncMock()
+        tracker = PipelineProgressTracker(valkey)
+        progress = {
+            "completed_agents": ["planner", "dev", "content", "design", "critic", "packager"],
+            "total_agents": 6,
+        }
+        assert tracker.calculate_progress_pct(progress) == 100
+
+    @pytest.mark.asyncio
+    async def test_handles_zero_total(self) -> None:
+        from src.core.pipeline_progress import PipelineProgressTracker
+
+        valkey = AsyncMock()
+        tracker = PipelineProgressTracker(valkey)
+        progress = {"completed_agents": [], "total_agents": 0}
+        assert tracker.calculate_progress_pct(progress) == 0
+
+
+class TestBuildWsEvent:
+    """build_ws_event produces the correct WebSocket payload."""
+
+    @pytest.mark.asyncio
+    async def test_event_contains_required_fields(self) -> None:
+        from src.core.pipeline_progress import PipelineProgressTracker
+
+        valkey = AsyncMock()
+        tracker = PipelineProgressTracker(valkey)
+        progress = {
+            "thread_id": "test-thread-001",
+            "current_agent": "dev",
+            "completed_agents": ["planner"],
+            "total_agents": 6,
+            "agent_sequence": ["dev", "content", "design"],
+            "status": "running",
+        }
+        event = tracker.build_ws_event(progress)
+
+        assert event["type"] == "pipeline:progress"
+        assert event["thread_id"] == "test-thread-001"
+        assert event["current_agent"] == "dev"
+        assert event["completed_agents"] == ["planner"]
+        assert event["total_agents"] == 6
+        # 1 out of 6 completed = 16%
+        assert event["progress_pct"] == 16
+
+    @pytest.mark.asyncio
+    async def test_event_progress_pct_at_66(self) -> None:
+        from src.core.pipeline_progress import PipelineProgressTracker
+
+        valkey = AsyncMock()
+        tracker = PipelineProgressTracker(valkey)
+        progress = {
+            "thread_id": "test-thread-001",
+            "current_agent": "critic",
+            "completed_agents": ["planner", "dev", "content", "design"],
+            "total_agents": 6,
+            "agent_sequence": ["dev", "content", "design"],
+            "status": "running",
+        }
+        event = tracker.build_ws_event(progress)
+        # 4/6 = 66%
+        assert event["progress_pct"] == 66

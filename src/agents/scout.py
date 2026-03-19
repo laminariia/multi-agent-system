@@ -97,6 +97,11 @@ class ScoutAgent(ConstrainedAgent):
         """Run the full scout pipeline: fetch -> deduplicate -> score -> route."""
         self._log.info("scout_execute_start", thread_id=state["thread_id"])
 
+        # 0. Load custom rules from Scout config (Dashboard Settings).
+        custom_rules = await self._load_custom_rules()
+        if custom_rules:
+            self._log.info("scout_custom_rules_loaded", count=len(custom_rules))
+
         # 1. Fetch jobs from all platforms in parallel.
         raw_jobs = await self._fetch_all_platforms()
         if not raw_jobs:
@@ -109,6 +114,24 @@ class ScoutAgent(ConstrainedAgent):
         if not new_jobs:
             return update_state(state, current_agent="scout", next_agent=None, status="active")
 
+        # 2b. Category pre-filter: reduce LLM token cost by filtering
+        # jobs that don't match selected categories from Settings.
+        scout_config = await self._load_scout_config()
+        if scout_config:
+            pre_filter_count = len(new_jobs)
+            new_jobs = self._filter_by_categories(new_jobs, scout_config)
+            filtered_out = pre_filter_count - len(new_jobs)
+            if filtered_out > 0:
+                self._log.info(
+                    "category_pre_filter",
+                    before=pre_filter_count,
+                    after=len(new_jobs),
+                    filtered_out=filtered_out,
+                )
+            if not new_jobs:
+                self._log.info("all_jobs_filtered_by_category")
+                return update_state(state, current_agent="scout", next_agent=None, status="active")
+
         # 3. Score and classify each new job via LLM.
         qualified_jobs: list[dict[str, Any]] = []
         review_jobs: list[dict[str, Any]] = []
@@ -117,7 +140,7 @@ class ScoutAgent(ConstrainedAgent):
         for batch_start in range(0, len(new_jobs), _MAX_JOBS_PER_BATCH):
             batch = new_jobs[batch_start : batch_start + _MAX_JOBS_PER_BATCH]
             try:
-                scored = await self._score_jobs(batch)
+                scored = await self._score_jobs(batch, custom_rules=custom_rules)
             except (LLMException, KeyError, ValueError):
                 logger.exception("Failed to score batch of %d jobs, marking as review", len(batch))
                 for job in batch:
@@ -166,6 +189,103 @@ class ScoutAgent(ConstrainedAgent):
             artifacts=artifacts,
             status="active",
         )
+
+    # ------------------------------------------------------------------
+    # Custom rules loading
+    # ------------------------------------------------------------------
+
+    async def _load_custom_rules(self) -> list[str] | None:
+        """Load custom rules from Scout config (Dashboard Settings).
+
+        Returns a list of rule strings, or ``None`` if no rules are configured.
+        Errors are swallowed -- missing rules must never block scanning.
+        """
+        try:
+            async with get_db_session() as session:
+                config = await load_scout_config(session)
+            rules = config.get("custom_rules", [])
+            if rules and isinstance(rules, list):
+                # Filter out empty strings and limit to 50 rules.
+                filtered = [r.strip() for r in rules if isinstance(r, str) and r.strip()]
+                return filtered[:50] if filtered else None
+            return None
+        except Exception:  # noqa: BLE001
+            self._log.debug("scout_custom_rules_load_failed", exc_info=True)
+            return None
+
+    # ------------------------------------------------------------------
+    # Scout config loading (for category pre-filter)
+    # ------------------------------------------------------------------
+
+    async def _load_scout_config(self) -> dict[str, Any] | None:
+        """Load full scout configuration from DB for category filtering.
+
+        Returns the config dict, or ``None`` if unavailable.
+        Errors are swallowed -- missing config must never block scanning.
+        """
+        try:
+            async with get_db_session() as session:
+                config = await load_scout_config(session)
+            return config
+        except Exception:  # noqa: BLE001
+            self._log.debug("scout_config_load_failed", exc_info=True)
+            return None
+
+    # ------------------------------------------------------------------
+    # Category pre-filter (reduces LLM token cost)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _filter_by_categories(
+        jobs: list[dict[str, Any]],
+        config: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Filter jobs by selected categories from Scout config.
+
+        Jobs whose ``category`` field matches either ``categories_auto``
+        or ``categories_suggest`` in the config are kept.  Jobs without
+        a ``category`` field always pass through (cannot be filtered).
+
+        When no categories are configured (empty or missing lists),
+        all jobs pass through unfiltered.
+
+        Args:
+            jobs: Raw job dicts from platform adapters.
+            config: Scout configuration dict (from Dashboard Settings).
+
+        Returns:
+            Filtered list of jobs matching the configured categories.
+        """
+        if not jobs:
+            return []
+
+        auto = config.get("categories_auto", [])
+        suggest = config.get("categories_suggest", [])
+
+        # If no categories configured, pass all through
+        if not auto and not suggest:
+            return jobs
+
+        # Build a lowercase set of allowed categories
+        allowed: set[str] = set()
+        for cat in auto:
+            if isinstance(cat, str):
+                allowed.add(cat.lower())
+        for cat in suggest:
+            if isinstance(cat, str):
+                allowed.add(cat.lower())
+
+        filtered: list[dict[str, Any]] = []
+        for job in jobs:
+            category = job.get("category")
+            if category is None:
+                # Jobs without category always pass through
+                filtered.append(job)
+                continue
+            if isinstance(category, str) and category.lower() in allowed:
+                filtered.append(job)
+
+        return filtered
 
     # ------------------------------------------------------------------
     # Platform fetching
@@ -236,17 +356,40 @@ class ScoutAgent(ConstrainedAgent):
     # LLM scoring
     # ------------------------------------------------------------------
 
-    async def _score_jobs(self, jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Send a batch of jobs to the LLM for scoring and classification."""
+    async def _score_jobs(
+        self,
+        jobs: list[dict[str, Any]],
+        custom_rules: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Send a batch of jobs to the LLM for scoring and classification.
+
+        Parameters
+        ----------
+        jobs:
+            List of raw job dicts to evaluate.
+        custom_rules:
+            Optional free-text rules from Dashboard Settings that the
+            operator defined.  Each rule is injected into the prompt so
+            the LLM applies them during scoring.
+        """
         jobs_text = json.dumps(jobs, indent=2, default=str, ensure_ascii=False)
+
+        # Build the user prompt, optionally enriched with custom rules.
+        prompt_parts: list[str] = [
+            "Evaluate the following jobs and return a JSON array of scored objects.",
+        ]
+
+        if custom_rules:
+            prompt_parts.append("\n# Custom Rules (from operator)")
+            prompt_parts.append("Apply the following additional rules when scoring:")
+            for idx, rule in enumerate(custom_rules, 1):
+                prompt_parts.append(f"  {idx}. {rule}")
+
+        prompt_parts.append(f"\nJobs:\n{jobs_text}")
 
         messages = [
             SystemMessage(content=SCOUT_SYSTEM_PROMPT),
-            HumanMessage(
-                content=(
-                    f"Evaluate the following jobs and return a JSON array of scored objects.\n\nJobs:\n{jobs_text}"
-                )
-            ),
+            HumanMessage(content="\n".join(prompt_parts)),
         ]
 
         response_msg, _metrics = await self._call_llm(messages, temperature=0.2)

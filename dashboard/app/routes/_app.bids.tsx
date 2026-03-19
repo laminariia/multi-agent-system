@@ -46,20 +46,28 @@ function truncate(s: string, max: number): string {
 /* ---------- column config ---------- */
 
 const STATUS_TO_COLUMN: Record<string, string> = {
-  draft: "drafting",
-  submitted: "in_review",
-  active_dialog: "active_dialog",
-  accepted: "approved",
+  draft: "backlog",
+  submitted: "sent",
+  active_dialog: "active",
+  accepted: "confirmed",
   rejected: "rejected",
   withdrawn: "rejected",
 };
 
 const COLUMN_TO_STATUS: Record<string, string> = {
-  drafting: "draft",
-  in_review: "submitted",
-  active_dialog: "active_dialog",
-  approved: "accepted",
+  backlog: "draft",
+  sent: "submitted",
+  active: "active_dialog",
+  confirmed: "accepted",
   rejected: "rejected",
+};
+
+const COLUMN_COLORS: Record<string, string> = {
+  backlog: "bg-zinc-500",
+  sent: "bg-blue-500",
+  active: "bg-orange-500",
+  confirmed: "bg-green-500",
+  rejected: "bg-red-500",
 };
 
 const COLUMNS: {
@@ -67,11 +75,11 @@ const COLUMNS: {
   label: string;
   statuses: string[];
 }[] = [
-  { key: "drafting", label: "Drafting", statuses: ["draft"] },
-  { key: "in_review", label: "In Review", statuses: ["submitted"] },
-  { key: "active_dialog", label: "Active Dialog", statuses: ["active_dialog"] },
-  { key: "approved", label: "Approved / Won", statuses: ["accepted"] },
-  { key: "rejected", label: "Rejected / Done", statuses: ["rejected", "withdrawn"] },
+  { key: "backlog", label: "Backlog", statuses: ["draft"] },
+  { key: "sent", label: "Sent", statuses: ["submitted"] },
+  { key: "active", label: "Active", statuses: ["active_dialog"] },
+  { key: "confirmed", label: "Confirmed", statuses: ["accepted"] },
+  { key: "rejected", label: "Rejected", statuses: ["rejected", "withdrawn"] },
 ];
 
 /* ---------- negotiation badge ---------- */
@@ -155,13 +163,18 @@ function SortableBidCard({
         )}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded">
           {bid.platform}
         </span>
         {bid.delivery_days != null && (
           <span className="text-[10px] text-zinc-500">
             {bid.delivery_days}d delivery
+          </span>
+        )}
+        {(bid as unknown as Record<string, unknown>).score != null && (
+          <span className="text-[10px] bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded font-medium">
+            {Math.round(Number((bid as unknown as Record<string, unknown>).score) * 100)}%
           </span>
         )}
       </div>
@@ -225,7 +238,7 @@ function KanbanColumn({
 
   return (
     <div className="flex flex-col min-h-0" data-column={columnKey}>
-      <div className="h-1 bg-orange-500 rounded-t-md" />
+      <div className={`h-1 ${COLUMN_COLORS[columnKey] ?? "bg-orange-500"} rounded-t-md`} />
       <div className="bg-zinc-900/50 border border-zinc-800 border-t-0 rounded-b-md p-3 flex items-center justify-between mb-3">
         <span className="text-sm font-semibold text-white">{label}</span>
         <Badge className="bg-zinc-800 text-zinc-300 text-[10px]">

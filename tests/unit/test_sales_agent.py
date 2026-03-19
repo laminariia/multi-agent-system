@@ -405,7 +405,7 @@ class TestEdgeCases:
         mock_heartbeat,
         mock_loop_detector,
     ):
-        mock_llm_client.call = AsyncMock(side_effect=Exception("LLM timeout"))
+        mock_llm_client.call = AsyncMock(side_effect=OSError("LLM timeout"))
 
         agent = SalesAgent(
             llm_client=mock_llm_client,

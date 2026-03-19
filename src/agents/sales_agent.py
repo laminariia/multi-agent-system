@@ -55,6 +55,12 @@ class SalesAgent(ConstrainedAgent):
     Handles first contact generation, client reply processing,
     concept creation with HITL gates, and deal lifecycle management.
 
+    .. note::
+
+        ``DealMemory`` is currently ephemeral (in-memory dict).  All deal
+        context is lost on process restart.  Persistent storage backed by
+        PostgreSQL is planned for Phase 4.
+
     Parameters
     ----------
     llm_client:
@@ -128,8 +134,8 @@ class SalesAgent(ConstrainedAgent):
                 return await self._handle_concept(state, sales_ctx)
             # All other stages: process client reply or continue conversation
             return await self._handle_conversation(state, sales_ctx)
-        except Exception:
-            self._log.exception("sales_execute_error", deal_id=deal_id, stage=sales_stage)
+        except (ValueError, KeyError, OSError, ConnectionError) as exc:
+            self._log.exception("sales_execute_error", deal_id=deal_id, stage=sales_stage, error=str(exc))
             return update_state(
                 state,
                 current_agent="sales_agent",
@@ -457,22 +463,26 @@ class SalesAgent(ConstrainedAgent):
         """
         from sqlalchemy import func, select  # noqa: PLC0415
 
+        from src.api.routes import _escape_like  # noqa: PLC0415
         from src.core.database import get_db_session  # noqa: PLC0415
         from src.core.models import Lead  # noqa: PLC0415
 
         try:
+            safe_city = _escape_like(city)
             async with get_db_session() as session:
                 # Count total businesses in same city+category
-                total_stmt = select(func.count(Lead.id)).where(Lead.city.ilike(f"%{city}%"), Lead.category == category)
+                total_stmt = select(func.count(Lead.id)).where(
+                    Lead.city.ilike(f"%{safe_city}%"), Lead.category == category
+                )
                 total_result = await session.execute(total_stmt)
                 total = total_result.scalar() or 0
 
                 # Count those with websites
                 with_website_stmt = select(func.count(Lead.id)).where(
-                    Lead.city.ilike(f"%{city}%"),
+                    Lead.city.ilike(f"%{safe_city}%"),
                     Lead.category == category,
-                    Lead.website_url.isnot(None),
-                    Lead.website_url != "",
+                    Lead.website.isnot(None),
+                    Lead.website != "",
                 )
                 with_website_result = await session.execute(with_website_stmt)
                 with_website = with_website_result.scalar() or 0
@@ -509,19 +519,25 @@ class SalesAgent(ConstrainedAgent):
         """
         from sqlalchemy import func, select  # noqa: PLC0415
 
+        from src.api.routes import _escape_like  # noqa: PLC0415
         from src.core.database import get_db_session  # noqa: PLC0415
         from src.core.models import Deal, Lead  # noqa: PLC0415
 
         try:
+            safe_city = _escape_like(city)
             async with get_db_session() as session:
                 # Count leads in this category+city
                 lead_count_stmt = select(func.count(Lead.id)).where(
-                    Lead.city.ilike(f"%{city}%"), Lead.category == category
+                    Lead.city.ilike(f"%{safe_city}%"), Lead.category == category
                 )
                 lead_count = (await session.execute(lead_count_stmt)).scalar() or 0
 
-                # Avg deal value for won deals
-                avg_deal_stmt = select(func.avg(Deal.value)).where(Deal.status == "won", Deal.category == category)
+                # Avg deal budget for won deals (join through lead for category)
+                avg_deal_stmt = (
+                    select(func.avg(Deal.budget))
+                    .join(Lead, Deal.lead_id == Lead.id)
+                    .where(Deal.status == "won", Lead.category == category)
+                )
                 avg_deal_result = await session.execute(avg_deal_stmt)
                 avg_value = avg_deal_result.scalar()
 

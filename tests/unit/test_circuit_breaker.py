@@ -10,6 +10,7 @@ import asyncio
 import time
 
 import pytest
+
 from src.adapters.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerOpen,
@@ -87,7 +88,7 @@ class TestCircuitBreakerRecovery:
         assert cb.can_execute() is True  # allows 1 probe
 
     async def test_half_open_success_closes(self):
-        cb = CircuitBreaker("test", failure_threshold=1, recovery_timeout=0.1)
+        cb = CircuitBreaker("test", failure_threshold=1, recovery_timeout=0.1, success_threshold=1)
         cb.record_failure()
         await asyncio.sleep(0.15)
         assert cb.state == CircuitState.HALF_OPEN
@@ -152,7 +153,7 @@ class TestCircuitBreakerStats:
         assert stats["opened_at"] is not None
 
     async def test_stats_after_recovery(self):
-        cb = CircuitBreaker("p", failure_threshold=1, recovery_timeout=0.05)
+        cb = CircuitBreaker("p", failure_threshold=1, recovery_timeout=0.05, success_threshold=1)
         cb.record_failure()
         await asyncio.sleep(0.1)
         cb.record_success()

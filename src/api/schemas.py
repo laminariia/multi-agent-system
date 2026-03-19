@@ -298,6 +298,36 @@ class HITLTrendsResponseSchema(_BaseSchema):
     totals: HITLTrendTotalsSchema
 
 
+class HITLViewingLockResponseSchema(_BaseSchema):
+    """Response for viewing-lock acquire / release operations."""
+
+    locked: bool = Field(..., description="Whether the lock is currently held")
+    locked_by: str | None = Field(default=None, description="User ID of the lock holder (None if unlocked)")
+
+
+class HITLDetailResponseSchema(_BaseSchema):
+    """Single HITL item detail with viewing-lock info."""
+
+    id: uuid.UUID
+    type: str = Field(
+        ...,
+        examples=["bid_approval"],
+        description="bid_approval | code_review | delivery | revision | alert",
+    )
+    priority: str = Field(default="normal", examples=["urgent"], description="urgent | normal | low")
+    title: str = Field(..., examples=["React Dashboard for Analytics"])
+    description: str | None = Field(default=None)
+    expires_at: datetime | None = Field(default=None)
+    payload: dict[str, Any] = Field(default_factory=dict, description="Type-specific data blob")
+    available_actions: list[str] = Field(
+        default_factory=list,
+        examples=[["approve", "edit", "skip", "later"]],
+        description="Actions the user may take",
+    )
+    created_at: datetime
+    locked_by: str | None = Field(default=None, description="User ID currently viewing this item (soft lock)")
+
+
 # =============================================================================
 # Agent schemas
 # =============================================================================
@@ -922,7 +952,10 @@ class DealUpdateSchema(_BaseSchema):
     """Request body for updating an existing deal (all fields optional)."""
 
     title: str | None = Field(default=None, min_length=1, max_length=255)
-    status: str | None = Field(default=None, pattern=r"^(new|negotiating|proposal_sent|won|lost|cancelled)$")
+    status: str | None = Field(
+        default=None,
+        pattern=r"^(new|negotiating|concept|design|proposal_sent|in_development|won|lost|completed|cancelled)$",
+    )
     agreed_scope: str | None = Field(default=None)
     budget: float | None = Field(default=None, ge=0)
     deadline: datetime | None = Field(default=None)

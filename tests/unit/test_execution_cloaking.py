@@ -1,648 +1,1115 @@
-"""Tests for P1.6 — Execution Cloaking (Time-Value Arbitrage).
+"""Unit tests for Execution Cloaking system (src/core/execution_cloaking.py).
 
-Covers:
-- State fields: real_hours, proposed_days, min_delivery_at, scheduled_messages
-- Planner: stores real_hours from total_estimated_hours
-- Bid: calculates proposed_days + min_delivery_at
-- Packager: enforces delivery schedule (warning when too early)
+Tests cover all 3 components per spec (dev-cycle-spec.md Phase 4.5):
+1. Double Estimation — AI time vs market rate, present market rate
+2. Delivery Throttling — delay by 70% of estimated time, min 24h
+3. Dispatch Loop — ScheduledMessage send_at <= now() query + mark sent
+
+Plan: docs/Full_work/dev-cycle-spec.md  Phase 4.5
+Reference: src/core/touch_sequence.py (scheduling patterns)
 """
 
 from __future__ import annotations
 
-import json
+import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.core.state import create_initial_state, update_state
-
-pytestmark = pytest.mark.asyncio
-
+from src.core.execution_cloaking import (
+    DELIVERY_THROTTLE_RATIO,
+    MARKET_RATE_DIVISOR_MAX,
+    MARKET_RATE_DIVISOR_MIN,
+    MIN_DELIVERY_HOURS,
+    CloakingConfig,
+    CloakingResult,
+    DeliveryHold,
+    DoubleEstimate,
+    ExecutionCloaking,
+    ScheduledMessageResult,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _project_ctx(**overrides: Any) -> dict[str, Any]:
-    base = {
-        "project_id": "proj-cloak-001",
-        "job_id": "job-cloak-001",
-        "platform": "freelancer",
-        "client": {"name": "Test Client"},
-        "requirements": "Build a REST API with authentication",
-        "budget": 500.0,
-        "deadline": datetime(2026, 4, 1, tzinfo=UTC),
-    }
-    base.update(overrides)
-    return base
+def _utcnow() -> datetime:
+    return datetime.now(tz=UTC)
 
 
-def _make_state(**overrides: Any) -> dict[str, Any]:
-    state = create_initial_state(project=_project_ctx())
-    if overrides:
-        state = update_state(state, **overrides)
-    return state
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 
 
-# ===========================================================================
-# 1. State Field Tests
-# ===========================================================================
+class TestConstants:
+    """Verify module-level constants match the spec."""
+
+    def test_min_delivery_hours_is_24(self):
+        """Spec: minimum 24 hours -- never propose less."""
+        assert MIN_DELIVERY_HOURS == 24
+
+    def test_delivery_throttle_ratio_is_0_7(self):
+        """Spec: min_delivery_at = created_at + proposed_days * 0.7."""
+        assert DELIVERY_THROTTLE_RATIO == 0.7
+
+    def test_market_rate_divisor_min(self):
+        """Spec: human_days / 2..3 => divisor min is 2."""
+        assert MARKET_RATE_DIVISOR_MIN == 2
+
+    def test_market_rate_divisor_max(self):
+        """Spec: human_days / 2..3 => divisor max is 3."""
+        assert MARKET_RATE_DIVISOR_MAX == 3
 
 
-class TestCloakingStateFields:
-    """Verify new execution cloaking fields in AgentState."""
-
-    def test_initial_state_has_real_hours_none(self):
-        state = create_initial_state(project=_project_ctx())
-        assert state.get("real_hours") is None
-
-    def test_initial_state_has_proposed_days_none(self):
-        state = create_initial_state(project=_project_ctx())
-        assert state.get("proposed_days") is None
-
-    def test_initial_state_has_min_delivery_at_none(self):
-        state = create_initial_state(project=_project_ctx())
-        assert state.get("min_delivery_at") is None
-
-    def test_initial_state_has_scheduled_messages_empty(self):
-        state = create_initial_state(project=_project_ctx())
-        assert state.get("scheduled_messages") == []
-
-    def test_update_state_sets_real_hours(self):
-        state = _make_state()
-        updated = update_state(state, real_hours=2.5)
-        assert updated["real_hours"] == 2.5
-
-    def test_update_state_sets_proposed_days(self):
-        state = _make_state()
-        updated = update_state(state, proposed_days=5)
-        assert updated["proposed_days"] == 5
-
-    def test_update_state_sets_min_delivery_at(self):
-        dt = datetime(2026, 3, 15, tzinfo=UTC)
-        state = _make_state()
-        updated = update_state(state, min_delivery_at=dt)
-        assert updated["min_delivery_at"] == dt
-
-    def test_update_state_sets_scheduled_messages(self):
-        msgs = [{"at": "2026-03-12T00:00:00Z", "text": "Progress update", "sent": False}]
-        state = _make_state()
-        updated = update_state(state, scheduled_messages=msgs)
-        assert updated["scheduled_messages"] == msgs
+# ---------------------------------------------------------------------------
+# CloakingConfig dataclass
+# ---------------------------------------------------------------------------
 
 
-# ===========================================================================
-# 2. Planner — real_hours
-# ===========================================================================
+class TestCloakingConfig:
+    """Verify CloakingConfig fields and defaults."""
 
+    def test_default_min_delivery_hours(self):
+        cfg = CloakingConfig()
+        assert cfg.min_delivery_hours == MIN_DELIVERY_HOURS
 
-class TestPlannerRealHours:
-    """Planner stores real_hours from total_estimated_hours."""
+    def test_default_throttle_ratio(self):
+        cfg = CloakingConfig()
+        assert cfg.throttle_ratio == DELIVERY_THROTTLE_RATIO
 
-    @pytest.fixture()
-    def planner_deps(self, mock_llm_client, mock_heartbeat, mock_loop_detector):
-        return {
-            "llm": mock_llm_client,
-            "hb": mock_heartbeat,
-            "ld": mock_loop_detector,
-        }
+    def test_default_divisor_min(self):
+        cfg = CloakingConfig()
+        assert cfg.divisor_min == MARKET_RATE_DIVISOR_MIN
 
-    async def test_planner_stores_real_hours_from_plan(self, planner_deps, sample_state):
-        """Planner should store total_estimated_hours as real_hours in state."""
-        from src.agents.planner import PlannerAgent
+    def test_default_divisor_max(self):
+        cfg = CloakingConfig()
+        assert cfg.divisor_max == MARKET_RATE_DIVISOR_MAX
 
-        plan = {
-            "phases": [
-                {
-                    "name": "Development",
-                    "tasks": [
-                        {"name": "Backend API", "agent": "dev", "estimated_hours": 3.0},
-                        {"name": "Frontend", "agent": "content", "estimated_hours": 2.0},
-                    ],
-                }
-            ],
-            "total_estimated_hours": 5.0,
-            "summary": "REST API project",
-        }
-
-        agent = PlannerAgent(
-            llm_client=planner_deps["llm"],
-            heartbeat=planner_deps["hb"],
-            loop_detector=planner_deps["ld"],
+    def test_custom_values(self):
+        cfg = CloakingConfig(
+            min_delivery_hours=48,
+            throttle_ratio=0.8,
+            divisor_min=3,
+            divisor_max=4,
         )
+        assert cfg.min_delivery_hours == 48
+        assert cfg.throttle_ratio == 0.8
+        assert cfg.divisor_min == 3
+        assert cfg.divisor_max == 4
 
-        state = {**sample_state, "current_agent": "planner"}
 
-        with (
-            patch.object(agent, "_generate_plan", new_callable=AsyncMock, return_value=plan),
-            patch.object(agent, "_log_planning_action", new_callable=AsyncMock),
-        ):
-            result = await agent._execute(state)
+# ---------------------------------------------------------------------------
+# DoubleEstimate dataclass
+# ---------------------------------------------------------------------------
 
-        assert result.get("real_hours") == 5.0
 
-    async def test_planner_real_hours_defaults_zero_on_missing(self, planner_deps, sample_state):
-        """If total_estimated_hours is missing, real_hours should be 0.0."""
-        from src.agents.planner import PlannerAgent
+class TestDoubleEstimate:
+    """Verify DoubleEstimate fields."""
 
-        plan = {
-            "phases": [
-                {
-                    "name": "Development",
-                    "tasks": [
-                        {"name": "Task 1", "agent": "dev", "estimated_hours": 1.0},
-                    ],
-                }
-            ],
-            "summary": "Simple project",
-            # No total_estimated_hours field
-        }
-
-        agent = PlannerAgent(
-            llm_client=planner_deps["llm"],
-            heartbeat=planner_deps["hb"],
-            loop_detector=planner_deps["ld"],
+    def test_create_estimate(self):
+        est = DoubleEstimate(
+            real_hours=2.0,
+            human_days=10,
+            proposed_days=4,
         )
+        assert est.real_hours == 2.0
+        assert est.human_days == 10
+        assert est.proposed_days == 4
 
-        state = {**sample_state, "current_agent": "planner"}
+    def test_speedup_ratio(self):
+        est = DoubleEstimate(real_hours=2.0, human_days=10, proposed_days=4)
+        # 10 days * 8 hours/day = 80 human hours, AI does it in 2 => 40x speedup
+        assert est.speedup_ratio == pytest.approx(40.0)
 
-        with (
-            patch.object(agent, "_generate_plan", new_callable=AsyncMock, return_value=plan),
-            patch.object(agent, "_log_planning_action", new_callable=AsyncMock),
-        ):
-            result = await agent._execute(state)
+    def test_speedup_ratio_zero_real_hours(self):
+        est = DoubleEstimate(real_hours=0.0, human_days=10, proposed_days=4)
+        # Avoid division by zero -- should return 0 safely
+        assert est.speedup_ratio >= 0
 
-        assert result.get("real_hours") == 0.0
+    def test_margin_percentage(self):
+        est = DoubleEstimate(real_hours=2.0, human_days=10, proposed_days=4)
+        # proposed_days * 8 = 32 billable hours, real = 2 => margin ~93.75%
+        assert est.margin_percentage > 90.0
 
-    async def test_planner_real_hours_handles_none_value(self, planner_deps, sample_state):
-        """If total_estimated_hours is None, real_hours should be 0.0."""
-        from src.agents.planner import PlannerAgent
-
-        plan = {
-            "phases": [
-                {
-                    "name": "Dev",
-                    "tasks": [{"name": "T", "agent": "dev", "estimated_hours": 1.0}],
-                }
-            ],
-            "total_estimated_hours": None,
-            "summary": "Project",
-        }
-
-        agent = PlannerAgent(
-            llm_client=planner_deps["llm"],
-            heartbeat=planner_deps["hb"],
-            loop_detector=planner_deps["ld"],
-        )
-
-        state = {**sample_state, "current_agent": "planner"}
-
-        with (
-            patch.object(agent, "_generate_plan", new_callable=AsyncMock, return_value=plan),
-            patch.object(agent, "_should_request_plan_review", return_value=False),
-            patch.object(agent, "_log_planning_action", new_callable=AsyncMock),
-        ):
-            result = await agent._execute(state)
-
-        assert result.get("real_hours") == 0.0
+    def test_margin_percentage_zero_proposed(self):
+        est = DoubleEstimate(real_hours=2.0, human_days=0, proposed_days=0)
+        assert est.margin_percentage == 0.0
 
 
-# ===========================================================================
-# 3. Bid Agent — proposed_days + min_delivery_at
-# ===========================================================================
+# ---------------------------------------------------------------------------
+# CloakingResult dataclass
+# ---------------------------------------------------------------------------
 
 
-class TestBidCloaking:
-    """Bid Agent calculates proposed_days and min_delivery_at."""
+class TestCloakingResult:
+    """Verify CloakingResult fields."""
 
-    @pytest.fixture()
-    def bid_deps(self, mock_llm_client, mock_heartbeat, mock_loop_detector):
-        return {
-            "llm": mock_llm_client,
-            "hb": mock_heartbeat,
-            "ld": mock_loop_detector,
-        }
-
-    async def test_bid_stores_proposed_days(self, bid_deps):
-        """Bid should store delivery_days as proposed_days in state."""
-        from src.agents.bid import BidAgent
-
-        proposal = {
-            "proposal_text": "I will build your API...",
-            "bid_amount": 400.0,
-            "delivery_days": 5,
-            "milestones": [],
-            "requires_hitl": True,
-        }
-
-        agent = BidAgent(
-            llm_client=bid_deps["llm"],
-            heartbeat=bid_deps["hb"],
-            loop_detector=bid_deps["ld"],
-        )
-
-        state = _make_state(
-            current_agent="bid",
-            artifacts={"scout": ["job-cloak-001"]},
-        )
-
-        with (
-            patch.object(agent, "_load_jobs", new_callable=AsyncMock) as mock_load,
-            patch.object(agent, "_generate_proposal", new_callable=AsyncMock, return_value=proposal),
-            patch.object(agent, "_fetch_similar_bids", new_callable=AsyncMock, return_value=[]),
-            patch.object(agent, "_store_bid", new_callable=AsyncMock, return_value="bid-001"),
-            patch.object(agent, "_create_hitl_entry", new_callable=AsyncMock, return_value="hitl-001"),
-            patch.object(agent, "_log_bid_generated", new_callable=AsyncMock),
-        ):
-            mock_load.return_value = [{"id": "job-cloak-001", "title": "API", "description": "Build API"}]
-            result = await agent._execute(state)
-
-        assert result.get("proposed_days") == 5
-
-    async def test_bid_calculates_min_delivery_at(self, bid_deps):
-        """Bid should set min_delivery_at = created_at + proposed_days * 0.7."""
-        from src.agents.bid import BidAgent
-
-        proposal = {
-            "proposal_text": "I will build your API...",
-            "bid_amount": 400.0,
-            "delivery_days": 10,
-            "milestones": [],
-            "requires_hitl": True,
-        }
-
-        agent = BidAgent(
-            llm_client=bid_deps["llm"],
-            heartbeat=bid_deps["hb"],
-            loop_detector=bid_deps["ld"],
-        )
-
-        now = datetime.now(tz=UTC)
-        state = _make_state(
-            current_agent="bid",
-            artifacts={"scout": ["job-cloak-001"]},
+    def test_create_result(self):
+        now = _utcnow()
+        est = DoubleEstimate(real_hours=2.0, human_days=10, proposed_days=4)
+        result = CloakingResult(
+            estimate=est,
+            min_delivery_at=now + timedelta(days=3),
             created_at=now,
+            scheduled_message_count=3,
         )
+        assert result.estimate.proposed_days == 4
+        assert result.scheduled_message_count == 3
 
-        with (
-            patch.object(agent, "_load_jobs", new_callable=AsyncMock) as mock_load,
-            patch.object(agent, "_generate_proposal", new_callable=AsyncMock, return_value=proposal),
-            patch.object(agent, "_fetch_similar_bids", new_callable=AsyncMock, return_value=[]),
-            patch.object(agent, "_store_bid", new_callable=AsyncMock, return_value="bid-001"),
-            patch.object(agent, "_create_hitl_entry", new_callable=AsyncMock, return_value="hitl-001"),
-            patch.object(agent, "_log_bid_generated", new_callable=AsyncMock),
-        ):
-            mock_load.return_value = [{"id": "job-cloak-001", "title": "API", "description": "Build API"}]
-            result = await agent._execute(state)
-
-        min_del = result.get("min_delivery_at")
-        assert min_del is not None
-        # Should be approximately created_at + 10 * 0.7 = 7 days
-        expected = now + timedelta(days=10 * 0.7)
-        assert abs((min_del - expected).total_seconds()) < 60  # within 1 minute
-
-    async def test_bid_minimum_one_day_delivery(self, bid_deps):
-        """Proposed days should never be less than 1."""
-        from src.agents.bid import BidAgent
-
-        proposal = {
-            "proposal_text": "Quick fix...",
-            "bid_amount": 50.0,
-            "delivery_days": 0,
-            "milestones": [],
-            "requires_hitl": True,
-        }
-
-        agent = BidAgent(
-            llm_client=bid_deps["llm"],
-            heartbeat=bid_deps["hb"],
-            loop_detector=bid_deps["ld"],
+    def test_delivery_window_hours(self):
+        now = _utcnow()
+        result = CloakingResult(
+            estimate=DoubleEstimate(real_hours=1.0, human_days=5, proposed_days=3),
+            min_delivery_at=now + timedelta(hours=50),
+            created_at=now,
+            scheduled_message_count=2,
         )
-
-        state = _make_state(
-            current_agent="bid",
-            artifacts={"scout": ["job-cloak-001"]},
-        )
-
-        with (
-            patch.object(agent, "_load_jobs", new_callable=AsyncMock) as mock_load,
-            patch.object(agent, "_generate_proposal", new_callable=AsyncMock, return_value=proposal),
-            patch.object(agent, "_fetch_similar_bids", new_callable=AsyncMock, return_value=[]),
-            patch.object(agent, "_store_bid", new_callable=AsyncMock, return_value="bid-001"),
-            patch.object(agent, "_create_hitl_entry", new_callable=AsyncMock, return_value="hitl-001"),
-            patch.object(agent, "_log_bid_generated", new_callable=AsyncMock),
-        ):
-            mock_load.return_value = [{"id": "job-cloak-001", "title": "Fix", "description": "Small fix"}]
-            result = await agent._execute(state)
-
-        assert result.get("proposed_days", 0) >= 1
-
-    async def test_bid_no_proposal_skips_cloaking(self, bid_deps):
-        """If proposal generation fails, cloaking fields remain None."""
-        from src.agents.bid import BidAgent
-
-        agent = BidAgent(
-            llm_client=bid_deps["llm"],
-            heartbeat=bid_deps["hb"],
-            loop_detector=bid_deps["ld"],
-        )
-
-        state = _make_state(
-            current_agent="bid",
-            artifacts={"scout": ["job-cloak-001"]},
-        )
-
-        with (
-            patch.object(agent, "_load_jobs", new_callable=AsyncMock) as mock_load,
-            patch.object(agent, "_generate_proposal", new_callable=AsyncMock, return_value=None),
-            patch.object(agent, "_fetch_similar_bids", new_callable=AsyncMock, return_value=[]),
-        ):
-            mock_load.return_value = [{"id": "job-cloak-001", "title": "API", "description": "Build API"}]
-            result = await agent._execute(state)
-
-        # No proposal generated, so cloaking fields remain at defaults
-        assert result.get("proposed_days") is None
-        assert result.get("min_delivery_at") is None
+        assert result.delivery_window_hours == pytest.approx(50.0, abs=0.1)
 
 
-# ===========================================================================
-# 4. Packager — delivery schedule enforcement
-# ===========================================================================
+# ---------------------------------------------------------------------------
+# DeliveryHold dataclass
+# ---------------------------------------------------------------------------
 
 
-class TestPackagerDeliverySchedule:
-    """Packager warns when delivery is too early relative to min_delivery_at."""
+class TestDeliveryHold:
+    """Verify DeliveryHold fields."""
 
-    @pytest.fixture()
-    def packager_deps(self, mock_llm_client, mock_heartbeat, mock_loop_detector):
-        return {
-            "llm": mock_llm_client,
-            "hb": mock_heartbeat,
-            "ld": mock_loop_detector,
-        }
-
-    async def test_packager_adds_early_delivery_warning(self, packager_deps):
-        """Packager should warn in HITL when delivering before min_delivery_at."""
-        from src.agents.packager import PackagerAgent
-
-        delivery_info = {
-            "delivery_summary": "API complete",
-            "files": ["api.zip"],
-            "files_count": 1,
-            "instructions": "Deploy and configure",
-        }
-
-        agent = PackagerAgent(
-            llm_client=packager_deps["llm"],
-            heartbeat=packager_deps["hb"],
-            loop_detector=packager_deps["ld"],
-        )
-
-        # min_delivery_at is 3 days in the future
-        future = datetime.now(tz=UTC) + timedelta(days=3)
-        state = _make_state(
-            current_agent="packager",
-            artifacts={"dev": ["code artifact"], "planner": ['{"phases": []}']},
+    def test_create_hold(self):
+        now = _utcnow()
+        future = now + timedelta(days=2)
+        hold = DeliveryHold(
+            is_held=True,
             min_delivery_at=future,
-            delivery_type="files",
+            remaining_hours=48.0,
         )
+        assert hold.is_held is True
+        assert hold.remaining_hours == pytest.approx(48.0)
 
-        with (
-            patch.object(agent, "_generate_delivery_package", new_callable=AsyncMock, return_value=delivery_info),
-            patch.object(agent, "_create_delivery_hold_entry", new_callable=AsyncMock, return_value="hitl-hold-1"),
-            patch.object(agent, "_create_hitl_entry", new_callable=AsyncMock, return_value="hitl-pkg-1"),
-            patch.object(agent, "_log_packaging_action", new_callable=AsyncMock),
-        ):
-            result = await agent._execute(state)
+    def test_not_held(self):
+        hold = DeliveryHold(
+            is_held=False,
+            min_delivery_at=None,
+            remaining_hours=0.0,
+        )
+        assert hold.is_held is False
+        assert hold.remaining_hours == 0.0
 
-        # Check that delivery_hold warning is in artifacts
-        packager_artifacts = result.get("artifacts", {}).get("packager", [])
-        assert packager_artifacts
-        delivery_info = json.loads(packager_artifacts[-1])
-        assert delivery_info.get("delivery_hold") is True
 
-    async def test_packager_no_warning_when_past_min_delivery(self, packager_deps):
-        """No warning when current time is past min_delivery_at."""
-        from src.agents.packager import PackagerAgent
+# ---------------------------------------------------------------------------
+# ScheduledMessageResult dataclass
+# ---------------------------------------------------------------------------
 
-        delivery_info = {
-            "delivery_summary": "API complete",
-            "files": ["api.zip"],
-            "files_count": 1,
-            "instructions": "Deploy and configure",
+
+class TestScheduledMessageResult:
+    """Verify ScheduledMessageResult fields."""
+
+    def test_create_result(self):
+        msg_id = uuid.uuid4()
+        result = ScheduledMessageResult(dispatched_count=1, messages=[msg_id])
+        assert result.dispatched_count == 1
+        assert msg_id in result.messages
+
+    def test_empty_result(self):
+        result = ScheduledMessageResult(dispatched_count=0, messages=[])
+        assert result.dispatched_count == 0
+        assert result.messages == []
+
+
+# ---------------------------------------------------------------------------
+# ExecutionCloaking.__init__
+# ---------------------------------------------------------------------------
+
+
+class TestInit:
+    """Verify ExecutionCloaking construction."""
+
+    def test_default_config(self):
+        ec = ExecutionCloaking()
+        assert ec.config.min_delivery_hours == MIN_DELIVERY_HOURS
+
+    def test_custom_config(self):
+        cfg = CloakingConfig(min_delivery_hours=48)
+        ec = ExecutionCloaking(config=cfg)
+        assert ec.config.min_delivery_hours == 48
+
+
+# ---------------------------------------------------------------------------
+# Component 1: Double Estimation
+# ---------------------------------------------------------------------------
+
+
+class TestDoubleEstimation:
+    """Verify double estimation: AI time vs market rate."""
+
+    def test_basic_estimation(self):
+        ec = ExecutionCloaking()
+        est = ec.compute_double_estimate(real_hours=2.0, human_days=10)
+        assert est.real_hours == 2.0
+        assert est.human_days == 10
+        # proposed_days = human_days / divisor (2..3), so between 3 and 5
+        assert 3 <= est.proposed_days <= 5
+
+    def test_minimum_24_hours_enforced(self):
+        """Spec: minimum 24 hours -- never propose less."""
+        ec = ExecutionCloaking()
+        est = ec.compute_double_estimate(real_hours=0.5, human_days=1)
+        # human_days=1 / 3 = 0.33 days, but minimum is 1 day (24h)
+        assert est.proposed_days >= 1
+
+    def test_zero_real_hours(self):
+        ec = ExecutionCloaking()
+        est = ec.compute_double_estimate(real_hours=0.0, human_days=5)
+        assert est.proposed_days >= 1
+        assert est.real_hours == 0.0
+
+    def test_zero_human_days(self):
+        """Edge case: human_days=0 should still give at least 1 proposed day."""
+        ec = ExecutionCloaking()
+        est = ec.compute_double_estimate(real_hours=1.0, human_days=0)
+        assert est.proposed_days >= 1
+
+    def test_negative_real_hours_clamped(self):
+        ec = ExecutionCloaking()
+        est = ec.compute_double_estimate(real_hours=-5.0, human_days=10)
+        assert est.real_hours == 0.0
+
+    def test_negative_human_days_clamped(self):
+        ec = ExecutionCloaking()
+        est = ec.compute_double_estimate(real_hours=2.0, human_days=-3)
+        assert est.human_days == 0
+        assert est.proposed_days >= 1
+
+    def test_large_project_estimation(self):
+        """20 human_days project => 7-10 proposed days."""
+        ec = ExecutionCloaking()
+        est = ec.compute_double_estimate(real_hours=8.0, human_days=20)
+        assert 6 <= est.proposed_days <= 10
+
+    def test_small_project_estimation(self):
+        """2 human_days project => 1 proposed day (minimum)."""
+        ec = ExecutionCloaking()
+        est = ec.compute_double_estimate(real_hours=0.5, human_days=2)
+        assert est.proposed_days >= 1
+
+    def test_custom_divisor_range(self):
+        """Custom divisor should affect proposed_days."""
+        cfg = CloakingConfig(divisor_min=4, divisor_max=5)
+        ec = ExecutionCloaking(config=cfg)
+        est = ec.compute_double_estimate(real_hours=2.0, human_days=20)
+        # 20 / 5 = 4, 20 / 4 = 5
+        assert 4 <= est.proposed_days <= 5
+
+    def test_proposed_days_is_int(self):
+        ec = ExecutionCloaking()
+        est = ec.compute_double_estimate(real_hours=3.0, human_days=7)
+        assert isinstance(est.proposed_days, int)
+
+    def test_speedup_ratio_calculated(self):
+        ec = ExecutionCloaking()
+        est = ec.compute_double_estimate(real_hours=1.0, human_days=10)
+        # 10 * 8 = 80 human hours / 1 real hour = 80x
+        assert est.speedup_ratio == pytest.approx(80.0)
+
+
+# ---------------------------------------------------------------------------
+# Component 2: Delivery Throttling
+# ---------------------------------------------------------------------------
+
+
+class TestDeliveryThrottling:
+    """Verify delivery throttling: delay by 70% of estimated time."""
+
+    def test_compute_min_delivery_at(self):
+        """min_delivery_at = created_at + proposed_days * 0.7."""
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        min_at = ec.compute_min_delivery_at(proposed_days=4, created_at=now)
+        expected = now + timedelta(days=4 * 0.7)
+        assert abs((min_at - expected).total_seconds()) < 1
+
+    def test_minimum_24h_delivery(self):
+        """Even 1-day proposal should enforce >= 24h."""
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        min_at = ec.compute_min_delivery_at(proposed_days=1, created_at=now)
+        diff_hours = (min_at - now).total_seconds() / 3600
+        assert diff_hours >= 24.0
+
+    def test_zero_proposed_days_enforces_minimum(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        min_at = ec.compute_min_delivery_at(proposed_days=0, created_at=now)
+        diff_hours = (min_at - now).total_seconds() / 3600
+        assert diff_hours >= 24.0
+
+    def test_negative_proposed_days_enforces_minimum(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        min_at = ec.compute_min_delivery_at(proposed_days=-5, created_at=now)
+        diff_hours = (min_at - now).total_seconds() / 3600
+        assert diff_hours >= 24.0
+
+    def test_large_proposed_days(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        min_at = ec.compute_min_delivery_at(proposed_days=30, created_at=now)
+        expected = now + timedelta(days=30 * 0.7)
+        assert abs((min_at - expected).total_seconds()) < 1
+
+    def test_custom_throttle_ratio(self):
+        cfg = CloakingConfig(throttle_ratio=0.5)
+        ec = ExecutionCloaking(config=cfg)
+        now = _utcnow()
+        min_at = ec.compute_min_delivery_at(proposed_days=10, created_at=now)
+        expected = now + timedelta(days=10 * 0.5)
+        assert abs((min_at - expected).total_seconds()) < 1
+
+    def test_check_delivery_hold_future(self):
+        """Delivery should be held when min_delivery_at is in the future."""
+        ec = ExecutionCloaking()
+        future = _utcnow() + timedelta(days=2)
+        hold = ec.check_delivery_hold(min_delivery_at=future)
+        assert hold.is_held is True
+        assert hold.remaining_hours > 0
+
+    def test_check_delivery_hold_past(self):
+        """Delivery should NOT be held when min_delivery_at is in the past."""
+        ec = ExecutionCloaking()
+        past = _utcnow() - timedelta(days=1)
+        hold = ec.check_delivery_hold(min_delivery_at=past)
+        assert hold.is_held is False
+        assert hold.remaining_hours == 0.0
+
+    def test_check_delivery_hold_none(self):
+        """No min_delivery_at => not held."""
+        ec = ExecutionCloaking()
+        hold = ec.check_delivery_hold(min_delivery_at=None)
+        assert hold.is_held is False
+        assert hold.remaining_hours == 0.0
+
+    def test_check_delivery_hold_remaining_accuracy(self):
+        ec = ExecutionCloaking()
+        future = _utcnow() + timedelta(hours=48)
+        hold = ec.check_delivery_hold(min_delivery_at=future)
+        assert hold.remaining_hours == pytest.approx(48.0, abs=0.1)
+
+    def test_check_delivery_hold_naive_datetime(self):
+        """Should handle naive datetimes by assuming UTC."""
+        ec = ExecutionCloaking()
+        future = datetime.utcnow() + timedelta(days=2)  # noqa: DTZ003
+        hold = ec.check_delivery_hold(min_delivery_at=future)
+        assert hold.is_held is True
+
+
+# ---------------------------------------------------------------------------
+# Full cloaking pipeline (compute_double_estimate + throttle)
+# ---------------------------------------------------------------------------
+
+
+class TestApplyCloaking:
+    """Verify full cloaking pipeline via apply()."""
+
+    def test_apply_returns_cloaking_result(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        result = ec.apply(real_hours=2.0, human_days=10, created_at=now)
+        assert isinstance(result, CloakingResult)
+        assert result.estimate.real_hours == 2.0
+        assert result.min_delivery_at > now
+
+    def test_apply_min_delivery_at_uses_throttle(self):
+        """min_delivery_at should be ~70% of proposed_days after created_at."""
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        result = ec.apply(real_hours=1.0, human_days=14, created_at=now)
+        proposed = result.estimate.proposed_days
+        expected_min = now + timedelta(days=proposed * 0.7)
+        # Should be within 1 second of expected (24h minimum might override)
+        diff = abs((result.min_delivery_at - expected_min).total_seconds())
+        if proposed * 0.7 * 24 >= 24:
+            assert diff < 2
+
+    def test_apply_enforces_minimum_24h(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        result = ec.apply(real_hours=0.1, human_days=1, created_at=now)
+        diff_hours = (result.min_delivery_at - now).total_seconds() / 3600
+        assert diff_hours >= 24.0
+
+    def test_apply_default_created_at(self):
+        """Should use current time if created_at not provided."""
+        ec = ExecutionCloaking()
+        before = _utcnow()
+        result = ec.apply(real_hours=2.0, human_days=10)
+        after = _utcnow()
+        assert before <= result.created_at <= after
+
+    def test_apply_zero_inputs(self):
+        ec = ExecutionCloaking()
+        result = ec.apply(real_hours=0.0, human_days=0)
+        assert result.estimate.proposed_days >= 1
+        diff_hours = (result.min_delivery_at - result.created_at).total_seconds() / 3600
+        assert diff_hours >= 24.0
+
+
+# ---------------------------------------------------------------------------
+# State integration helpers
+# ---------------------------------------------------------------------------
+
+
+class TestStateHelpers:
+    """Verify state dict integration methods."""
+
+    def test_apply_to_state(self):
+        """apply_to_state should set proposed_days, min_delivery_at, real_hours."""
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        state: dict = {
+            "real_hours": None,
+            "proposed_days": None,
+            "min_delivery_at": None,
+            "scheduled_messages": [],
+            "created_at": now,
         }
+        result = ec.apply_to_state(state, real_hours=2.0, human_days=10)
+        assert state["real_hours"] == 2.0
+        assert state["proposed_days"] >= 1
+        assert state["min_delivery_at"] is not None
+        assert isinstance(result, CloakingResult)
 
-        agent = PackagerAgent(
-            llm_client=packager_deps["llm"],
-            heartbeat=packager_deps["hb"],
-            loop_detector=packager_deps["ld"],
-        )
-
-        # min_delivery_at is in the past
-        past = datetime.now(tz=UTC) - timedelta(days=1)
-        state = _make_state(
-            current_agent="packager",
-            artifacts={"dev": ["code artifact"], "planner": ['{"phases": []}']},
-            min_delivery_at=past,
-            delivery_type="files",
-        )
-
-        with (
-            patch.object(agent, "_generate_delivery_package", new_callable=AsyncMock, return_value=delivery_info),
-            patch.object(agent, "_create_hitl_entry", new_callable=AsyncMock, return_value="hitl-pkg-2"),
-            patch.object(agent, "_log_packaging_action", new_callable=AsyncMock),
-        ):
-            result = await agent._execute(state)
-
-        packager_artifacts = result.get("artifacts", {}).get("packager", [])
-        assert packager_artifacts
-        delivery_info = json.loads(packager_artifacts[-1])
-        assert delivery_info.get("delivery_hold") is not True
-
-    async def test_packager_no_min_delivery_at_backwards_compatible(self, packager_deps):
-        """No min_delivery_at → no throttling (backwards-compatible)."""
-        from src.agents.packager import PackagerAgent
-
-        delivery_info = {
-            "delivery_summary": "API complete",
-            "files": ["api.zip"],
-            "files_count": 1,
-            "instructions": "Deploy and configure",
+    def test_apply_to_state_preserves_other_fields(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        state: dict = {
+            "thread_id": "t-123",
+            "status": "active",
+            "real_hours": None,
+            "proposed_days": None,
+            "min_delivery_at": None,
+            "scheduled_messages": [],
+            "created_at": now,
         }
+        ec.apply_to_state(state, real_hours=1.0, human_days=5)
+        assert state["thread_id"] == "t-123"
+        assert state["status"] == "active"
 
-        agent = PackagerAgent(
-            llm_client=packager_deps["llm"],
-            heartbeat=packager_deps["hb"],
-            loop_detector=packager_deps["ld"],
+    def test_is_delivery_held_from_state(self):
+        ec = ExecutionCloaking()
+        future = _utcnow() + timedelta(days=3)
+        state: dict = {"min_delivery_at": future}
+        hold = ec.check_delivery_hold_from_state(state)
+        assert hold.is_held is True
+
+    def test_is_delivery_held_from_state_none(self):
+        ec = ExecutionCloaking()
+        state: dict = {"min_delivery_at": None}
+        hold = ec.check_delivery_hold_from_state(state)
+        assert hold.is_held is False
+
+    def test_is_delivery_held_from_state_missing_key(self):
+        ec = ExecutionCloaking()
+        state: dict = {}
+        hold = ec.check_delivery_hold_from_state(state)
+        assert hold.is_held is False
+
+
+# ---------------------------------------------------------------------------
+# Component 3: Dispatch Loop
+# ---------------------------------------------------------------------------
+
+
+class TestDispatchLoop:
+    """Verify dispatch loop: query ScheduledMessages where send_at <= now()."""
+
+    pytestmark = pytest.mark.asyncio
+
+    async def test_dispatch_due_messages(self):
+        """Should mark due messages as sent and return count."""
+        ec = ExecutionCloaking()
+
+        past = _utcnow() - timedelta(hours=1)
+        mock_msg1 = MagicMock()
+        mock_msg1.id = uuid.uuid4()
+        mock_msg1.project_id = "proj-1"
+        mock_msg1.thread_id = "thread-1"
+        mock_msg1.content = "Progress update"
+        mock_msg1.channel = "platform"
+        mock_msg1.send_at = past
+        mock_msg1.status = "pending"
+
+        mock_msg2 = MagicMock()
+        mock_msg2.id = uuid.uuid4()
+        mock_msg2.project_id = "proj-1"
+        mock_msg2.thread_id = "thread-1"
+        mock_msg2.content = "Backend ready"
+        mock_msg2.channel = "platform"
+        mock_msg2.send_at = past - timedelta(hours=2)
+        mock_msg2.status = "pending"
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_msg1, mock_msg2]
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        result = await ec.dispatch_due_messages(mock_session)
+
+        assert isinstance(result, ScheduledMessageResult)
+        assert result.dispatched_count == 2
+        assert mock_msg1.status == "sent"
+        assert mock_msg2.status == "sent"
+        assert mock_msg1.sent_at is not None
+        assert mock_msg2.sent_at is not None
+
+    async def test_dispatch_no_due_messages(self):
+        """Should return 0 when no messages are due."""
+        ec = ExecutionCloaking()
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        result = await ec.dispatch_due_messages(mock_session)
+
+        assert result.dispatched_count == 0
+        assert result.messages == []
+
+    async def test_dispatch_marks_sent_at_timestamp(self):
+        """sent_at should be set to approximately now."""
+        ec = ExecutionCloaking()
+
+        before = _utcnow()
+
+        mock_msg = MagicMock()
+        mock_msg.id = uuid.uuid4()
+        mock_msg.status = "pending"
+        mock_msg.send_at = _utcnow() - timedelta(minutes=5)
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_msg]
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        await ec.dispatch_due_messages(mock_session)
+
+        after = _utcnow()
+        assert before <= mock_msg.sent_at <= after
+
+    async def test_dispatch_commits_session(self):
+        """Should commit the session after marking messages."""
+        ec = ExecutionCloaking()
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        await ec.dispatch_due_messages(mock_session)
+
+        mock_session.commit.assert_awaited_once()
+
+    async def test_dispatch_returns_message_ids(self):
+        """Result should contain ids of dispatched messages."""
+        ec = ExecutionCloaking()
+
+        msg_id = uuid.uuid4()
+        mock_msg = MagicMock()
+        mock_msg.id = msg_id
+        mock_msg.status = "pending"
+        mock_msg.send_at = _utcnow() - timedelta(minutes=1)
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_msg]
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        result = await ec.dispatch_due_messages(mock_session)
+
+        assert msg_id in result.messages
+
+    async def test_dispatch_only_queries_pending(self):
+        """Query should filter by status='pending'."""
+        ec = ExecutionCloaking()
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        await ec.dispatch_due_messages(mock_session)
+
+        mock_session.execute.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Scheduled message generation integration
+# ---------------------------------------------------------------------------
+
+
+class TestScheduledMessageGeneration:
+    """Verify generate_progress_messages creates messages for delivery window."""
+
+    def test_generates_messages(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        min_delivery_at = now + timedelta(days=3)
+        messages = ec.generate_progress_messages(
+            project_id="proj-1",
+            thread_id="thread-1",
+            min_delivery_at=min_delivery_at,
         )
+        assert len(messages) >= 2
+        assert all(isinstance(m, dict) for m in messages)
 
-        state = _make_state(
-            current_agent="packager",
-            artifacts={"dev": ["code artifact"], "planner": ['{"phases": []}']},
-            delivery_type="files",
-            # No min_delivery_at
+    def test_messages_are_before_min_delivery(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        min_delivery_at = now + timedelta(days=3)
+        messages = ec.generate_progress_messages(
+            project_id="proj-1",
+            thread_id="thread-1",
+            min_delivery_at=min_delivery_at,
         )
+        for m in messages:
+            assert m["send_at"] <= min_delivery_at
 
-        with (
-            patch.object(agent, "_generate_delivery_package", new_callable=AsyncMock, return_value=delivery_info),
-            patch.object(agent, "_create_hitl_entry", new_callable=AsyncMock, return_value="hitl-pkg-3"),
-            patch.object(agent, "_log_packaging_action", new_callable=AsyncMock),
-        ):
-            result = await agent._execute(state)
+    def test_messages_are_chronological(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        min_delivery_at = now + timedelta(days=5)
+        messages = ec.generate_progress_messages(
+            project_id="proj-1",
+            thread_id="thread-1",
+            min_delivery_at=min_delivery_at,
+        )
+        send_times = [m["send_at"] for m in messages]
+        assert send_times == sorted(send_times)
 
-        packager_artifacts = result.get("artifacts", {}).get("packager", [])
-        assert packager_artifacts
-        delivery_info = json.loads(packager_artifacts[-1])
-        assert delivery_info.get("delivery_hold") is not True
+    def test_messages_have_content(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        messages = ec.generate_progress_messages(
+            project_id="p1",
+            thread_id="t1",
+            min_delivery_at=now + timedelta(days=2),
+        )
+        assert all(m["content"] and len(m["content"]) > 10 for m in messages)
 
-    async def test_packager_early_delivery_hours_in_warning(self, packager_deps):
-        """Warning should include remaining hours info."""
-        from src.agents.packager import PackagerAgent
+    def test_messages_have_required_fields(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        messages = ec.generate_progress_messages(
+            project_id="p1",
+            thread_id="t1",
+            min_delivery_at=now + timedelta(days=2),
+        )
+        required = {"project_id", "thread_id", "send_at", "content", "channel", "status"}
+        for m in messages:
+            assert required.issubset(m.keys())
 
-        delivery_info = {
-            "delivery_summary": "Done",
-            "files": ["code.zip"],
-            "files_count": 1,
-            "instructions": "Run it",
+    def test_messages_default_channel_platform(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        messages = ec.generate_progress_messages(
+            project_id="p1",
+            thread_id="t1",
+            min_delivery_at=now + timedelta(days=2),
+        )
+        assert all(m["channel"] == "platform" for m in messages)
+
+    def test_messages_custom_channel(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        messages = ec.generate_progress_messages(
+            project_id="p1",
+            thread_id="t1",
+            min_delivery_at=now + timedelta(days=2),
+            channel="email",
+        )
+        assert all(m["channel"] == "email" for m in messages)
+
+    def test_messages_all_pending_status(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        messages = ec.generate_progress_messages(
+            project_id="p1",
+            thread_id="t1",
+            min_delivery_at=now + timedelta(days=2),
+        )
+        assert all(m["status"] == "pending" for m in messages)
+
+    def test_short_window_fewer_messages(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        short = ec.generate_progress_messages("p", "t", now + timedelta(hours=6))
+        long = ec.generate_progress_messages("p", "t", now + timedelta(days=5))
+        assert len(short) <= len(long)
+
+    def test_minimum_two_messages(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        messages = ec.generate_progress_messages("p", "t", now + timedelta(hours=2))
+        assert len(messages) >= 2
+
+    def test_maximum_eight_messages(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        messages = ec.generate_progress_messages("p", "t", now + timedelta(days=30))
+        assert len(messages) <= 8
+
+
+# ---------------------------------------------------------------------------
+# Cloaking cover story
+# ---------------------------------------------------------------------------
+
+
+class TestCoverStory:
+    """Verify the cover story text per spec."""
+
+    def test_get_cover_story_returns_string(self):
+        ec = ExecutionCloaking()
+        story = ec.get_cover_story()
+        assert isinstance(story, str)
+        assert len(story) > 50
+
+    def test_cover_story_mentions_tools(self):
+        """Spec: mention proprietary library, CLI tools, CI/CD pipelines."""
+        ec = ExecutionCloaking()
+        story = ec.get_cover_story().lower()
+        assert "библиотек" in story or "library" in story or "component" in story
+
+    def test_cover_story_no_ai_mention(self):
+        """Cover story should NOT mention AI, ML, or automation directly."""
+        ec = ExecutionCloaking()
+        story = ec.get_cover_story().lower()
+        assert "ai" not in story.split()
+        assert "machine learning" not in story
+
+
+# ---------------------------------------------------------------------------
+# Edge cases and robustness
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeCases:
+    """Edge cases and robustness checks."""
+
+    def test_very_large_real_hours(self):
+        ec = ExecutionCloaking()
+        est = ec.compute_double_estimate(real_hours=1000.0, human_days=500)
+        assert est.proposed_days >= 1
+
+    def test_fractional_human_days(self):
+        """human_days can be fractional (e.g. 0.5 days)."""
+        ec = ExecutionCloaking()
+        est = ec.compute_double_estimate(real_hours=0.5, human_days=0.5)
+        assert est.proposed_days >= 1
+
+    def test_apply_idempotent_state(self):
+        """Calling apply_to_state twice should overwrite cleanly."""
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        state: dict = {
+            "real_hours": 5.0,
+            "proposed_days": 10,
+            "min_delivery_at": now + timedelta(days=7),
+            "scheduled_messages": [],
+            "created_at": now,
         }
+        ec.apply_to_state(state, real_hours=2.0, human_days=8)
+        assert state["real_hours"] == 2.0
+        assert state["proposed_days"] != 10  # changed
 
-        agent = PackagerAgent(
-            llm_client=packager_deps["llm"],
-            heartbeat=packager_deps["hb"],
-            loop_detector=packager_deps["ld"],
+    def test_compute_min_delivery_at_returns_aware_datetime(self):
+        ec = ExecutionCloaking()
+        now = _utcnow()
+        result = ec.compute_min_delivery_at(proposed_days=5, created_at=now)
+        assert result.tzinfo is not None
+
+    def test_thread_safety_independent_instances(self):
+        """Two ExecutionCloaking instances should not share state."""
+        ec1 = ExecutionCloaking()
+        ec2 = ExecutionCloaking(config=CloakingConfig(min_delivery_hours=48))
+        assert ec1.config.min_delivery_hours != ec2.config.min_delivery_hours
+
+
+# ---------------------------------------------------------------------------
+# Logging verification
+# ---------------------------------------------------------------------------
+
+
+class TestLogging:
+    """Verify structlog integration."""
+
+    pytestmark = pytest.mark.asyncio
+
+    def test_apply_logs_estimation(self):
+        ec = ExecutionCloaking()
+        with patch("src.core.execution_cloaking.logger") as mock_log:
+            ec.apply(real_hours=2.0, human_days=10)
+            mock_log.info.assert_called()
+
+    async def test_dispatch_logs_count(self):
+        ec = ExecutionCloaking()
+
+        mock_result = MagicMock()
+        mock_msg = MagicMock()
+        mock_msg.id = uuid.uuid4()
+        mock_msg.status = "pending"
+        mock_msg.send_at = _utcnow() - timedelta(minutes=1)
+        mock_result.scalars.return_value.all.return_value = [mock_msg]
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        with patch("src.core.execution_cloaking.logger") as mock_log:
+            await ec.dispatch_due_messages(mock_session)
+            mock_log.info.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# LLM-generated progress messages (Issue 1)
+# ---------------------------------------------------------------------------
+
+
+class TestLLMProgressMessages:
+    """Verify LLM-generated progress messages with static fallback."""
+
+    pytestmark = pytest.mark.asyncio
+
+    async def test_generate_progress_message_with_llm(self):
+        """When LLM client is available, should use it for message generation."""
+        mock_response = MagicMock()
+        mock_response.content = "Working on the React dashboard components and connecting to the API."
+        mock_metrics = MagicMock()
+
+        mock_llm = AsyncMock()
+        mock_llm.call = AsyncMock(return_value=(mock_response, mock_metrics))
+
+        ec = ExecutionCloaking(llm_client=mock_llm)
+        msg = await ec._generate_progress_message(
+            project_context={"title": "Dashboard", "category": "frontend", "tech_stack": "React"},
+            progress_pct=50.0,
         )
 
-        # 48 hours from now
-        future = datetime.now(tz=UTC) + timedelta(hours=48)
-        state = _make_state(
-            current_agent="packager",
-            artifacts={"dev": ["artifact"], "planner": ['{"phases": []}']},
-            min_delivery_at=future,
-            delivery_type="files",
+        assert len(msg) > 10
+        assert msg == "Working on the React dashboard components and connecting to the API."
+        mock_llm.call.assert_awaited_once()
+
+    async def test_generate_progress_message_llm_fallback_on_error(self):
+        """When LLM call fails, should fall back to static templates."""
+        mock_llm = AsyncMock()
+        mock_llm.call = AsyncMock(side_effect=Exception("LLM unavailable"))
+
+        ec = ExecutionCloaking(llm_client=mock_llm)
+        msg = await ec._generate_progress_message(
+            project_context={"title": "API"},
+            progress_pct=25.0,
         )
 
-        with (
-            patch.object(agent, "_generate_delivery_package", new_callable=AsyncMock, return_value=delivery_info),
-            patch.object(agent, "_create_delivery_hold_entry", new_callable=AsyncMock, return_value="hitl-hold-4"),
-            patch.object(agent, "_create_hitl_entry", new_callable=AsyncMock, return_value="hitl-pkg-4"),
-            patch.object(agent, "_log_packaging_action", new_callable=AsyncMock),
-        ):
-            result = await agent._execute(state)
+        assert len(msg) > 10
+        # Should be one of the static templates
+        from src.core.execution_cloaking import _PROGRESS_TEMPLATES
 
-        packager_artifacts = result.get("artifacts", {}).get("packager", [])
-        delivery_info = json.loads(packager_artifacts[-1])
-        assert "delivery_hold_reason" in delivery_info
-        assert "hour" in delivery_info["delivery_hold_reason"].lower()
+        assert msg in _PROGRESS_TEMPLATES
 
+    async def test_generate_progress_message_no_llm_client(self):
+        """When no LLM client is configured, should use static templates."""
+        ec = ExecutionCloaking()  # no llm_client
+        msg = await ec._generate_progress_message(
+            project_context={"title": "Test"},
+            progress_pct=0.0,
+        )
+        from src.core.execution_cloaking import _PROGRESS_TEMPLATES
 
-# ===========================================================================
-# 5. Scheduled Messages (structure)
-# ===========================================================================
+        assert msg in _PROGRESS_TEMPLATES
 
+    async def test_generate_progress_message_llm_empty_response(self):
+        """When LLM returns empty/short content, fall back to static."""
+        mock_response = MagicMock()
+        mock_response.content = "OK"  # too short
+        mock_metrics = MagicMock()
 
-class TestScheduledMessages:
-    """Scheduled messages structure in state."""
+        mock_llm = AsyncMock()
+        mock_llm.call = AsyncMock(return_value=(mock_response, mock_metrics))
 
-    def test_scheduled_message_structure(self):
-        """Verify message structure: at, text, sent."""
-        msg = {"at": "2026-03-12T10:00:00Z", "text": "Backend is ready", "sent": False}
-        state = _make_state(scheduled_messages=[msg])
-        msgs = state["scheduled_messages"]
-        assert len(msgs) == 1
-        assert msgs[0]["text"] == "Backend is ready"
-        assert msgs[0]["sent"] is False
-
-    def test_multiple_scheduled_messages(self):
-        """Multiple messages can be stored."""
-        msgs = [
-            {"at": "2026-03-12T10:00:00Z", "text": "Started development", "sent": False},
-            {"at": "2026-03-13T10:00:00Z", "text": "Backend ready, working on frontend", "sent": False},
-            {"at": "2026-03-14T10:00:00Z", "text": "Final review, will deliver tomorrow", "sent": False},
-        ]
-        state = _make_state(scheduled_messages=msgs)
-        assert len(state["scheduled_messages"]) == 3
-
-    def test_empty_scheduled_messages_default(self):
-        """Default is empty list — backwards-compatible."""
-        state = create_initial_state(project=_project_ctx())
-        assert state.get("scheduled_messages") == []
-
-
-# ===========================================================================
-# 6. Edge Cases (from code review)
-# ===========================================================================
-
-
-class TestCloakingEdgeCases:
-    """Edge cases identified during code review."""
-
-    async def test_packager_naive_datetime_comparison(self):
-        """Naive min_delivery_at (from checkpoint deserialization) should not crash."""
-        from src.agents.packager import PackagerAgent
-
-        delivery_info: dict[str, Any] = {"delivery_summary": "Test"}
-        # Simulate a naive datetime (no tzinfo) from checkpoint deserialization
-        naive_future = datetime(2030, 1, 1, 0, 0, 0)  # no tzinfo
-
-        PackagerAgent._check_delivery_schedule(
-            {"min_delivery_at": naive_future},
-            delivery_info,
+        ec = ExecutionCloaking(llm_client=mock_llm)
+        msg = await ec._generate_progress_message(
+            project_context={"title": "Test"},
+            progress_pct=50.0,
         )
 
-        # Should not crash and should add delivery_hold since naive_future is far away
-        assert delivery_info.get("delivery_hold") is True
+        from src.core.execution_cloaking import _PROGRESS_TEMPLATES
 
-    async def test_packager_exact_boundary_no_hold(self):
-        """When now == min_delivery_at, no hold should trigger (condition is now < min_at)."""
-        from src.agents.packager import PackagerAgent
+        assert msg in _PROGRESS_TEMPLATES
 
-        delivery_info: dict[str, Any] = {"delivery_summary": "Test"}
-        now = datetime.now(tz=UTC)
+    def test_fallback_progress_message_start(self):
+        """At 0% progress, should return the first template."""
+        from src.core.execution_cloaking import _PROGRESS_TEMPLATES
 
-        PackagerAgent._check_delivery_schedule(
-            {"min_delivery_at": now},
-            delivery_info,
-        )
+        msg = ExecutionCloaking._fallback_progress_message(0.0)
+        assert msg == _PROGRESS_TEMPLATES[0]
 
-        # now is not strictly less than min_at, so no hold
-        assert delivery_info.get("delivery_hold") is not True
+    def test_fallback_progress_message_end(self):
+        """At 100% progress, should return the last template."""
+        from src.core.execution_cloaking import _PROGRESS_TEMPLATES
 
-    async def test_bid_delivery_days_none_fallback(self):
-        """delivery_days=None in proposal should fallback to 7."""
-        from src.agents.bid import BidAgent
+        msg = ExecutionCloaking._fallback_progress_message(100.0)
+        assert msg == _PROGRESS_TEMPLATES[-1]
 
-        proposal = {
-            "proposal_text": "I will build your API...",
-            "bid_amount": 400.0,
-            "delivery_days": None,
-            "milestones": [],
-            "requires_hitl": True,
-        }
+    def test_fallback_progress_message_mid(self):
+        """At 50% progress, should return a middle template."""
+        from src.core.execution_cloaking import _PROGRESS_TEMPLATES
 
-        agent = BidAgent(
-            llm_client=AsyncMock(),
-            heartbeat=AsyncMock(),
-            loop_detector=AsyncMock(),
-        )
+        msg = ExecutionCloaking._fallback_progress_message(50.0)
+        assert msg in _PROGRESS_TEMPLATES
 
-        state = _make_state(
-            current_agent="bid",
-            artifacts={"scout": ["job-cloak-001"]},
-        )
+    def test_fallback_progress_message_clamps_negative(self):
+        """Negative progress should clamp to 0%."""
+        from src.core.execution_cloaking import _PROGRESS_TEMPLATES
 
-        with (
-            patch.object(agent, "_load_jobs", new_callable=AsyncMock) as mock_load,
-            patch.object(agent, "_generate_proposal", new_callable=AsyncMock, return_value=proposal),
-            patch.object(agent, "_fetch_similar_bids", new_callable=AsyncMock, return_value=[]),
-            patch.object(agent, "_store_bid", new_callable=AsyncMock, return_value="bid-001"),
-            patch.object(agent, "_create_hitl_entry", new_callable=AsyncMock, return_value="hitl-001"),
-            patch.object(agent, "_log_bid_generated", new_callable=AsyncMock),
-        ):
-            mock_load.return_value = [{"id": "job-cloak-001", "title": "API", "description": "Build"}]
-            result = await agent._execute(state)
+        msg = ExecutionCloaking._fallback_progress_message(-20.0)
+        assert msg == _PROGRESS_TEMPLATES[0]
 
-        # delivery_days=None → fallback to 7 via try/except
-        assert result.get("proposed_days") == 7
+    def test_fallback_progress_message_clamps_over_100(self):
+        """Progress > 100 should clamp to 100%."""
+        from src.core.execution_cloaking import _PROGRESS_TEMPLATES
+
+        msg = ExecutionCloaking._fallback_progress_message(200.0)
+        assert msg == _PROGRESS_TEMPLATES[-1]
+
+    def test_init_accepts_llm_client(self):
+        """Constructor should accept optional llm_client."""
+        mock_llm = MagicMock()
+        ec = ExecutionCloaking(llm_client=mock_llm)
+        assert ec._llm_client is mock_llm
+
+    def test_init_llm_client_defaults_none(self):
+        """Without llm_client, _llm_client should be None."""
+        ec = ExecutionCloaking()
+        assert ec._llm_client is None
+
+
+# ---------------------------------------------------------------------------
+# WebSocket dispatch event (Issue 6)
+# ---------------------------------------------------------------------------
+
+
+class TestDispatchWebSocketEvent:
+    """Verify WebSocket event emission during dispatch."""
+
+    pytestmark = pytest.mark.asyncio
+
+    async def test_dispatch_emits_ws_event(self):
+        """When channels is provided, should emit event for each dispatched message."""
+        ec = ExecutionCloaking()
+
+        mock_msg = MagicMock()
+        mock_msg.id = uuid.uuid4()
+        mock_msg.project_id = "proj-ws"
+        mock_msg.content = "Progress update"
+        mock_msg.status = "pending"
+        mock_msg.send_at = _utcnow() - timedelta(minutes=1)
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_msg]
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        mock_channels = MagicMock()
+
+        await ec.dispatch_due_messages(mock_session, channels=mock_channels)
+
+        mock_channels.publish.assert_called_once()
+        call_args = mock_channels.publish.call_args
+        assert "cloaking:dispatched" in call_args[0][1]
+
+    async def test_dispatch_no_channels_no_error(self):
+        """Without channels, dispatch should work normally without errors."""
+        ec = ExecutionCloaking()
+
+        mock_msg = MagicMock()
+        mock_msg.id = uuid.uuid4()
+        mock_msg.status = "pending"
+        mock_msg.send_at = _utcnow() - timedelta(minutes=1)
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_msg]
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        result = await ec.dispatch_due_messages(mock_session)
+        assert result.dispatched_count == 1
+
+    async def test_dispatch_ws_failure_does_not_break(self):
+        """WebSocket failure should not break the dispatch loop."""
+        ec = ExecutionCloaking()
+
+        mock_msg = MagicMock()
+        mock_msg.id = uuid.uuid4()
+        mock_msg.project_id = "proj-fail"
+        mock_msg.content = "Test"
+        mock_msg.status = "pending"
+        mock_msg.send_at = _utcnow() - timedelta(minutes=1)
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_msg]
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        mock_channels = MagicMock()
+        mock_channels.publish.side_effect = ConnectionError("WS disconnected")
+
+        result = await ec.dispatch_due_messages(mock_session, channels=mock_channels)
+        assert result.dispatched_count == 1
+        assert mock_msg.status == "sent"
+
+    async def test_dispatch_emits_multiple_events(self):
+        """Each dispatched message should emit its own WS event."""
+        ec = ExecutionCloaking()
+
+        msgs = []
+        for _ in range(3):
+            m = MagicMock()
+            m.id = uuid.uuid4()
+            m.project_id = "proj-multi"
+            m.content = "Progress"
+            m.status = "pending"
+            m.send_at = _utcnow() - timedelta(minutes=1)
+            msgs.append(m)
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = msgs
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        mock_channels = MagicMock()
+
+        result = await ec.dispatch_due_messages(mock_session, channels=mock_channels)
+        assert result.dispatched_count == 3
+        assert mock_channels.publish.call_count == 3

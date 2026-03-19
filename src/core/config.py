@@ -147,6 +147,15 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str | None = None
     TELEGRAM_CHAT_ID: str | None = None
 
+    # ── Telegram Webhook Mode ─────────────────────────────────────────
+    TELEGRAM_WEBHOOK_URL: str = ""
+    TELEGRAM_WEBHOOK_SECRET: str = ""
+    TELEGRAM_WEBHOOK_MAX_CONNECTIONS: int = 100
+
+    # ── Telegram Quiet Hours ──────────────────────────────────────────
+    TELEGRAM_QUIET_HOURS_START: int = 22
+    TELEGRAM_QUIET_HOURS_END: int = 8
+
     # ── Telegram Channel Monitoring (Telethon MTProto) ────────────────
     TELEGRAM_API_ID: int | None = None
     TELEGRAM_API_HASH: str | None = None

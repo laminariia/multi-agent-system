@@ -1,9 +1,16 @@
-"""Application builder — wires up all handlers into a python-telegram-bot Application."""
+"""Application builder — wires up all handlers into a python-telegram-bot Application.
+
+Supports two modes:
+- **Polling** (default): ``app.run_polling()`` — the bot actively polls Telegram.
+- **Webhook**: set ``TELEGRAM_WEBHOOK_URL`` to receive updates via HTTP POST
+  at ``/api/v1/telegram/webhook``.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any
 
 import structlog
 from telegram import BotCommand
@@ -30,9 +37,104 @@ from src.bot.orchestrator_commands import (
     run_command,
     stop_command,
 )
+from src.bot.rate_limiter import TelegramRateLimiter
 from src.core.config import get_settings
 
 logger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Webhook helpers
+# ---------------------------------------------------------------------------
+
+_WEBHOOK_PATH = "/api/v1/telegram/webhook"
+_ALLOWED_UPDATES = ["message", "callback_query"]
+
+
+def get_bot_mode() -> str:
+    """Return the bot operating mode: ``"polling"`` or ``"webhook"``.
+
+    Determined by the ``TELEGRAM_WEBHOOK_URL`` setting. When set, the bot
+    expects updates via POST to the webhook endpoint instead of polling.
+    """
+    settings = get_settings()
+    webhook_url = getattr(settings, "TELEGRAM_WEBHOOK_URL", "")
+    if webhook_url:
+        return "webhook"
+    return "polling"
+
+
+def build_webhook_url(base_url: str) -> str:
+    """Build the full webhook URL from a base URL.
+
+    Args:
+        base_url: The base URL of the Litestar API (e.g. ``https://api.example.com``).
+
+    Returns:
+        Full webhook URL with the ``/api/v1/telegram/webhook`` path appended.
+
+    Raises:
+        ValueError: If the base URL does not use HTTPS.
+    """
+    stripped = base_url.rstrip("/")
+    if not stripped.lower().startswith("https://"):
+        msg = f"Webhook base URL must use HTTPS, got: {base_url}"
+        raise ValueError(msg)
+    return stripped + _WEBHOOK_PATH
+
+
+async def register_webhook(
+    bot: Any,
+    *,
+    webhook_url: str,
+    secret_token: str = "",
+    max_connections: int = 100,
+) -> bool:
+    """Register a webhook URL with Telegram.
+
+    Args:
+        bot: The ``telegram.Bot`` instance.
+        webhook_url: Full URL for the webhook endpoint.
+        secret_token: Secret token for request validation.
+        max_connections: Maximum concurrent connections from Telegram.
+
+    Returns:
+        ``True`` if the webhook was set successfully, ``False`` otherwise.
+    """
+    try:
+        result = await bot.set_webhook(
+            url=webhook_url,
+            secret_token=secret_token,
+            max_connections=max_connections,
+            allowed_updates=_ALLOWED_UPDATES,
+        )
+        logger.info(
+            "telegram_bot.webhook_registered",
+            url=webhook_url,
+            max_connections=max_connections,
+            result=result,
+        )
+        return bool(result)
+    except Exception:
+        logger.error("telegram_bot.webhook_registration_failed", exc_info=True)
+        return False
+
+
+async def unregister_webhook(bot: Any) -> bool:
+    """Remove the webhook so the bot can switch back to polling.
+
+    Args:
+        bot: The ``telegram.Bot`` instance.
+
+    Returns:
+        ``True`` if the webhook was deleted successfully, ``False`` otherwise.
+    """
+    try:
+        result = await bot.delete_webhook()
+        logger.info("telegram_bot.webhook_unregistered", result=result)
+        return bool(result)
+    except Exception:
+        logger.error("telegram_bot.webhook_unregister_failed", exc_info=True)
+        return False
 
 
 def create_bot_application() -> Application:
@@ -45,10 +147,7 @@ def create_bot_application() -> Application:
     token = settings.TELEGRAM_BOT_TOKEN
 
     if not token:
-        raise RuntimeError(
-            "TELEGRAM_BOT_TOKEN is not set. "
-            "Add it to .env or export it as an environment variable."
-        )
+        raise RuntimeError("TELEGRAM_BOT_TOKEN is not set. Add it to .env or export it as an environment variable.")
 
     builder = (
         Application.builder()
@@ -60,6 +159,15 @@ def create_bot_application() -> Application:
     )
     app = builder.build()
 
+    # -- Rate limiter (Valkey-backed, per-user per-command) -------------------
+    try:
+        from src.core.database import get_valkey  # noqa: PLC0415
+
+        _rate_limiter = TelegramRateLimiter(get_valkey())
+    except Exception:
+        _rate_limiter = None
+        logger.warning("telegram_bot.rate_limiter_init_failed", exc_info=True)
+
     # -- HITL command handlers -----------------------------------------------
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("status", status_command))
@@ -68,6 +176,9 @@ def create_bot_application() -> Application:
     app.add_handler(CommandHandler("approve", approve_command))
     app.add_handler(CommandHandler("skip", skip_command))
     app.add_handler(CommandHandler("scan", scan_command))
+
+    # Store rate limiter in bot_data for command handlers to use.
+    app.bot_data["rate_limiter"] = _rate_limiter
 
     # -- Orchestrator command handlers ----------------------------------------
     app.add_handler(CommandHandler("run", run_command))
@@ -87,23 +198,25 @@ def create_bot_application() -> Application:
 
     # -- Register bot menu commands (visible in Telegram UI) -------------------
     async def _post_init(application: Application) -> None:
-        await application.bot.set_my_commands([
-            BotCommand("start", "Welcome + command list"),
-            BotCommand("status", "Agent health overview"),
-            BotCommand("pending", "Pending HITL items"),
-            BotCommand("stats", "Today's HITL statistics"),
-            BotCommand("orch", "Orchestrator control panel"),
-            BotCommand("run", "Start orchestrator session"),
-            BotCommand("stop", "Stop orchestrator"),
-            BotCommand("goals", "View goal queue"),
-            BotCommand("health", "System health check"),
-            BotCommand("milestones", "Project milestones"),
-            BotCommand("logs", "Recent session logs"),
-            BotCommand("scan", "Pipeline B geo scan"),
-            BotCommand("add_goal", "Add a new goal"),
-            BotCommand("approve", "Approve HITL item"),
-            BotCommand("skip", "Skip HITL item"),
-        ])
+        await application.bot.set_my_commands(
+            [
+                BotCommand("start", "Welcome + command list"),
+                BotCommand("status", "Agent health overview"),
+                BotCommand("pending", "Pending HITL items"),
+                BotCommand("stats", "Today's HITL statistics"),
+                BotCommand("orch", "Orchestrator control panel"),
+                BotCommand("run", "Start orchestrator session"),
+                BotCommand("stop", "Stop orchestrator"),
+                BotCommand("goals", "View goal queue"),
+                BotCommand("health", "System health check"),
+                BotCommand("milestones", "Project milestones"),
+                BotCommand("logs", "Recent session logs"),
+                BotCommand("scan", "Pipeline B geo scan"),
+                BotCommand("add_goal", "Add a new goal"),
+                BotCommand("approve", "Approve HITL item"),
+                BotCommand("skip", "Skip HITL item"),
+            ]
+        )
         logger.info("telegram_bot.commands_registered")
 
     app.post_init = _post_init
@@ -172,9 +285,7 @@ def create_bot_application() -> Application:
         logger.info("telegram_bot.sync_task_scheduled")
 
     app.post_init = _post_init
-    app.post_shutdown = lambda app: (
-        app.bot_data.get("_sync_task") and app.bot_data["_sync_task"].cancel()
-    )
+    app.post_shutdown = lambda app: app.bot_data.get("_sync_task") and app.bot_data["_sync_task"].cancel()
 
     # Schedule sync listener after bot starts polling
     original_post_init = _post_init

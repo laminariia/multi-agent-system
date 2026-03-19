@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+from datetime import UTC
 
 import structlog
 from sqlalchemy import func, select
@@ -482,6 +483,161 @@ def _build_logs_text(n: int = 10) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Pagination helpers for /logs (L6)
+# ---------------------------------------------------------------------------
+
+_LOGS_DEFAULT_PAGE_SIZE = 20
+
+
+def _parse_since_duration(since: str) -> timedelta | None:
+    """Parse a duration string like '1h', '30m', '2d' into a timedelta.
+
+    Returns ``None`` if the string is invalid.
+    """
+    from datetime import timedelta as _td  # noqa: PLC0415
+
+    if not since:
+        return None
+    m = re.match(r"^(\d+)([hmd])$", since.strip().lower())
+    if not m:
+        return None
+    value = int(m.group(1))
+    unit = m.group(2)
+    if unit == "h":
+        return _td(hours=value)
+    if unit == "m":
+        return _td(minutes=value)
+    if unit == "d":
+        return _td(days=value)
+    return None
+
+
+def _parse_log_args(args: list[str]) -> dict[str, str | int | None]:
+    """Parse /logs command arguments.
+
+    Supported flags:
+    - ``--agent <name>`` — filter by agent name
+    - ``--since <duration>`` — filter by time (e.g. 1h, 30m, 2d)
+    - A single word without ``--`` is treated as agent filter (backward compat)
+
+    Returns a dict with keys: ``page``, ``agent_filter``, ``since``.
+    """
+    result: dict[str, str | int | None] = {
+        "page": 0,
+        "agent_filter": None,
+        "since": None,
+    }
+    if not args:
+        return result
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--agent" and i + 1 < len(args):
+            result["agent_filter"] = args[i + 1]
+            i += 2
+        elif arg == "--since" and i + 1 < len(args):
+            result["since"] = args[i + 1]
+            i += 2
+        else:
+            # Single word: treat as agent filter (backward compat)
+            result["agent_filter"] = arg
+            i += 1
+
+    return result
+
+
+def _extract_log_timestamp(line: str) -> datetime | None:
+    """Extract a datetime from a log line in ``[YYYY-MM-DD HH:MM:SS]`` format."""
+    from datetime import datetime as _dt  # noqa: PLC0415
+
+    m = re.match(r"\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]", line)
+    if not m:
+        return None
+    try:
+        return _dt.strptime(m.group(1), "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def _build_logs_text_paginated(
+    *,
+    page: int = 0,
+    page_size: int = _LOGS_DEFAULT_PAGE_SIZE,
+    agent_filter: str | None = None,
+    since: str | None = None,
+) -> tuple[str, bool, int]:
+    """Build paginated /logs text with optional agent and time filters.
+
+    Returns:
+        A tuple of ``(text, has_more, next_offset)`` where *has_more*
+        indicates more pages are available and *next_offset* is the
+        offset for the next page (0 if no more pages).
+    """
+    from datetime import datetime as _dt  # noqa: PLC0415
+
+    log_path = _get_runner_log_path()
+    if not log_path or not log_path.exists():
+        return "\U0001f4dc Лог runner'а не найден.", False, 0
+
+    # Read a generous number of lines to allow filtering
+    max_read = max(500, (page + 2) * page_size * 3)
+    raw_lines = _tail_file(log_path, max_read)
+
+    # Apply agent filter
+    if agent_filter:
+        agent_lower = agent_filter.lower()
+        raw_lines = [line for line in raw_lines if f"[{agent_lower}]" in line.lower()]
+
+    # Apply since filter
+    if since:
+        delta = _parse_since_duration(since)
+        if delta is not None:
+            now = _dt.now(UTC)
+            cutoff = now - delta
+            filtered: list[str] = []
+            for line in raw_lines:
+                ts = _extract_log_timestamp(line)
+                if ts is not None and ts >= cutoff:
+                    filtered.append(line)
+                elif ts is None:
+                    # Lines without timestamps are included (continuation lines)
+                    filtered.append(line)
+            raw_lines = filtered
+
+    # Paginate
+    total = len(raw_lines)
+    start = page * page_size
+    end = start + page_size
+    page_lines = raw_lines[start:end]
+
+    has_more = end < total
+    next_offset = end if has_more else 0
+
+    if not page_lines:
+        filter_info = ""
+        if agent_filter:
+            filter_info += f" (agent: {agent_filter})"
+        if since:
+            filter_info += f" (since: {since})"
+        return f"\U0001f4dc Нет записей в логе{filter_info}.", False, 0
+
+    formatted = [_format_runner_log_line(line) for line in page_lines]
+
+    filter_info = ""
+    if agent_filter:
+        filter_info += f" | agent: {_esc(agent_filter)}"
+    if since:
+        filter_info += f" | since: {_esc(since)}"
+
+    page_info = f"Page {page + 1}" if page > 0 else f"{len(formatted)} lines"
+    header = f"\U0001f4dc <b>Runner Log</b> ({page_info}{filter_info}):\n\n"
+    body = f"<pre>{_esc(chr(10).join(formatted))}</pre>"
+
+    return header + body, has_more, next_offset
+
+
+# ---------------------------------------------------------------------------
 # Callback handler for orchestrator buttons
 # ---------------------------------------------------------------------------
 
@@ -555,6 +711,48 @@ async def orch_button_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             text=text,
             parse_mode=ParseMode.HTML,
             reply_markup=_kb_logs_nav(),
+        )
+
+    elif action == "logs_page":
+        # Paginated logs callback: orch:logs_page:<page>[:a:<agent>][:s:<since>]
+        page_num = int(arg) if arg and arg.isdigit() else 0
+        agent_filter = None
+        since_filter = None
+        for p in parts[3:]:
+            if p.startswith("a:"):
+                agent_filter = p[2:]
+            elif p.startswith("s:"):
+                since_filter = p[2:]
+
+        text, has_more, next_offset = _build_logs_text_paginated(
+            page=page_num,
+            agent_filter=agent_filter,
+            since=since_filter,
+        )
+        buttons: list[list[InlineKeyboardButton]] = []
+        if has_more:
+            cb_parts_next = ["orch", "logs_page", str(next_offset // _LOGS_DEFAULT_PAGE_SIZE)]
+            if agent_filter:
+                cb_parts_next.append(f"a:{agent_filter}")
+            if since_filter:
+                cb_parts_next.append(f"s:{since_filter}")
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        "\u27a1\ufe0f Next page",
+                        callback_data=":".join(cb_parts_next),
+                    ),
+                ]
+            )
+        buttons.append(
+            [
+                InlineKeyboardButton("\u2b05 Статус", callback_data="orch:status"),
+            ]
+        )
+        await query.edit_message_text(
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(buttons),
         )
 
     elif action == "run":
@@ -827,18 +1025,50 @@ async def milestones_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show the last N lines of the runner log."""
-    args = context.args or []
-    n = 10
-    if args:
-        try:
-            n = min(int(args[0]), 50)
-        except ValueError:
-            pass
+    """Show the last N lines of the runner log with pagination and filters.
 
-    text = _build_logs_text(n)
+    Usage:
+        /logs                    — last 20 lines (page 1)
+        /logs --agent scout      — only lines from scout agent
+        /logs --since 1h         — lines from the last hour
+        /logs --agent bid --since 2h — combined filters
+        /logs scout              — shorthand agent filter
+    """
+    args = context.args or []
+    parsed = _parse_log_args(args)
+
+    text, has_more, next_offset = _build_logs_text_paginated(
+        page=int(parsed.get("page") or 0),
+        agent_filter=parsed.get("agent_filter"),  # type: ignore[arg-type]
+        since=parsed.get("since"),  # type: ignore[arg-type]
+    )
+
+    # Build keyboard with "Next" button if more pages available
+    buttons: list[list[InlineKeyboardButton]] = []
+    if has_more:
+        # Encode filter state in callback data
+        cb_parts = ["orch", "logs_page", str(next_offset // _LOGS_DEFAULT_PAGE_SIZE)]
+        if parsed.get("agent_filter"):
+            cb_parts.append(f"a:{parsed['agent_filter']}")
+        if parsed.get("since"):
+            cb_parts.append(f"s:{parsed['since']}")
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    "\u27a1\ufe0f Next page",
+                    callback_data=":".join(cb_parts),
+                ),
+            ]
+        )
+    buttons.append(
+        [
+            InlineKeyboardButton("\u2b05 Статус", callback_data="orch:status"),
+        ]
+    )
+    kb = InlineKeyboardMarkup(buttons)
+
     await update.effective_message.reply_text(  # type: ignore[union-attr]
-        text, parse_mode=ParseMode.HTML, reply_markup=_kb_logs_nav()
+        text, parse_mode=ParseMode.HTML, reply_markup=kb
     )
 
 

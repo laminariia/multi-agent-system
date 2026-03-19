@@ -55,6 +55,7 @@ from src.agents.geo_scout import geo_scout_node
 from src.agents.outreach import outreach_node
 from src.agents.packager import packager_node
 from src.agents.planner import planner_node
+from src.agents.sales_agent import sales_agent_node  # noqa: F401 — used in build_pipeline_b_graph
 from src.agents.scout import scout_node
 from src.core.checkpoints import HybridCheckpointSaver
 from src.core.config import get_settings
@@ -65,6 +66,71 @@ logger = structlog.get_logger(__name__)
 
 # Maximum number of Critic -> Dev revision cycles before escalation.
 MAX_REVISION_CYCLES: int = 3
+
+
+# ---------------------------------------------------------------------------
+# Telegram notification helper for HITL nodes
+# ---------------------------------------------------------------------------
+
+
+async def _send_hitl_telegram_notification(
+    *,
+    hitl_type: str,
+    hitl_title: str,
+    hitl_payload: dict[str, Any],
+    thread_id: str,
+) -> bool:
+    """Send a Telegram notification when a new HITL item is created.
+
+    Looks up the first user with a ``telegram_chat_id`` and sends
+    a notification via :class:`TelegramNotifier`.
+
+    Returns ``True`` if notification was sent, ``False`` otherwise.
+    """
+    try:
+        from sqlalchemy import select  # noqa: PLC0415
+
+        from src.core.database import get_db_session  # noqa: PLC0415
+        from src.core.models import User  # noqa: PLC0415
+
+        async with get_db_session() as session:
+            result = await session.execute(select(User).where(User.telegram_chat_id.isnot(None)))
+            user = result.scalars().first()
+
+        if user is None:
+            logger.debug(
+                "hitl_telegram_notification_skipped_no_user",
+                thread_id=thread_id,
+                hitl_type=hitl_type,
+            )
+            return False
+
+        from src.bot.notifications import TelegramNotifier  # noqa: PLC0415
+        from src.core.models import HITLQueue  # noqa: PLC0415
+
+        # Build a lightweight mock-like HITLQueue for the notifier
+        hitl_item = HITLQueue(
+            id=uuid.uuid4(),
+            type=hitl_type,
+            priority="normal",
+            title=hitl_title,
+            description=str(hitl_payload),
+            payload=hitl_payload,
+            available_actions=["approve", "reject"],
+            status="pending",
+        )
+
+        notifier = TelegramNotifier()
+        return await notifier.notify_new_hitl(user, hitl_item)
+
+    except Exception:
+        logger.warning(
+            "hitl_telegram_notification_failed",
+            thread_id=thread_id,
+            hitl_type=hitl_type,
+            exc_info=True,
+        )
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +275,17 @@ async def hitl_bid_node(state: dict[str, Any]) -> dict[str, Any]:
     if state["status"] != "paused":
         artifacts = dict(state.get("artifacts") or {})
         artifacts["_hitl_started_at"] = time.time()
+
+        try:
+            await _send_hitl_telegram_notification(
+                hitl_type="bid_approval",
+                hitl_title="Approve bid",
+                hitl_payload={"thread_id": state["thread_id"]},
+                thread_id=state["thread_id"],
+            )
+        except Exception:
+            logger.debug("hitl_bid_telegram_failed", exc_info=True)
+
         return update_state(
             state,
             status="paused",
@@ -235,6 +312,16 @@ async def hitl_review_node(state: dict[str, Any]) -> dict[str, Any]:
     )
 
     if state["status"] != "paused":
+        try:
+            await _send_hitl_telegram_notification(
+                hitl_type="final_review",
+                hitl_title="Final review",
+                hitl_payload={"thread_id": state["thread_id"]},
+                thread_id=state["thread_id"],
+            )
+        except Exception:
+            logger.debug("hitl_review_telegram_failed", exc_info=True)
+
         return update_state(
             state,
             status="paused",
@@ -296,6 +383,19 @@ async def hitl_dev_launch_node(state: dict[str, Any]) -> dict[str, Any]:
                 session.add(hitl)
                 await session.commit()
 
+                try:
+                    await _send_hitl_telegram_notification(
+                        hitl_type="dev_launch",
+                        hitl_title=f"Launch development: {project_title[:200]}",
+                        hitl_payload={
+                            "thread_id": state["thread_id"],
+                            "project_id": project_id,
+                        },
+                        thread_id=state["thread_id"],
+                    )
+                except Exception:
+                    logger.debug("hitl_dev_launch_telegram_failed", exc_info=True)
+
                 return update_state(
                     state,
                     status="paused",
@@ -332,6 +432,16 @@ async def hitl_outreach_node(state: dict[str, Any]) -> dict[str, Any]:
     )
 
     if state["status"] != "paused":
+        try:
+            await _send_hitl_telegram_notification(
+                hitl_type="outreach_approval",
+                hitl_title="Approve outreach messages",
+                hitl_payload={"thread_id": state["thread_id"]},
+                thread_id=state["thread_id"],
+            )
+        except Exception:
+            logger.debug("hitl_outreach_telegram_failed", exc_info=True)
+
         return update_state(
             state,
             status="paused",
@@ -344,6 +454,219 @@ async def hitl_outreach_node(state: dict[str, Any]) -> dict[str, Any]:
 
 # Backward-compat alias
 hitl_email_node = hitl_outreach_node
+
+
+async def hitl_concept_review_node(state: dict[str, Any]) -> dict[str, Any]:
+    """HITL interrupt node for sales concept review (Pipeline B).
+
+    Pauses the workflow so a human can review the generated project concept
+    before it is sent to the client.  The SalesAgent creates the HITL entry
+    in the database; this node only manages the graph pause/resume.
+    """
+    logger.info(
+        "hitl_concept_review_node_entered",
+        thread_id=state["thread_id"],
+        hitl_request_id=state.get("hitl_request_id"),
+        status=state["status"],
+    )
+
+    if state["status"] != "paused":
+        try:
+            await _send_hitl_telegram_notification(
+                hitl_type="concept_review",
+                hitl_title="Concept review",
+                hitl_payload={"thread_id": state["thread_id"]},
+                thread_id=state["thread_id"],
+            )
+        except Exception:
+            logger.debug("hitl_concept_review_telegram_failed", exc_info=True)
+
+        return update_state(
+            state,
+            status="paused",
+            requires_hitl=True,
+            current_agent="hitl_concept_review",
+        )
+
+    return state
+
+
+# ---------------------------------------------------------------------------
+# Design HITL nodes (Pipeline A — design review + client approval)
+# ---------------------------------------------------------------------------
+
+# Maximum design revision rounds before auto-escalation to Planner.
+MAX_DESIGN_REVISIONS: int = 3
+
+
+async def hitl_design_review_node(state: dict[str, Any]) -> dict[str, Any]:
+    """HITL interrupt node for operator design review.
+
+    Pauses the workflow so the operator can review the mockup produced
+    by the Design Agent.  Actions:
+
+    - **approve**: forward to client approval HITL.
+    - **request_changes**: loop back to Design Agent with feedback
+      (up to MAX_DESIGN_REVISIONS rounds, then auto-escalate to Planner).
+    - **reject**: escalate to Planner for re-decomposition.
+
+    Sends a Telegram notification when the HITL item is created.
+    """
+    logger.info(
+        "hitl_design_review_node_entered",
+        thread_id=state["thread_id"],
+        hitl_request_id=state.get("hitl_request_id"),
+        status=state["status"],
+    )
+
+    if state["status"] != "paused":
+        artifacts = dict(state.get("artifacts") or {})
+        artifacts["_hitl_started_at"] = time.time()
+
+        # Create HITLQueue entry for dashboard visibility.
+        try:
+            from src.core.database import get_db_session  # noqa: PLC0415
+            from src.core.models import HITLQueue  # noqa: PLC0415
+
+            project = state.get("project") or {}
+            project_title = project.get("title", "Unknown project")
+            design_revision = state.get("design_revision", 0)
+
+            async with get_db_session() as session:
+                hitl = HITLQueue(
+                    id=uuid.uuid4(),
+                    type="design_review",
+                    priority="high",
+                    title=f"Review design: {project_title[:200]}",
+                    description=(
+                        f"Design Agent produced a mockup for '{project_title}'. "
+                        f"Revision round {design_revision + 1}/{MAX_DESIGN_REVISIONS}. "
+                        f"Review and approve, request changes, or reject."
+                    ),
+                    payload={
+                        "thread_id": state["thread_id"],
+                        "design_revision": design_revision,
+                        "design_spec": (artifacts.get("design_mockup") or [None])[0],
+                    },
+                    available_actions=["approve", "request_changes", "reject"],
+                    status="pending",
+                )
+                session.add(hitl)
+                await session.commit()
+
+                try:
+                    await _send_hitl_telegram_notification(
+                        hitl_type="design_review",
+                        hitl_title=f"Review design: {project_title[:200]}",
+                        hitl_payload={
+                            "thread_id": state["thread_id"],
+                            "revision": design_revision,
+                        },
+                        thread_id=state["thread_id"],
+                    )
+                except Exception:
+                    logger.debug("hitl_design_review_telegram_failed", exc_info=True)
+
+                return update_state(
+                    state,
+                    status="paused",
+                    requires_hitl=True,
+                    hitl_request_id=str(hitl.id),
+                    current_agent="hitl_design_review",
+                    artifacts=artifacts,
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("hitl_design_review_entry_creation_failed", thread_id=state["thread_id"])
+            # Fail closed — still pause.
+            return update_state(
+                state,
+                status="paused",
+                requires_hitl=True,
+                current_agent="hitl_design_review",
+                artifacts=artifacts,
+            )
+
+    return state
+
+
+async def hitl_design_approval_node(state: dict[str, Any]) -> dict[str, Any]:
+    """HITL interrupt node for client design approval.
+
+    Pauses the workflow so the client can review the operator-approved
+    design before development begins.  Actions:
+
+    - **approve**: development starts (route to next execution agent).
+    - **request_changes**: loop back to Design Agent with client feedback.
+    - **reject**: escalate to Planner for re-decomposition.
+    """
+    logger.info(
+        "hitl_design_approval_node_entered",
+        thread_id=state["thread_id"],
+        hitl_request_id=state.get("hitl_request_id"),
+        status=state["status"],
+    )
+
+    if state["status"] != "paused":
+        artifacts = dict(state.get("artifacts") or {})
+        artifacts["_hitl_started_at"] = time.time()
+
+        try:
+            from src.core.database import get_db_session  # noqa: PLC0415
+            from src.core.models import HITLQueue  # noqa: PLC0415
+
+            project = state.get("project") or {}
+            project_title = project.get("title", "Unknown project")
+
+            async with get_db_session() as session:
+                hitl = HITLQueue(
+                    id=uuid.uuid4(),
+                    type="design_client_approval",
+                    priority="high",
+                    title=f"Client design approval: {project_title[:200]}",
+                    description=(
+                        f"Operator approved design for '{project_title}'. "
+                        f"Send to client for final approval before development starts."
+                    ),
+                    payload={
+                        "thread_id": state["thread_id"],
+                        "screenshot_url": (artifacts.get("design_mockup") or [None])[0],
+                        "project_brief": project.get("requirements", ""),
+                    },
+                    available_actions=["approve", "request_changes", "reject"],
+                    status="pending",
+                )
+                session.add(hitl)
+                await session.commit()
+
+                try:
+                    await _send_hitl_telegram_notification(
+                        hitl_type="design_client_approval",
+                        hitl_title=f"Client design approval: {project_title[:200]}",
+                        hitl_payload={"thread_id": state["thread_id"]},
+                        thread_id=state["thread_id"],
+                    )
+                except Exception:
+                    logger.debug("hitl_design_approval_telegram_failed", exc_info=True)
+
+                return update_state(
+                    state,
+                    status="paused",
+                    requires_hitl=True,
+                    hitl_request_id=str(hitl.id),
+                    current_agent="hitl_design_approval",
+                    artifacts=artifacts,
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("hitl_design_approval_entry_creation_failed", thread_id=state["thread_id"])
+            return update_state(
+                state,
+                status="paused",
+                requires_hitl=True,
+                current_agent="hitl_design_approval",
+                artifacts=artifacts,
+            )
+
+    return state
 
 
 # ---------------------------------------------------------------------------
@@ -566,6 +889,14 @@ _SEQUENCE_EDGE_MAP: dict[str, str] = {
     END: END,
 }
 
+# Extended edge map including design HITL targets and planner (for reject escalation).
+_DESIGN_HITL_EDGE_MAP: dict[str, str] = {
+    **_SEQUENCE_EDGE_MAP,
+    "hitl_design_review_node": "hitl_design_review_node",
+    "hitl_design_approval_node": "hitl_design_approval_node",
+    "planner_node": "planner_node",
+}
+
 
 # ---------------------------------------------------------------------------
 # Routing functions -- Scout/Bid (shared between legacy and full pipeline)
@@ -779,6 +1110,155 @@ def _route_after_design(state: dict[str, Any]) -> str:
     return END
 
 
+# ---------------------------------------------------------------------------
+# Routing functions -- Design HITL
+# ---------------------------------------------------------------------------
+
+
+def _route_after_design_for_review(state: dict[str, Any]) -> str:
+    """Route after the Design Agent when design HITL is enabled.
+
+    Instead of routing directly to critic, routes to design review HITL.
+
+    Returns:
+        ``"hitl_design_review_node"`` for operator review,
+        ``END`` on failure.
+    """
+    if state.get("status") == "failed":
+        logger.warning("design_review_route_to_end_failed", thread_id=state["thread_id"])
+        return END
+
+    logger.info("design_route_to_hitl_review", thread_id=state["thread_id"])
+    return "hitl_design_review_node"
+
+
+def _route_after_hitl_design_review(state: dict[str, Any]) -> str:
+    """Route after the design review HITL node.
+
+    On resume:
+    - **approve** (status=active, design_approved_by_operator=True):
+      forward to client approval HITL.
+    - **request_changes** (status=active, design_feedback set):
+      loop back to Design Agent (if under revision limit).
+    - **reject** (status=active, next_agent=planner): escalate to Planner
+      for re-decomposition.
+
+    Returns:
+        ``"hitl_design_approval_node"`` when operator approved,
+        ``"design_node"`` for revision (max MAX_DESIGN_REVISIONS rounds),
+        ``"planner_node"`` when revision limit exceeded or rejected,
+        ``END`` on failure or still paused.
+    """
+    if state.get("status") == "failed":
+        logger.info("hitl_design_review_route_to_end_failed", thread_id=state["thread_id"])
+        return END
+
+    if state.get("status") != "active":
+        logger.info(
+            "hitl_design_review_route_to_end_paused",
+            thread_id=state["thread_id"],
+            status=state.get("status"),
+        )
+        return END
+
+    # Reject -> escalate to Planner for re-decomposition
+    if state.get("next_agent") == "planner":
+        logger.info("hitl_design_review_route_to_planner_reject", thread_id=state["thread_id"])
+        return "planner_node"
+
+    artifacts = state.get("artifacts") or {}
+
+    # Operator approved -> client approval
+    if artifacts.get("_design_operator_approved"):
+        logger.info("hitl_design_review_route_to_client_approval", thread_id=state["thread_id"])
+        return "hitl_design_approval_node"
+
+    # Request changes -> loop back to design (with revision limit)
+    design_revision = state.get("design_revision", 0)
+    if design_revision >= MAX_DESIGN_REVISIONS:
+        logger.warning(
+            "design_revision_limit_exceeded",
+            thread_id=state["thread_id"],
+            revision=design_revision,
+        )
+        return "planner_node"
+
+    # Feedback present -> revision loop
+    if state.get("design_feedback"):
+        logger.info(
+            "hitl_design_review_route_to_design_revision",
+            thread_id=state["thread_id"],
+            revision=design_revision,
+        )
+        return "design_node"
+
+    # Default: operator approved (no explicit flag but active)
+    logger.info("hitl_design_review_route_to_client_approval_default", thread_id=state["thread_id"])
+    return "hitl_design_approval_node"
+
+
+def _route_after_hitl_design_approval(state: dict[str, Any]) -> str:
+    """Route after the client design approval HITL node.
+
+    On resume:
+    - **approve** (status=active, design_approved=True):
+      continue to next agent in execution sequence.
+    - **request_changes** (status=active, design_feedback set):
+      loop back to Design Agent.
+    - **reject** (status=active, next_agent=planner): escalate to Planner
+      for re-decomposition.
+
+    Returns:
+        Next agent via ``_route_next_in_sequence`` when client approved,
+        ``"design_node"`` for client-requested changes,
+        ``"planner_node"`` on rejection,
+        ``END`` on failure or still paused.
+    """
+    if state.get("status") == "failed":
+        logger.info("hitl_design_approval_route_to_end_failed", thread_id=state["thread_id"])
+        return END
+
+    if state.get("status") != "active":
+        logger.info(
+            "hitl_design_approval_route_to_end_paused",
+            thread_id=state["thread_id"],
+            status=state.get("status"),
+        )
+        return END
+
+    # Reject -> escalate to Planner for re-decomposition
+    if state.get("next_agent") == "planner":
+        logger.info("hitl_design_approval_route_to_planner_reject", thread_id=state["thread_id"])
+        return "planner_node"
+
+    # Client approved -> continue execution
+    if state.get("design_approved"):
+        result = _route_next_in_sequence(state)
+        logger.info(
+            "hitl_design_approval_route_to_next",
+            thread_id=state["thread_id"],
+            target=result,
+        )
+        return result
+
+    # Client requested changes -> back to design
+    if state.get("design_feedback"):
+        logger.info(
+            "hitl_design_approval_route_to_design_revision",
+            thread_id=state["thread_id"],
+        )
+        return "design_node"
+
+    # Default: assume approved if status is active
+    result = _route_next_in_sequence(state)
+    logger.info(
+        "hitl_design_approval_route_to_next_default",
+        thread_id=state["thread_id"],
+        target=result,
+    )
+    return result
+
+
 def _route_after_critic(state: dict[str, Any]) -> str:
     """Route after the Critic Agent -- the most complex routing point.
 
@@ -951,11 +1431,15 @@ def _route_after_geo_scout(state: dict[str, Any]) -> str:
 
 
 def _route_after_outreach(state: dict[str, Any]) -> str:
-    """Route after Outreach: HITL outreach approval or END."""
+    """Route after Outreach: HITL outreach approval, sales_agent (lead replied), or END."""
     if state.get("status") == "failed":
         return END
     if state.get("requires_hitl"):
         return "hitl_outreach_node"
+    # Lead replied — hand off to SalesAgent for multi-turn conversation
+    artifacts = state.get("artifacts") or {}
+    if artifacts.get("_lead_replied"):
+        return "sales_agent_node"
     # No messages drafted -- completed without HITL
     return END
 
@@ -974,6 +1458,45 @@ def _route_after_hitl_outreach(state: dict[str, Any]) -> str:
 _route_after_hitl_email = _route_after_hitl_outreach
 
 
+def _route_after_sales_agent(state: dict[str, Any]) -> str:
+    """Route after SalesAgent: HITL concept review, or END.
+
+    SalesAgent sets ``requires_hitl=True`` when a concept needs review.
+    When the deal stage is "won" and ``next_agent="planner"``, the graph
+    ends here — the won deal should be picked up by Pipeline A
+    (via ``run_project_pipeline`` / ``build_planner_pipeline_graph``)
+    rather than continuing in Pipeline B.
+    All other cases (awaiting reply, terminal stages, errors) go to END.
+    """
+    if state.get("status") == "failed":
+        return END
+    if state.get("requires_hitl"):
+        return "hitl_concept_review_node"
+    # Won deal with next_agent=planner: Pipeline B ends; Pipeline A picks up.
+    if state.get("next_agent") == "planner":
+        logger.info(
+            "sales_agent_route_to_end_won_deal",
+            thread_id=state["thread_id"],
+            msg="Deal won — hand off to Pipeline A planner_pipeline for execution",
+        )
+    # Awaiting client reply, terminal stage, or paused — END the graph.
+    return END
+
+
+def _route_after_hitl_concept_review(state: dict[str, Any]) -> str:
+    """Route after concept-review HITL: sales_agent (edit) or END.
+
+    On concept edit, route back to SalesAgent so it can regenerate.
+    On approve or reject, terminate.
+    """
+    if state.get("status") == "failed":
+        return END
+    artifacts = state.get("artifacts") or {}
+    if artifacts.get("_concept_edited"):
+        return "sales_agent_node"
+    return END
+
+
 # ---------------------------------------------------------------------------
 # Graph builders
 # ---------------------------------------------------------------------------
@@ -986,8 +1509,13 @@ def build_full_pipeline_graph(checkpointer: Any | None = None) -> CompiledGraph:
 
         scout -> bid -> hitl_bid -> bid_submission -> hitl_dev_launch
           -> planner -> dev -> content -> design
+          -> hitl_design_review -> hitl_design_approval
           -> critic -> packager -> hitl_review -> END
                 ^--- (revision loop, max 3 cycles) ---|
+
+    Design HITL gates:
+        - hitl_design_review: operator reviews mockup (max 3 revision rounds)
+        - hitl_design_approval: client approves design before dev starts
 
     Args:
         checkpointer: An optional ``BaseCheckpointSaver`` instance (e.g.
@@ -1009,6 +1537,8 @@ def build_full_pipeline_graph(checkpointer: Any | None = None) -> CompiledGraph:
     graph.add_node("dev_node", dev_node)
     graph.add_node("content_node", content_node)
     graph.add_node("design_node", design_node)
+    graph.add_node("hitl_design_review_node", hitl_design_review_node)
+    graph.add_node("hitl_design_approval_node", hitl_design_approval_node)
     graph.add_node("critic_node", critic_node)
     graph.add_node("packager_node", packager_node)
     graph.add_node("hitl_review_node", hitl_review_node)
@@ -1075,13 +1605,42 @@ def build_full_pipeline_graph(checkpointer: Any | None = None) -> CompiledGraph:
         _SEQUENCE_EDGE_MAP,
     )
 
-    # Execution agents -> dynamic sequence (unified routing)
-    for agent_node in ("dev_node", "content_node", "design_node"):
+    # Execution agents (dev, content) -> dynamic sequence (unified routing)
+    for agent_node in ("dev_node", "content_node"):
         graph.add_conditional_edges(
             agent_node,
             _route_next_in_sequence,
             _SEQUENCE_EDGE_MAP,
         )
+
+    # Design -> HITL(design_review) | END
+    graph.add_conditional_edges(
+        "design_node",
+        _route_after_design_for_review,
+        {
+            "hitl_design_review_node": "hitl_design_review_node",
+            END: END,
+        },
+    )
+
+    # HITL(design_review) -> HITL(design_approval) | Design (revision) | Planner | END
+    graph.add_conditional_edges(
+        "hitl_design_review_node",
+        _route_after_hitl_design_review,
+        {
+            "hitl_design_approval_node": "hitl_design_approval_node",
+            "design_node": "design_node",
+            "planner_node": "planner_node",
+            END: END,
+        },
+    )
+
+    # HITL(design_approval) -> next in sequence | Design (client changes) | END
+    graph.add_conditional_edges(
+        "hitl_design_approval_node",
+        _route_after_hitl_design_approval,
+        _DESIGN_HITL_EDGE_MAP,
+    )
 
     # Critic -> Packager | revision_target | Planner (major) | HITL | END
     graph.add_conditional_edges(
@@ -1174,9 +1733,16 @@ def build_scout_bid_graph(checkpointer: Any | None = None) -> CompiledGraph:
 
 
 def build_pipeline_b_graph(checkpointer: Any | None = None) -> CompiledGraph:
-    """Build and compile the Pipeline B (Outreach) graph.
+    """Build and compile the Pipeline B (Outreach + Sales) graph.
 
-    Flow: GeoScout -> Outreach -> [HITL outreach approval] -> Message Dispatch -> END
+    Flow::
+
+        GeoScout -> Outreach -> [HITL outreach approval] -> Message Dispatch -> END
+                             \\-> SalesAgent -> [HITL concept review] -> END
+                                     ^--- (edit loop) ---|
+
+    When a lead replies, Outreach routes to SalesAgent instead of HITL outreach.
+    SalesAgent handles multi-turn sales conversations and concept generation.
 
     Args:
         checkpointer: Optional checkpoint saver for persistence.
@@ -1191,6 +1757,8 @@ def build_pipeline_b_graph(checkpointer: Any | None = None) -> CompiledGraph:
     graph.add_node("outreach_node", outreach_node)
     graph.add_node("hitl_outreach_node", hitl_outreach_node)
     graph.add_node("message_dispatch_node", message_dispatch_node)
+    graph.add_node("sales_agent_node", sales_agent_node)
+    graph.add_node("hitl_concept_review_node", hitl_concept_review_node)
 
     # Entry point
     graph.set_entry_point("geo_scout_node")
@@ -1204,7 +1772,11 @@ def build_pipeline_b_graph(checkpointer: Any | None = None) -> CompiledGraph:
     graph.add_conditional_edges(
         "outreach_node",
         _route_after_outreach,
-        {"hitl_outreach_node": "hitl_outreach_node", END: END},
+        {
+            "hitl_outreach_node": "hitl_outreach_node",
+            "sales_agent_node": "sales_agent_node",
+            END: END,
+        },
     )
     graph.add_conditional_edges(
         "hitl_outreach_node",
@@ -1212,6 +1784,19 @@ def build_pipeline_b_graph(checkpointer: Any | None = None) -> CompiledGraph:
         {"message_dispatch_node": "message_dispatch_node", END: END},
     )
     graph.add_edge("message_dispatch_node", END)
+
+    # SalesAgent -> HITL concept review | END
+    graph.add_conditional_edges(
+        "sales_agent_node",
+        _route_after_sales_agent,
+        {"hitl_concept_review_node": "hitl_concept_review_node", END: END},
+    )
+    # HITL concept review -> SalesAgent (edit) | END
+    graph.add_conditional_edges(
+        "hitl_concept_review_node",
+        _route_after_hitl_concept_review,
+        {"sales_agent_node": "sales_agent_node", END: END},
+    )
 
     compiled = graph.compile(checkpointer=checkpointer)
     logger.info("pipeline_b_graph_compiled", has_checkpointer=checkpointer is not None)
@@ -1224,8 +1809,9 @@ def build_planner_pipeline_graph(checkpointer: Any | None = None) -> CompiledGra
     Used by ``run_project_pipeline`` for won projects where the bid has
     already been approved and submitted.  The flow is::
 
-        Planner -> Dev -> Content -> Design -> Critic
-          -> Packager -> HITL(review) -> END
+        Planner -> Dev -> Content -> Design
+          -> HITL(design_review) -> HITL(design_approval)
+          -> Critic -> Packager -> HITL(review) -> END
 
     Args:
         checkpointer: Optional checkpoint saver for persistence.
@@ -1239,6 +1825,8 @@ def build_planner_pipeline_graph(checkpointer: Any | None = None) -> CompiledGra
     graph.add_node("dev_node", dev_node)
     graph.add_node("content_node", content_node)
     graph.add_node("design_node", design_node)
+    graph.add_node("hitl_design_review_node", hitl_design_review_node)
+    graph.add_node("hitl_design_approval_node", hitl_design_approval_node)
     graph.add_node("critic_node", critic_node)
     graph.add_node("packager_node", packager_node)
     graph.add_node("hitl_review_node", hitl_review_node)
@@ -1250,12 +1838,39 @@ def build_planner_pipeline_graph(checkpointer: Any | None = None) -> CompiledGra
         _route_after_planner,
         _SEQUENCE_EDGE_MAP,
     )
-    for agent_node in ("dev_node", "content_node", "design_node"):
+    # Dev and Content use unified sequence routing
+    for agent_node in ("dev_node", "content_node"):
         graph.add_conditional_edges(
             agent_node,
             _route_next_in_sequence,
             _SEQUENCE_EDGE_MAP,
         )
+    # Design -> HITL(design_review) | END
+    graph.add_conditional_edges(
+        "design_node",
+        _route_after_design_for_review,
+        {
+            "hitl_design_review_node": "hitl_design_review_node",
+            END: END,
+        },
+    )
+    # HITL(design_review) -> HITL(design_approval) | Design (revision) | Planner | END
+    graph.add_conditional_edges(
+        "hitl_design_review_node",
+        _route_after_hitl_design_review,
+        {
+            "hitl_design_approval_node": "hitl_design_approval_node",
+            "design_node": "design_node",
+            "planner_node": "planner_node",
+            END: END,
+        },
+    )
+    # HITL(design_approval) -> next in sequence | Design (client changes) | END
+    graph.add_conditional_edges(
+        "hitl_design_approval_node",
+        _route_after_hitl_design_approval,
+        _DESIGN_HITL_EDGE_MAP,
+    )
     graph.add_conditional_edges(
         "critic_node",
         _route_after_critic,
@@ -1561,6 +2176,12 @@ async def resume_from_hitl(
                 resolved_type = "dev_launch"
             elif current_agent in ("hitl_email", "hitl_outreach"):
                 resolved_type = "outreach_approval"
+            elif current_agent == "hitl_design_review":
+                resolved_type = "design_review"
+            elif current_agent == "hitl_design_approval":
+                resolved_type = "design_client_approval"
+            elif current_agent == "hitl_concept_review":
+                resolved_type = "concept_review"
             else:
                 # Fall back to legacy behaviour (Phase 1 Scout -> Bid only).
                 resolved_type = "bid_approval"
@@ -1732,6 +2353,81 @@ async def resume_from_hitl(
                 return result  # type: ignore[return-value]
 
             # Failed (unknown action) — just checkpoint and return.
+            await checkpointer.aput(config, resumed_state, {"source": "hitl_resume", "action": action})
+            return resumed_state  # type: ignore[return-value]
+
+        # ----- concept_review (Pipeline B — SalesAgent concept) ---------------
+        if resolved_type == "concept_review":
+            resumed_state = _apply_concept_review(saved_state, action, hitl_response, thread_id)
+
+            if resumed_state.get("status") == "active":
+                graph = build_pipeline_b_graph(checkpointer=checkpointer)
+                try:
+                    result = await asyncio.wait_for(
+                        graph.ainvoke(resumed_state, config=config),
+                        timeout=600,
+                    )
+                except TimeoutError:
+                    logger.error("hitl_resume_timed_out", thread_id=thread_id, hitl_type="concept_review")
+                    return {"status": "failed", "error": "HITL resume timed out"}  # type: ignore[return-value]
+                logger.info(
+                    "hitl_concept_review_resumed_pipeline_finished",
+                    thread_id=thread_id,
+                    action=action,
+                    status=result.get("status"),
+                )
+                return result  # type: ignore[return-value]
+
+            await checkpointer.aput(config, resumed_state, {"source": "hitl_resume", "action": action})
+            return resumed_state  # type: ignore[return-value]
+
+        # ----- design_review -----------------------------------------------
+        if resolved_type == "design_review":
+            resumed_state = _apply_design_review(saved_state, action, hitl_response, thread_id)
+
+            if resumed_state.get("status") == "active":
+                graph = build_full_pipeline_graph(checkpointer=checkpointer)
+                try:
+                    result = await asyncio.wait_for(
+                        graph.ainvoke(resumed_state, config=config),
+                        timeout=600,
+                    )
+                except TimeoutError:
+                    logger.error("hitl_resume_timed_out", thread_id=thread_id, hitl_type="design_review")
+                    return {"status": "failed", "error": "HITL resume timed out"}  # type: ignore[return-value]
+                logger.info(
+                    "hitl_design_review_resumed_pipeline_finished",
+                    thread_id=thread_id,
+                    action=action,
+                    status=result.get("status"),
+                )
+                return result  # type: ignore[return-value]
+
+            await checkpointer.aput(config, resumed_state, {"source": "hitl_resume", "action": action})
+            return resumed_state  # type: ignore[return-value]
+
+        # ----- design_client_approval -------------------------------------
+        if resolved_type == "design_client_approval":
+            resumed_state = _apply_design_client_approval(saved_state, action, hitl_response, thread_id)
+
+            if resumed_state.get("status") == "active":
+                graph = build_full_pipeline_graph(checkpointer=checkpointer)
+                try:
+                    result = await asyncio.wait_for(
+                        graph.ainvoke(resumed_state, config=config),
+                        timeout=600,
+                    )
+                except TimeoutError:
+                    logger.error("hitl_resume_timed_out", thread_id=thread_id, hitl_type="design_client_approval")
+                    return {"status": "failed", "error": "HITL resume timed out"}  # type: ignore[return-value]
+                logger.info(
+                    "hitl_design_approval_resumed_pipeline_finished",
+                    thread_id=thread_id,
+                    action=action,
+                    status=result.get("status"),
+                )
+                return result  # type: ignore[return-value]
+
             await checkpointer.aput(config, resumed_state, {"source": "hitl_resume", "action": action})
             return resumed_state  # type: ignore[return-value]
 
@@ -2129,6 +2825,74 @@ def _apply_outreach_approval(
 _apply_email_approval = _apply_outreach_approval
 
 
+def _apply_concept_review(
+    saved_state: dict[str, Any],
+    action: str,
+    hitl_response: dict[str, Any],
+    thread_id: str,
+) -> AgentState:
+    """Apply the human's concept-review decision to the saved state.
+
+    On **approve** the concept is accepted — pipeline ends (SalesAgent sends it).
+    On **edit** the concept is marked for regeneration by SalesAgent.
+    On **reject** the concept is discarded.
+    """
+    artifacts = dict(saved_state.get("artifacts") or {})
+
+    if action == "approve":
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="completed",
+            current_agent="hitl_concept_review",
+            next_agent=None,
+            artifacts=artifacts,
+        )
+
+    if action == "edit":
+        edits = hitl_response.get("edits", {})
+        if edits:
+            artifacts["hitl_edits"] = [edits] if not isinstance(edits, list) else edits
+        artifacts["_concept_edited"] = True
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="active",
+            current_agent="hitl_concept_review",
+            next_agent=None,
+            artifacts=artifacts,
+        )
+
+    if action == "reject":
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="failed",
+            next_agent=None,
+            errors=[
+                *saved_state.get("errors", []),
+                "HITL: concept rejected by human",
+            ],
+        )
+
+    # Unknown action — fail closed.
+    logger.error("hitl_concept_review_unknown_action", action=action, thread_id=thread_id)
+    return update_state(
+        saved_state,  # type: ignore[arg-type]
+        requires_hitl=False,
+        hitl_request_id=None,
+        status="failed",
+        next_agent=None,
+        errors=[
+            *saved_state.get("errors", []),
+            f"HITL: unknown concept review action '{action}' — rejected for safety",
+        ],
+    )
+
+
 def _apply_agent_failure_recovery(
     saved_state: dict[str, Any],
     action: str,
@@ -2217,5 +2981,157 @@ def _apply_agent_failure_recovery(
         errors=[
             *saved_state.get("errors", []),
             f"HITL: unknown agent_failure action '{action}'",
+        ],
+    )
+
+
+def _apply_design_review(
+    saved_state: dict[str, Any],
+    action: str,
+    hitl_response: dict[str, Any],
+    thread_id: str,
+) -> AgentState:
+    """Apply the operator's design review decision to the saved state.
+
+    Actions:
+    - **approve**: forward to client approval HITL.
+    - **request_changes**: loop back to Design Agent with feedback.
+    - **reject**: escalate to Planner.
+    """
+    artifacts = dict(saved_state.get("artifacts") or {})
+
+    if action == "approve":
+        artifacts["_design_operator_approved"] = True
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="active",
+            current_agent="hitl_design_review",
+            artifacts=artifacts,
+        )
+
+    if action == "request_changes":
+        feedback = hitl_response.get("feedback", "")
+        design_revision = saved_state.get("design_revision", 0) + 1
+
+        if design_revision >= MAX_DESIGN_REVISIONS:
+            # Auto-escalate to Planner after max revisions.
+            logger.warning(
+                "design_review_max_revisions_reached",
+                thread_id=thread_id,
+                revision=design_revision,
+            )
+            return update_state(
+                saved_state,  # type: ignore[arg-type]
+                requires_hitl=False,
+                hitl_request_id=None,
+                status="active",
+                current_agent="hitl_design_review",
+                design_revision=design_revision,
+                design_feedback=feedback,
+                artifacts=artifacts,
+            )
+
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="active",
+            current_agent="hitl_design_review",
+            design_revision=design_revision,
+            design_feedback=feedback,
+            artifacts=artifacts,
+        )
+
+    if action == "reject":
+        # Escalate to Planner for re-decomposition instead of terminating.
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="active",
+            next_agent="planner",
+            current_agent="hitl_design_review",
+            artifacts=artifacts,
+        )
+
+    # Unknown action — fail closed.
+    logger.error("hitl_design_review_unknown_action", action=action, thread_id=thread_id)
+    return update_state(
+        saved_state,  # type: ignore[arg-type]
+        requires_hitl=False,
+        hitl_request_id=None,
+        status="failed",
+        next_agent=None,
+        errors=[
+            *saved_state.get("errors", []),
+            f"HITL: unknown design review action '{action}' — rejected for safety",
+        ],
+    )
+
+
+def _apply_design_client_approval(
+    saved_state: dict[str, Any],
+    action: str,
+    hitl_response: dict[str, Any],
+    thread_id: str,
+) -> AgentState:
+    """Apply the client's design approval decision to the saved state.
+
+    Actions:
+    - **approve**: development starts (continue execution sequence).
+    - **request_changes**: loop back to Design Agent with client feedback.
+    - **reject**: escalate to Planner for re-decomposition.
+    """
+    artifacts = dict(saved_state.get("artifacts") or {})
+
+    if action == "approve":
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="active",
+            current_agent="hitl_design_approval",
+            design_approved=True,
+            artifacts=artifacts,
+        )
+
+    if action == "request_changes":
+        feedback = hitl_response.get("feedback", "")
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="active",
+            current_agent="hitl_design_approval",
+            design_approved=False,
+            design_feedback=feedback,
+            artifacts=artifacts,
+        )
+
+    if action == "reject":
+        # Escalate to Planner for re-decomposition instead of terminating.
+        return update_state(
+            saved_state,  # type: ignore[arg-type]
+            requires_hitl=False,
+            hitl_request_id=None,
+            status="active",
+            next_agent="planner",
+            current_agent="hitl_design_approval",
+            artifacts=artifacts,
+        )
+
+    # Unknown action — fail closed.
+    logger.error("hitl_design_approval_unknown_action", action=action, thread_id=thread_id)
+    return update_state(
+        saved_state,  # type: ignore[arg-type]
+        requires_hitl=False,
+        hitl_request_id=None,
+        status="failed",
+        next_agent=None,
+        errors=[
+            *saved_state.get("errors", []),
+            f"HITL: unknown design approval action '{action}' — rejected for safety",
         ],
     )

@@ -43,6 +43,7 @@ CHANNEL_NOTIFICATION = "notification"
 CHANNEL_ORCH_STATUS = "orch:status"
 CHANNEL_ORCH_GOAL = "orch:goal"
 CHANNEL_ORCH_LOG = "orch:log"
+CHANNEL_PIPELINE_PROGRESS = "pipeline:progress"
 
 # All broadcast channels every authenticated client receives by default
 _DEFAULT_CHANNELS = [
@@ -50,10 +51,12 @@ _DEFAULT_CHANNELS = [
     CHANNEL_AGENT_LOG,
     CHANNEL_HITL_NEW,
     CHANNEL_HITL_RESOLVED,
+    CHANNEL_PROJECT_UPDATE,
     CHANNEL_NOTIFICATION,
     CHANNEL_ORCH_STATUS,
     CHANNEL_ORCH_GOAL,
     CHANNEL_ORCH_LOG,
+    CHANNEL_PIPELINE_PROGRESS,
 ]
 
 

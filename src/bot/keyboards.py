@@ -31,11 +31,13 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 _TYPE_EMOJI: dict[str, str] = {
-    "bid_approval": "\U0001f4dd",   # memo
-    "code_review": "\U0001f50d",    # magnifying glass
-    "delivery": "\U0001f4e6",       # package
-    "revision": "\U0001f504",       # arrows counterclockwise
-    "alert": "\u26a0\ufe0f",        # warning sign
+    "bid_approval": "\U0001f4dd",  # memo
+    "code_review": "\U0001f50d",  # magnifying glass
+    "delivery": "\U0001f4e6",  # package
+    "revision": "\U0001f504",  # arrows counterclockwise
+    "alert": "\u26a0\ufe0f",  # warning sign
+    "design_review": "\U0001f3a8",  # palette
+    "design_client_approval": "\U0001f465",  # busts in silhouette
 }
 
 # ---------------------------------------------------------------------------
@@ -64,6 +66,16 @@ _TYPE_BUTTONS: dict[str, list[tuple[str, str]]] = {
     "alert": [
         ("\u2705 Ack", "approve"),
         ("\u274c Skip", "skip"),
+    ],
+    "design_review": [
+        ("\u2705 Approve", "design_approve"),
+        ("\u270f\ufe0f Revise", "design_revise"),
+        ("\u274c Reject", "design_reject"),
+    ],
+    "design_client_approval": [
+        ("\u2705 Approved", "client_approved"),
+        ("\u270f\ufe0f Changes", "client_changes"),
+        ("\u274c Rejected", "client_rejected"),
     ],
 }
 
@@ -177,9 +189,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         user = user_result.scalar_one_or_none()
 
     if user is None:
-        await query.edit_message_text(
-            text="Your Telegram account is not linked. Use /start first."
-        )
+        await query.edit_message_text(text="Your Telegram account is not linked. Use /start first.")
         return
 
     # Load and resolve the HITL item
@@ -199,10 +209,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         if item.status != "pending":
             await query.edit_message_text(
-                text=(
-                    f"Item already <b>{_esc(item.status)}</b>"
-                    f" (resolution: {_esc(item.resolution or 'n/a')})."
-                ),
+                text=(f"Item already <b>{_esc(item.status)}</b> (resolution: {_esc(item.resolution or 'n/a')})."),
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -211,8 +218,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if item.available_actions and action not in item.available_actions:
             await query.edit_message_text(
                 text=(
-                    f"Action <b>{_esc(action)}</b> is not available.\n"
-                    f"Available: {', '.join(item.available_actions)}"
+                    f"Action <b>{_esc(action)}</b> is not available.\nAvailable: {', '.join(item.available_actions)}"
                 ),
                 parse_mode=ParseMode.HTML,
             )
@@ -233,10 +239,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     action_label = action.capitalize()
     await query.edit_message_text(
-        text=(
-            f"\u2705 <b>Resolved:</b> {_esc(action_label)}\n"
-            f"Item: <code>{hitl_id}</code>"
-        ),
+        text=(f"\u2705 <b>Resolved:</b> {_esc(action_label)}\nItem: <code>{hitl_id}</code>"),
         parse_mode=ParseMode.HTML,
     )
 
@@ -264,8 +267,4 @@ def _format_payload(payload: dict[str, Any], max_items: int = 5) -> list[str]:
 
 def _esc(text: str) -> str:
     """Escape special HTML characters for Telegram HTML parse mode."""
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

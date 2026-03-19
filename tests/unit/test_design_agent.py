@@ -332,3 +332,105 @@ def test_design_infer_design_type():
     assert DesignAgent._infer_design_type("Build a design system") == "design_system"
     assert DesignAgent._infer_design_type("Create a wireframe for the user flow") == "wireframe"
     assert DesignAgent._infer_design_type("Build something amazing") == "ui_mockup"  # default
+
+
+# ---------------------------------------------------------------------------
+# Revision index logic tests
+# ---------------------------------------------------------------------------
+
+
+async def test_design_revision_keeps_sequence_index(
+    mock_llm_client: AsyncMock,
+    mock_heartbeat: Any,
+    mock_loop_detector: Any,
+):
+    """During a revision (revision_severity set), sequence index must NOT increment."""
+    design_response = _make_design_json("ui_mockup", 1)
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=design_response),
+            CallMetrics(agent_name="design", model_id="claude-sonnet-4-5", provider="anthropic"),
+        )
+    )
+
+    agent = DesignAgent(
+        llm_client=mock_llm_client,
+        heartbeat=mock_heartbeat,
+        loop_detector=mock_loop_detector,
+    )
+
+    state = _build_state(
+        current_sequence_index=3,
+        revision_severity="minor",
+        revision_target="design",
+        design_feedback="Use bolder colors",
+    )
+
+    with patch.object(agent, "_log_design_generated", new_callable=AsyncMock):
+        result = await agent._execute(state)
+
+    # Index stays at 3 during revision (not incremented to 4).
+    assert result["current_sequence_index"] == 3
+    # Revision fields are cleared after processing.
+    assert result.get("revision_target") is None
+    assert result.get("revision_severity") is None
+    # Design feedback is cleared after processing.
+    assert result.get("design_feedback") is None
+    assert result["status"] == "active"
+
+
+async def test_design_normal_pass_increments_sequence_index(
+    mock_llm_client: AsyncMock,
+    mock_heartbeat: Any,
+    mock_loop_detector: Any,
+):
+    """On a normal (non-revision) pass, sequence index increments by 1."""
+    design_response = _make_design_json("ui_mockup", 1)
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=design_response),
+            CallMetrics(agent_name="design", model_id="claude-sonnet-4-5", provider="anthropic"),
+        )
+    )
+
+    agent = DesignAgent(
+        llm_client=mock_llm_client,
+        heartbeat=mock_heartbeat,
+        loop_detector=mock_loop_detector,
+    )
+
+    state = _build_state(current_sequence_index=2)
+
+    with patch.object(agent, "_log_design_generated", new_callable=AsyncMock):
+        result = await agent._execute(state)
+
+    assert result["current_sequence_index"] == 3  # 2 + 1
+
+
+async def test_design_clears_design_feedback(
+    mock_llm_client: AsyncMock,
+    mock_heartbeat: Any,
+    mock_loop_detector: Any,
+):
+    """design_feedback is cleared from state after processing."""
+    design_response = _make_design_json("ui_mockup", 1)
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=design_response),
+            CallMetrics(agent_name="design", model_id="claude-sonnet-4-5", provider="anthropic"),
+        )
+    )
+
+    agent = DesignAgent(
+        llm_client=mock_llm_client,
+        heartbeat=mock_heartbeat,
+        loop_detector=mock_loop_detector,
+    )
+
+    state = _build_state(design_feedback="Make the hero bigger")
+
+    with patch.object(agent, "_log_design_generated", new_callable=AsyncMock):
+        result = await agent._execute(state)
+
+    assert result.get("design_feedback") is None
+    assert "design" in result["artifacts"]
