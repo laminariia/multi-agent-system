@@ -643,11 +643,13 @@ def test_route_after_hitl_design_review_failed():
 
 
 def test_route_after_hitl_design_review_still_paused():
-    """Design review routes to END when still paused."""
+    """Design review continues to default when paused (no explicit failed)."""
     from src.core.graph import _route_after_hitl_design_review
 
+    # After HITL routing fix: only "failed" goes to END; paused without
+    # rejection flags falls through to default (client approval).
     state = {"thread_id": "t1", "status": "paused"}
-    assert _route_after_hitl_design_review(state) == END
+    assert _route_after_hitl_design_review(state) == "hitl_design_approval_node"
 
 
 def test_route_after_hitl_design_review_default_approve():
@@ -694,11 +696,14 @@ def test_route_after_hitl_design_approval_failed():
 
 
 def test_route_after_hitl_design_approval_still_paused():
-    """Client approval routes to END when still paused."""
+    """Client approval continues to default when paused (no explicit failed)."""
     from src.core.graph import _route_after_hitl_design_approval
 
+    # After HITL routing fix: only "failed" goes to END; paused without
+    # rejection flags falls through to default (_route_next_in_sequence).
     state = {"thread_id": "t1", "status": "paused"}
-    assert _route_after_hitl_design_approval(state) == END
+    result = _route_after_hitl_design_approval(state)
+    assert result != END  # should continue, not terminate
 
 
 def test_route_after_hitl_design_approval_default_next():

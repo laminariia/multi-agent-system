@@ -118,6 +118,7 @@ class KworkClient:
         A list of normalised job dicts.
         """
         all_jobs: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
         start = time.monotonic()
 
         for page_num in range(1, max_pages + 1):
@@ -147,17 +148,27 @@ class KworkClient:
                 # Parse job cards from the page.
                 remaining = max_results - len(all_jobs)
                 page_jobs = await self._parse_job_cards(page, remaining)
-                all_jobs.extend(page_jobs)
+
+                # Deduplicate by external_id (same job can appear across pages).
+                new_jobs: list[dict[str, Any]] = []
+                for job in page_jobs:
+                    eid = job.get("external_id", "")
+                    if eid and eid in seen_ids:
+                        continue
+                    if eid:
+                        seen_ids.add(eid)
+                    new_jobs.append(job)
+                all_jobs.extend(new_jobs)
 
                 self._log.info(
                     "fetch_jobs_page_done",
                     page=page_num,
-                    page_count=len(page_jobs),
+                    page_count=len(new_jobs),
                     total=len(all_jobs),
                 )
 
-                # Stop if empty page or max_results reached.
-                if not page_jobs or len(all_jobs) >= max_results:
+                # Stop if no new jobs on this page or max_results reached.
+                if not new_jobs or len(all_jobs) >= max_results:
                     break
             finally:
                 await self.browser_pool.release("kwork", page)

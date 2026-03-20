@@ -44,6 +44,10 @@ CHANNEL_ORCH_STATUS = "orch:status"
 CHANNEL_ORCH_GOAL = "orch:goal"
 CHANNEL_ORCH_LOG = "orch:log"
 CHANNEL_PIPELINE_PROGRESS = "pipeline:progress"
+CHANNEL_NEGOTIATION_MESSAGE = "negotiation:new_message"
+CHANNEL_NEGOTIATION_STATE = "negotiation:state_changed"
+CHANNEL_NEGOTIATION_HITL = "negotiation:hitl_required"
+CHANNEL_NEGOTIATION_FOLLOWUP = "negotiation:followup_sent"
 
 # All broadcast channels every authenticated client receives by default
 _DEFAULT_CHANNELS = [
@@ -57,6 +61,10 @@ _DEFAULT_CHANNELS = [
     CHANNEL_ORCH_GOAL,
     CHANNEL_ORCH_LOG,
     CHANNEL_PIPELINE_PROGRESS,
+    CHANNEL_NEGOTIATION_MESSAGE,
+    CHANNEL_NEGOTIATION_STATE,
+    CHANNEL_NEGOTIATION_HITL,
+    CHANNEL_NEGOTIATION_FOLLOWUP,
 ]
 
 

@@ -1,7 +1,7 @@
 """Add hitl_edit_history table for tracking payload edits
 
 Revision ID: a3b7e9d14c02
-Revises: f5a8c3d72b19
+Revises: a3c9e1f28d47
 Create Date: 2026-03-19 18:00:00.000000
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "a3b7e9d14c02"
-down_revision: str | None = "f5a8c3d72b19"
+down_revision: str | None = "a3c9e1f28d47"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

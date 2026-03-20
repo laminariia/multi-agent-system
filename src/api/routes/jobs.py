@@ -396,6 +396,81 @@ class JobController(Controller):
             "message": (f"Pipeline A started for job {job.id}. Thread ID: {thread_id}."),
         }
 
+    # -----------------------------------------------------------------
+    # GET /api/v1/jobs/{job_id}/messages
+    # -----------------------------------------------------------------
+
+    @get(
+        "/{job_id:uuid}/messages",
+        summary="Get messages for a job's bid",
+        description="Retrieve proposal text and platform messages for a job's associated bid.",
+    )
+    async def get_job_messages(
+        self,
+        job_id: uuid.UUID,
+        db_session: AsyncSession,
+        limit: int = Parameter(default=50, ge=1, le=200, description="Page size"),
+        offset: int = Parameter(default=0, ge=0, description="Pagination offset"),
+    ) -> dict[str, Any]:
+        """Return messages associated with a job's bid.
+
+        Finds the bid for the given job, then returns ClientMessages
+        linked to that bid, sorted chronologically.
+
+        Raises:
+            NotFoundException: When the job or its bid is not found.
+        """
+        from src.core.models import Bid, ClientMessage  # noqa: PLC0415
+
+        # Verify job exists
+        job_stmt = select(Job).where(Job.id == job_id)
+        job_result = await db_session.execute(job_stmt)
+        job = job_result.scalar_one_or_none()
+
+        if job is None:
+            raise NotFoundException(detail=f"Job {job_id} not found")
+
+        # Find the bid for this job
+        bid_stmt = select(Bid).where(Bid.job_id == job_id).order_by(Bid.created_at.desc())
+        bid_result = await db_session.execute(bid_stmt)
+        bid = bid_result.scalars().first()
+
+        if bid is None:
+            return {"messages": [], "total": 0, "job_id": str(job_id), "bid_id": None}
+
+        # Fetch messages for the bid
+        base = select(ClientMessage).where(ClientMessage.bid_id == bid.id)
+
+        count_stmt = select(func.count()).select_from(base.subquery())
+        total = (await db_session.execute(count_stmt)).scalar_one()
+
+        msg_stmt = base.order_by(ClientMessage.created_at.asc()).limit(limit).offset(offset)
+        msg_result = await db_session.execute(msg_stmt)
+        rows = msg_result.scalars().all()
+
+        messages = [
+            {
+                "id": str(msg.id),
+                "bid_id": str(msg.bid_id),
+                "direction": msg.direction,
+                "sender": msg.sender,
+                "message_type": msg.message_type,
+                "content": msg.content,
+                "platform": msg.platform,
+                "auto_generated": msg.auto_generated,
+                "hitl_reviewed": msg.hitl_reviewed,
+                "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            }
+            for msg in rows
+        ]
+
+        return {
+            "messages": messages,
+            "total": total,
+            "job_id": str(job_id),
+            "bid_id": str(bid.id),
+        }
+
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -46,6 +46,10 @@ class TestH15ProjectUpdateAutoSubscribe:
             CHANNEL_AGENT_LOG,
             CHANNEL_HITL_NEW,
             CHANNEL_HITL_RESOLVED,
+            CHANNEL_NEGOTIATION_FOLLOWUP,
+            CHANNEL_NEGOTIATION_HITL,
+            CHANNEL_NEGOTIATION_MESSAGE,
+            CHANNEL_NEGOTIATION_STATE,
             CHANNEL_NOTIFICATION,
             CHANNEL_ORCH_GOAL,
             CHANNEL_ORCH_LOG,
@@ -65,6 +69,10 @@ class TestH15ProjectUpdateAutoSubscribe:
             CHANNEL_ORCH_LOG,
             CHANNEL_PROJECT_UPDATE,
             CHANNEL_PIPELINE_PROGRESS,
+            CHANNEL_NEGOTIATION_MESSAGE,
+            CHANNEL_NEGOTIATION_STATE,
+            CHANNEL_NEGOTIATION_HITL,
+            CHANNEL_NEGOTIATION_FOLLOWUP,
         }
         assert expected == set(_DEFAULT_CHANNELS), (
             f"Missing from _DEFAULT_CHANNELS: {expected - set(_DEFAULT_CHANNELS)}"

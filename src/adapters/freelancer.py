@@ -126,7 +126,7 @@ class FreelancerClient:
 
         if response.status_code == 403:
             raise PlatformBannedError(
-                message="Freelancer API returned 403 Forbidden — possible account issue",
+                message="Freelancer API returned 403 Forbidden - possible account issue",
                 platform="freelancer",
                 operation=operation,
             )

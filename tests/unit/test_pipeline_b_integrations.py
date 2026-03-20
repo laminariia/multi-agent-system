@@ -817,8 +817,8 @@ class TestSalesAgentGraphWiring:
         graph = build_pipeline_b_graph()
         assert "hitl_concept_review_node" in graph.nodes
 
-    def test_route_after_outreach_to_sales_agent_on_lead_replied(self):
-        """_route_after_outreach should route to sales_agent when lead replied."""
+    def test_route_after_outreach_to_lead_card_on_lead_replied(self):
+        """_route_after_outreach should route to hitl_lead_card when lead replied."""
         from src.core.graph import _route_after_outreach
 
         state = {
@@ -827,7 +827,7 @@ class TestSalesAgentGraphWiring:
             "artifacts": {"_lead_replied": True},
         }
         result = _route_after_outreach(state)
-        assert result == "sales_agent_node"
+        assert result == "hitl_lead_card_node"
 
     def test_route_after_outreach_to_hitl_outreach_when_requires_hitl(self):
         """_route_after_outreach still routes to hitl_outreach when requires_hitl=True."""
@@ -971,7 +971,7 @@ class TestSalesAgentGraphWiring:
 
     @pytest.mark.asyncio
     async def test_pipeline_b_graph_outreach_to_sales_agent_flow(self):
-        """Pipeline B graph: outreach -> sales_agent when lead replied."""
+        """Pipeline B graph: outreach -> lead_card HITL -> sales_agent when lead replied."""
         from unittest.mock import patch as _patch
 
         from src.core.graph import build_pipeline_b_graph
@@ -990,6 +990,17 @@ class TestSalesAgentGraphWiring:
                 "artifacts": artifacts,
             }
 
+        async def _lead_card_approve(state):
+            artifacts = dict(state.get("artifacts") or {})
+            artifacts["_lead_card_resolution"] = "approve"
+            return {
+                **state,
+                "status": "active",
+                "requires_hitl": False,
+                "current_agent": "hitl_lead_card",
+                "artifacts": artifacts,
+            }
+
         async def _sales_ok(state):
             return {
                 **state,
@@ -1001,6 +1012,7 @@ class TestSalesAgentGraphWiring:
         with (
             _patch("src.core.graph.geo_scout_node", side_effect=_geo_ok),
             _patch("src.core.graph.outreach_node", side_effect=_outreach_replied),
+            _patch("src.core.graph.hitl_lead_card_node", side_effect=_lead_card_approve),
             _patch("src.core.graph.sales_agent_node", side_effect=_sales_ok),
         ):
             graph = build_pipeline_b_graph()
@@ -1029,6 +1041,17 @@ class TestSalesAgentGraphWiring:
                 "artifacts": artifacts,
             }
 
+        async def _lead_card_approve(state):
+            artifacts = dict(state.get("artifacts") or {})
+            artifacts["_lead_card_resolution"] = "approve"
+            return {
+                **state,
+                "status": "active",
+                "requires_hitl": False,
+                "current_agent": "hitl_lead_card",
+                "artifacts": artifacts,
+            }
+
         async def _sales_concept(state):
             return {
                 **state,
@@ -1048,6 +1071,7 @@ class TestSalesAgentGraphWiring:
         with (
             _patch("src.core.graph.geo_scout_node", side_effect=_geo_ok),
             _patch("src.core.graph.outreach_node", side_effect=_outreach_replied),
+            _patch("src.core.graph.hitl_lead_card_node", side_effect=_lead_card_approve),
             _patch("src.core.graph.sales_agent_node", side_effect=_sales_concept),
             _patch("src.core.graph.hitl_concept_review_node", side_effect=_hitl_concept),
         ):

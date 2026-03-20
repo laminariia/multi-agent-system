@@ -711,6 +711,32 @@ class PipelineBScanRequestSchema(_BaseSchema):
         examples=["Berlin"],
         description="City name to scan for offline businesses",
     )
+    mode: str = Field(
+        default="geoscanner",
+        pattern=r"^(geoscanner|web_search|telegram)$",
+        description="Scan mode: geoscanner | web_search | telegram",
+    )
+    categories: list[str] | None = Field(
+        default=None,
+        examples=[["restaurant", "cafe"]],
+        description="Business categories to scan (optional filter)",
+    )
+
+
+class DealMessageCreateSchema(_BaseSchema):
+    """Request body for sending a message in deal context."""
+
+    content: str = Field(
+        ...,
+        min_length=1,
+        max_length=5000,
+        description="Message content",
+    )
+    channel: str = Field(
+        default="internal",
+        pattern=r"^(internal|email|telegram)$",
+        description="Channel for the message: internal | email | telegram",
+    )
 
 
 class CredentialTestRequestSchema(_BaseSchema):
@@ -1005,3 +1031,23 @@ class DealUpdateSchema(_BaseSchema):
     client_context: dict[str, Any] | None = Field(default=None)
     design_versions: dict[str, Any] | None = Field(default=None)
     conversation_history: list[dict[str, Any]] | None = Field(default=None)
+
+
+# =============================================================================
+# Negotiation schemas
+# =============================================================================
+
+
+class NegotiationSendMessageSchema(_BaseSchema):
+    """Request body for operator-sent negotiation message."""
+
+    content: str = Field(..., min_length=1, max_length=10000, description="Message text to send")
+
+
+class NegotiationReleaseSchema(_BaseSchema):
+    """Request body for releasing operator control of a negotiation."""
+
+    target_state: str | None = Field(
+        default=None,
+        description="State to transition to. Defaults to previous state.",
+    )

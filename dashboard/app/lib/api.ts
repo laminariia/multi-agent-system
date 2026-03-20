@@ -48,6 +48,10 @@ import type {
   AnalyticsData,
   HealthMetrics,
   AgentPerformance,
+  BidDetail,
+  NegotiationDetail,
+  NegotiationMessage,
+  ProjectDetail,
 } from "./types";
 
 declare global {
@@ -800,6 +804,44 @@ export async function updateBidStatus(
   });
 }
 
+export async function fetchBid(id: string): Promise<BidDetail> {
+  return apiFetch<BidDetail>(`/bids/${id}`);
+}
+
+export async function fetchNegotiation(bidId: string): Promise<NegotiationDetail> {
+  return apiFetch<NegotiationDetail>(`/negotiations/${bidId}`);
+}
+
+export async function fetchNegotiationMessages(bidId: string): Promise<{ messages: NegotiationMessage[] }> {
+  return apiFetch<{ messages: NegotiationMessage[] }>(`/negotiations/${bidId}/messages`);
+}
+
+export async function sendNegotiationMessage(
+  bidId: string,
+  content: string
+): Promise<NegotiationMessage> {
+  return apiFetch<NegotiationMessage>(`/negotiations/${bidId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function takeOverNegotiation(
+  bidId: string
+): Promise<{ status: string; message: string }> {
+  return apiFetch<{ status: string; message: string }>(`/negotiations/${bidId}/takeover`, {
+    method: "POST",
+  });
+}
+
+export async function releaseNegotiation(
+  bidId: string
+): Promise<{ status: string; message: string }> {
+  return apiFetch<{ status: string; message: string }>(`/negotiations/${bidId}/release`, {
+    method: "POST",
+  });
+}
+
 // --- Projects ---
 
 export async function fetchProjects(params?: {
@@ -820,6 +862,10 @@ export async function fetchProjects(params?: {
 
   const query = searchParams.toString();
   return apiFetch<ProjectListResponse>(`/projects${query ? `?${query}` : ""}`);
+}
+
+export async function fetchProject(id: string): Promise<ProjectDetail> {
+  return apiFetch<ProjectDetail>(`/projects/${id}`);
 }
 
 // --- Portfolio ---

@@ -44,6 +44,7 @@ from src.api.routes.health import health_check
 from src.api.routes.hitl import HITLController
 from src.api.routes.jobs import JobController
 from src.api.routes.metrics import ApiV1MetricsController, MetricsController
+from src.api.routes.negotiations import NegotiationController
 from src.api.routes.orchestrator import OrchestratorController
 from src.api.routes.pipeline_b import PipelineBController
 from src.api.routes.portfolio import PortfolioController
@@ -59,6 +60,10 @@ from src.api.websocket import (
     CHANNEL_AGENT_LOG,
     CHANNEL_HITL_NEW,
     CHANNEL_HITL_RESOLVED,
+    CHANNEL_NEGOTIATION_FOLLOWUP,
+    CHANNEL_NEGOTIATION_HITL,
+    CHANNEL_NEGOTIATION_MESSAGE,
+    CHANNEL_NEGOTIATION_STATE,
     CHANNEL_NOTIFICATION,
     CHANNEL_ORCH_GOAL,
     CHANNEL_ORCH_LOG,
@@ -377,6 +382,10 @@ channels_plugin = ChannelsPlugin(
         CHANNEL_ORCH_STATUS,
         CHANNEL_ORCH_GOAL,
         CHANNEL_ORCH_LOG,
+        CHANNEL_NEGOTIATION_MESSAGE,
+        CHANNEL_NEGOTIATION_STATE,
+        CHANNEL_NEGOTIATION_HITL,
+        CHANNEL_NEGOTIATION_FOLLOWUP,
     ],
     arbitrary_channels_allowed=True,
 )
@@ -412,6 +421,7 @@ app = Litestar(
         JobController,
         MetricsController,
         ApiV1MetricsController,
+        NegotiationController,
         OrchestratorController,
         PipelineBController,
         PortfolioController,

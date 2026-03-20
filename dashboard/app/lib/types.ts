@@ -619,3 +619,75 @@ export interface BidChat {
   messages: BidMessage[];
   negotiation_status: NegotiationStatus;
 }
+
+// --- Bid Detail / Negotiation ---
+
+export type NegotiationStage =
+  | "initial"
+  | "qualifying"
+  | "proposing"
+  | "negotiating"
+  | "closing"
+  | "won"
+  | "lost";
+
+export interface BidDetail extends Bid {
+  proposal_text: string | null;
+  confidence_score: number | null;
+  negotiation_stage: NegotiationStage | null;
+  operator_override: boolean;
+}
+
+export interface NegotiationMessage {
+  id: string;
+  bid_id: string;
+  sender: "ai" | "client" | "operator";
+  content: string;
+  type: "message" | "proposal" | "counter_offer" | "system";
+  timestamp: string;
+}
+
+export interface NegotiationDetail {
+  bid_id: string;
+  stage: NegotiationStage;
+  operator_override: boolean;
+  messages_count: number;
+  last_activity: string | null;
+}
+
+// --- Project Detail ---
+
+export interface ProjectTask {
+  id: string;
+  title: string;
+  agent: string | null;
+  status: "pending" | "in_progress" | "completed" | "failed";
+  estimated_hours: number | null;
+  actual_hours: number | null;
+}
+
+export interface ProjectArtifact {
+  id: string;
+  filename: string;
+  type: string;
+  size_bytes: number | null;
+  url: string | null;
+  created_at: string;
+}
+
+export interface ProjectRevision {
+  id: string;
+  revision_number: number;
+  description: string;
+  agent: string | null;
+  created_at: string;
+}
+
+export interface ProjectDetail extends Project {
+  tasks: ProjectTask[];
+  artifacts_list: ProjectArtifact[];
+  revisions: ProjectRevision[];
+  agreed_amount: number | null;
+  revision_count: number;
+  type: string | null;
+}

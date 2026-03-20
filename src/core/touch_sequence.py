@@ -10,6 +10,7 @@ Plan: docs/plans/2026-03-11-touch-sequence-plan.md
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
@@ -329,3 +330,189 @@ class TouchSequenceManager:
             action=action,
             channel=channel,
         )
+
+    # ------------------------------------------------------------------
+    # DB-persistence helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _sequence_from_lead(lead: Any) -> TouchSequence:
+        """Build an in-memory TouchSequence from a Lead ORM instance."""
+        state_raw = getattr(lead, "touch_state", None) or TouchState.PENDING
+        try:
+            state = TouchState(state_raw)
+        except ValueError:
+            state = TouchState.PENDING
+
+        return TouchSequence(
+            lead_id=str(lead.id),
+            state=state,
+            touch_count=getattr(lead, "touch_count", 0) or 0,
+            channel_used=getattr(lead, "channel_used", None),
+        )
+
+    @staticmethod
+    def _compute_next_touch_at(touch_count: int) -> datetime | None:
+        """Compute ``next_touch_at`` based on next step's day offset."""
+        if touch_count < 0 or touch_count >= len(TOUCH_SCHEDULE):
+            return None
+        step = TOUCH_SCHEDULE[touch_count]
+        # Previous step day (or 0 for first step)
+        prev_day = TOUCH_SCHEDULE[touch_count - 1].day if touch_count > 0 else 0
+        delta_days = step.day - prev_day
+        return datetime.now(UTC) + timedelta(days=max(delta_days, 1))
+
+    async def check_and_execute(self) -> list[TouchResult]:
+        """Cron entry point: find due leads and advance their touch sequences.
+
+        Queries leads where ``touch_state`` IN ('pending', 'active') AND
+        ``next_touch_at <= now()``.  For each lead, advances the sequence,
+        persists a ``TouchHistory`` record, and updates the lead fields.
+
+        Returns a list of TouchResult objects describing what happened.
+        """
+        from datetime import UTC  # noqa: PLC0415
+        from datetime import datetime as dt
+
+        from sqlalchemy import select  # noqa: PLC0415
+
+        from src.core.database import get_db_session  # noqa: PLC0415
+        from src.core.models import Lead  # noqa: PLC0415
+
+        results: list[TouchResult] = []
+        now = dt.now(UTC)
+
+        async with get_db_session() as session:
+            # Find leads due for a touch
+            stmt = (
+                select(Lead)
+                .where(
+                    Lead.touch_state.in_([TouchState.PENDING, TouchState.ACTIVE]),
+                    Lead.next_touch_at <= now,
+                )
+                .with_for_update(skip_locked=True)
+                .limit(100)
+            )
+            rows = await session.execute(stmt)
+            leads = rows.scalars().all()
+
+            for lead in leads:
+                try:
+                    result = await self._process_single_lead(session, lead, now)
+                    results.append(result)
+                except Exception:  # noqa: BLE001
+                    logger.exception("touch.lead_error", lead_id=str(lead.id))
+
+        logger.info("touch.check_and_execute_done", processed=len(results))
+        return results
+
+    async def _process_single_lead(
+        self,
+        session: Any,
+        lead: Any,
+        now: Any,
+    ) -> TouchResult:
+        """Process a single lead: advance, persist, apply stop rules."""
+        from src.core.models import TouchHistory  # noqa: PLC0415
+
+        sequence = self._sequence_from_lead(lead)
+
+        # Check stop rules before advancing
+        last_msg: str | None = None
+        if hasattr(lead, "touch_history") and lead.touch_history:
+            # Use the most recent touch history error_message as signal
+            latest = max(lead.touch_history, key=lambda th: th.created_at)
+            last_msg = latest.error_message
+
+        stop = self.should_stop(sequence.touch_count, last_msg)
+        if stop is not None:
+            # Apply stop rule
+            if stop.action == "transition_to_sales":
+                lead.touch_state = TouchState.REPLIED
+                lead.status = "replied"
+            else:
+                lead.touch_state = TouchState.STOPPED
+                if stop.lead_status:
+                    lead.status = stop.lead_status
+            lead.next_touch_at = None
+
+            logger.info(
+                "touch.stopped",
+                lead_id=str(lead.id),
+                rule=stop.rule,
+                action=stop.action,
+            )
+            return TouchResult(
+                lead_id=str(lead.id),
+                action="stopped",
+                reason=stop.rule,
+            )
+
+        # Advance the sequence
+        result = self.advance(sequence, lead)
+
+        # Get the step that was just executed for history
+        executed_step_index = sequence.touch_count - 1
+        step = self.get_next_step(executed_step_index)
+
+        # Format message content
+        content: str | None = None
+        if step is not None:
+            content = self.format_message(step, lead, operator_name="MAS")
+
+        # Save TouchHistory record
+        touch_record = TouchHistory(
+            lead_id=lead.id,
+            step_index=executed_step_index,
+            template=step.template if step else "unknown",
+            channel=result.channel or "email",
+            content=content,
+            status="sent" if result.action == "sent" else "pending",
+        )
+        session.add(touch_record)
+
+        # Update lead fields
+        lead.touch_state = str(sequence.state)
+        lead.touch_count = sequence.touch_count
+        lead.last_contacted_at = now
+        if sequence.channel_used:
+            lead.channel_used = sequence.channel_used
+
+        # Compute next_touch_at for the following step
+        if sequence.state in _TERMINAL_STATES:
+            lead.next_touch_at = None
+        else:
+            lead.next_touch_at = self._compute_next_touch_at(sequence.touch_count)
+
+        await session.flush()
+
+        logger.info(
+            "touch.persisted",
+            lead_id=str(lead.id),
+            action=result.action,
+            touch_count=sequence.touch_count,
+            next_touch_at=str(lead.next_touch_at) if lead.next_touch_at else None,
+        )
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Module-level APScheduler entry point
+# ---------------------------------------------------------------------------
+
+_manager = TouchSequenceManager()
+
+
+async def check_and_execute_touches() -> list[TouchResult]:
+    """APScheduler-compatible entry point (every 30min).
+
+    Usage with APScheduler::
+
+        scheduler.add_job(
+            check_and_execute_touches,
+            trigger="interval",
+            minutes=30,
+            id="touch_sequence_check",
+        )
+    """
+    return await _manager.check_and_execute()
