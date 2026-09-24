@@ -83,7 +83,7 @@ dashboard/app/
 │   ├── _app.dashboard.tsx, _app.jobs.tsx, _app.agents.tsx
 │   ├── _app.hitl.tsx, _app.settings.tsx, _app.orchestrator.tsx
 │   ├── _app.geo.tsx, _app.outreach.tsx, _app.users.tsx
-│   └── _app.leads.$id.tsx
+│   └── _app.leads_.$id.tsx
 ├── components/       # Reusable components (sidebar-nav.tsx, etc.)
 └── lib/              # Utilities, API client
 ```

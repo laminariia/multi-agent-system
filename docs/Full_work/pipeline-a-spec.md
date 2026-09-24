@@ -501,7 +501,7 @@ CREATE TABLE negotiations (
 | HITL API | `src/api/routes/hitl.py` |
 | Orchestrator | `src/api/services/orchestrator.py` |
 | Dashboard Jobs | `dashboard/app/routes/_app.jobs.tsx` |
-| Dashboard Job Detail | `dashboard/app/routes/_app.jobs.$id.tsx` |
+| Dashboard Job Detail | `dashboard/app/routes/_app.jobs_.$id.tsx` |
 | Dashboard HITL | `dashboard/app/routes/_app.hitl.tsx` |
 | Dashboard Home | `dashboard/app/routes/_app.tsx` |
 | Negotiation design (doc) | `docs/negotiation_flows.md` |

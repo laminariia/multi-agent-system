@@ -78,6 +78,11 @@
 - pgvector SQL with `$1`-style asyncpg params looks like f-string SQL injection to ruff
 - Fix: use string concatenation instead of f-strings, add `# noqa: S608` on the line
 
+## Remix Flat Routes: Detail Pages Must Be Un-nested
+- `_app.bids.$id.tsx` is a CHILD of `_app.bids.tsx` — it renders only if the list route has `<Outlet />`. Our list routes don't, so `/bids/:id` silently shows the list page
+- **Fix**: trailing `_` on the parent segment — `_app.bids_.$id.tsx` stays inside the `_app` layout but not inside the list route. URL is unchanged
+- Check: `cd dashboard && npx remix routes` — every detail route must be a direct child of `routes/_app.tsx`
+
 ## Railway Deploy Gotchas
 
 ### Rate Limiting 429 on Login/Register
