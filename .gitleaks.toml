@@ -54,6 +54,7 @@ title = "Gitleaks config for Multi-Agent Service"
   [rules.allowlist]
     paths = [
       '''tests/''',
+      '''\.github/workflows/''',  # actions pinned to commit SHAs
       '''\.env\.example$''',
     ]
 
