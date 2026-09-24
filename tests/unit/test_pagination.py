@@ -265,8 +265,6 @@ class TestKworkPagination:
 
         await client.fetch_jobs(max_pages=2)
 
-        # First page: no page param or page=1
-        first_goto_url = page1.goto.call_args[0][0]
         # Second page: should contain page=2
         second_goto_url = page2.goto.call_args[0][0]
         assert "page=2" in second_goto_url or "2" in second_goto_url

@@ -238,7 +238,7 @@ async def test_soft_bounce_retries_before_returning():
 
     with (
         patch("aiosmtplib.send", side_effect=exc) as mock_send,
-        patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        patch("asyncio.sleep", new_callable=AsyncMock),
     ):
         result = await sender.send_email("temp@example.com", "Subject", "Body")
 

@@ -634,7 +634,7 @@ class TestHITLTelegramAutoNotifications:
         state = _make_state(status="paused")
 
         with patch("src.core.graph._send_hitl_telegram_notification", new_callable=AsyncMock) as mock_notify:
-            result = await hitl_bid_node(state)
+            await hitl_bid_node(state)
 
         # Already paused — should return state unchanged, no notification
         mock_notify.assert_not_called()
@@ -659,7 +659,6 @@ class TestHITLTelegramAutoNotifications:
         """_send_hitl_telegram_notification should use TelegramNotifier.notify_new_hitl."""
         from src.core.graph import _send_hitl_telegram_notification
 
-        hitl_item = _make_hitl_item(type="bid_approval")
         user = _make_user(telegram_chat_id=123456)
 
         mock_session = AsyncMock()

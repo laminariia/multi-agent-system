@@ -96,7 +96,7 @@ line-length = 120
 select = ["E", "F", "I", "UP", "S", "B"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101", "S105", "S106", "S108", "S603"]
+"tests/**/*.py" = ["S101", "S105", "S106", "S107", "S108", "S603"]
 "src/sandbox/**/*.py" = ["S108"]
 "src/cli/seed_data.py" = ["S108"]
 

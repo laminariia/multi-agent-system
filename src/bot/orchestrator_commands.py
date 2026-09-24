@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from sqlalchemy import func, select

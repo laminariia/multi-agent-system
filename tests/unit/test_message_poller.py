@@ -413,7 +413,7 @@ class TestPlatformDispatch:
         poller = MessagePoller(adapters={"freelancer": adapter})
 
         bid = _make_bid(platform_thread_id=None, platform_bid_id="bid-456")
-        result = await poller._fetch_messages(adapter, bid, "freelancer")
+        await poller._fetch_messages(adapter, bid, "freelancer")
 
         call_kwargs = adapter.get_thread_messages.call_args
         assert call_kwargs.kwargs["thread_id"] == "bid-456"
@@ -444,7 +444,7 @@ class TestPlatformDispatch:
         poller = MessagePoller(adapters={"fl_ru": adapter})
 
         bid = _make_bid(platform_bid_id="fl-project-url")
-        result = await poller._fetch_messages(adapter, bid, "fl_ru")
+        await poller._fetch_messages(adapter, bid, "fl_ru")
 
         adapter.scrape_inbox_thread.assert_awaited_once()
 
@@ -454,7 +454,7 @@ class TestPlatformDispatch:
         poller = MessagePoller(adapters={"telegram": adapter})
 
         bid = _make_bid(client_telegram_id=12345)
-        result = await poller._fetch_messages(adapter, bid, "telegram")
+        await poller._fetch_messages(adapter, bid, "telegram")
 
         adapter.get_direct_messages.assert_awaited_once()
 

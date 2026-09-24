@@ -298,7 +298,7 @@ async def _run_data_retention() -> None:
 
         async with get_db_session() as session:
             manager = DataRetentionManager(session)
-            results = await manager.run_all()
+            await manager.run_all()
             await session.commit()
     except Exception:
         logger.exception("data_retention_failed")

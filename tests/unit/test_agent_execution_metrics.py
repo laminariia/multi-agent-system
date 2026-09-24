@@ -7,6 +7,8 @@ recording in ConstrainedAgent.
 
 from __future__ import annotations
 
+import contextlib
+
 import pytest
 from prometheus_client import REGISTRY
 
@@ -24,18 +26,14 @@ def _reset_metrics():
     # Unregister all MAS collectors to avoid Duplicated timeseries
     to_remove = [name for name in list(REGISTRY._names_to_collectors.keys()) if name.startswith("mas_")]
     for name in to_remove:
-        try:
+        with contextlib.suppress(Exception):
             REGISTRY.unregister(REGISTRY._names_to_collectors[name])
-        except Exception:
-            pass
     yield
     mod._metrics = None
     to_remove = [name for name in list(REGISTRY._names_to_collectors.keys()) if name.startswith("mas_")]
     for name in to_remove:
-        try:
+        with contextlib.suppress(Exception):
             REGISTRY.unregister(REGISTRY._names_to_collectors[name])
-        except Exception:
-            pass
 
 
 # ---------------------------------------------------------------------------
