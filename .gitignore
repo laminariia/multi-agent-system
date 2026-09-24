@@ -80,3 +80,8 @@ credentials.json
 
 # Misc
 nul
+
+# Local agent tooling state and test caches
+.omc/
+.hypothesis/
+.playwright-mcp/
