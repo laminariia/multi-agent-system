@@ -7,6 +7,7 @@ histograms, and gauges into logical categories and exposes convenience
 
 Metrics endpoint: ``GET /metrics`` (see ``src.api.routes.metrics``).
 """
+
 from __future__ import annotations
 
 import threading
@@ -111,6 +112,25 @@ class MASMetrics:
         )
 
         # ------------------------------------------------------------------
+        # Per-agent execution metrics (L8)
+        # ------------------------------------------------------------------
+        self.agent_execution_seconds = Histogram(
+            "mas_agent_execution_seconds",
+            "Per-agent execution duration (wall clock)",
+            ["agent_name"],
+            buckets=(0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600),
+        )
+        self.agent_token_cost = Counter(
+            "mas_agent_token_cost",
+            "Cumulative LLM token cost per agent and model (USD)",
+            ["agent_name", "model"],
+        )
+        self.pipeline_concurrent_gauge = Gauge(
+            "mas_pipeline_concurrent",
+            "Number of pipeline executions currently running",
+        )
+
+        # ------------------------------------------------------------------
         # System info
         # ------------------------------------------------------------------
         self.app_info = Info("mas_app", "Application info")
@@ -162,19 +182,27 @@ class MASMetrics:
             status: One of ``"success"``, ``"rate_limited"``, ``"error"``.
         """
         self.llm_calls_total.labels(
-            agent_name=agent_name, model=model, status=status,
+            agent_name=agent_name,
+            model=model,
+            status=status,
         ).inc()
         self.llm_tokens_total.labels(
-            agent_name=agent_name, model=model, direction="input",
+            agent_name=agent_name,
+            model=model,
+            direction="input",
         ).inc(tokens_input)
         self.llm_tokens_total.labels(
-            agent_name=agent_name, model=model, direction="output",
+            agent_name=agent_name,
+            model=model,
+            direction="output",
         ).inc(tokens_output)
         self.llm_cost_usd_total.labels(
-            agent_name=agent_name, model=model,
+            agent_name=agent_name,
+            model=model,
         ).inc(cost_usd)
         self.llm_latency_seconds.labels(
-            agent_name=agent_name, model=model,
+            agent_name=agent_name,
+            model=model,
         ).observe(latency_seconds)
 
     def record_sandbox_execution(
@@ -190,6 +218,31 @@ class MASMetrics:
             status: One of ``"success"``, ``"failed"``, ``"timeout"``.
         """
         self.sandbox_executions_total.labels(executor=executor, status=status).inc()
+
+    def record_agent_execution(
+        self,
+        agent_name: str,
+        *,
+        duration_seconds: float,
+        token_cost: float = 0.0,
+        model: str = "unknown",
+    ) -> None:
+        """Record a per-agent execution with timing and optional cost.
+
+        Args:
+            agent_name: Canonical agent identifier (e.g. ``"scout"``).
+            duration_seconds: Wall-clock execution time.
+            token_cost: Estimated LLM token cost in USD (0 for cached/free).
+            model: Model identifier used during execution.
+        """
+        self.agent_execution_seconds.labels(agent_name=agent_name).observe(
+            duration_seconds,
+        )
+        if token_cost > 0:
+            self.agent_token_cost.labels(
+                agent_name=agent_name,
+                model=model,
+            ).inc(token_cost)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,483 @@
+# Grafana Unified Alerting Rules for MAS
+# 11 alert rules per deploy-spec.md Section "Grafana Alert Rules"
+#
+# Severity levels:
+#   critical — Telegram immediate notification
+#   warning  — Dashboard + batch Telegram every 30 min
+#   info     — Dashboard log only
+
+apiVersion: 1
+
+groups:
+  # ════════════════════════════════════════════════
+  # CRITICAL ALERTS — Telegram immediately
+  # ════════════════════════════════════════════════
+  - orgId: 1
+    name: mas-critical
+    folder: MAS Alerts
+    interval: 30s
+    rules:
+      # ── 1. AllAgentsDead ──────────────────────────
+      - uid: mas-alert-all-agents-dead
+        title: AllAgentsDead
+        condition: C
+        for: 3m
+        labels:
+          severity: critical
+          team: mas
+        annotations:
+          summary: "All MAS agents are dead — no heartbeats detected for 3+ minutes"
+          description: "Zero agents reporting alive status. Pipeline processing is completely halted. Immediate investigation required."
+          runbook_url: "https://github.com/yourorg/mas/wiki/runbooks/all-agents-dead"
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: count(mas_agent_heartbeat_status{status="alive"}) OR vector(0)
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [1]
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+
+      # ── 2. DatabaseDown ───────────────────────────
+      - uid: mas-alert-database-down
+        title: DatabaseDown
+        condition: C
+        for: 1m
+        labels:
+          severity: critical
+          team: mas
+        annotations:
+          summary: "PostgreSQL is unreachable"
+          description: "pg_up metric reports 0. All database operations are failing. Check postgres container health and disk space."
+          runbook_url: "https://github.com/yourorg/mas/wiki/runbooks/database-down"
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: pg_up
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [1]
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+
+      # ── 3. ValkeyDown ─────────────────────────────
+      - uid: mas-alert-valkey-down
+        title: ValkeyDown
+        condition: C
+        for: 1m
+        labels:
+          severity: critical
+          team: mas
+        annotations:
+          summary: "Valkey (cache/queue) is unreachable"
+          description: "redis_up metric reports 0. Cache, rate limiting, distributed locks, and budget tracking are all offline."
+          runbook_url: "https://github.com/yourorg/mas/wiki/runbooks/valkey-down"
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: redis_up
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [1]
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+
+      # ── 4. OOMRisk ────────────────────────────────
+      - uid: mas-alert-oom-risk
+        title: OOMRisk
+        condition: C
+        for: 5m
+        labels:
+          severity: critical
+          team: mas
+        annotations:
+          summary: "Container {{ $labels.name }} using >90% memory"
+          description: "Memory usage is at {{ $value | humanizePercentage }}. OOM kill is imminent. Consider scaling resources or investigating memory leaks."
+          runbook_url: "https://github.com/yourorg/mas/wiki/runbooks/oom-risk"
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: (container_memory_usage_bytes{name=~"mas-.*"} / container_spec_memory_limit_bytes{name=~"mas-.*"}) * 100
+              instant: false
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [90]
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+
+  # ════════════════════════════════════════════════
+  # WARNING ALERTS — Dashboard + batch Telegram every 30 min
+  # ════════════════════════════════════════════════
+  - orgId: 1
+    name: mas-warning
+    folder: MAS Alerts
+    interval: 1m
+    rules:
+      # ── 5. HighAPILatency ─────────────────────────
+      - uid: mas-alert-high-api-latency
+        title: HighAPILatency
+        condition: C
+        for: 5m
+        labels:
+          severity: warning
+          team: mas
+        annotations:
+          summary: "API P95 latency exceeds 1 second"
+          description: "P95 HTTP request duration is {{ $value }}s (threshold: 1s). Check slow endpoints, DB query times, and LLM response times."
+          runbook_url: "https://github.com/yourorg/mas/wiki/runbooks/high-api-latency"
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: histogram_quantile(0.95, rate(mas_http_request_duration_seconds_bucket[5m]))
+              instant: false
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [1]
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+
+      # ── 6. LLMThrottled ──────────────────────────
+      - uid: mas-alert-llm-throttled
+        title: LLMThrottled
+        condition: C
+        for: 5m
+        labels:
+          severity: warning
+          team: mas
+        annotations:
+          summary: "LLM rate limit error rate exceeds 10%"
+          description: "{{ $value | humanizePercentage }} of LLM requests are hitting rate limits. Consider key rotation, request batching, or upgrading tier."
+          runbook_url: "https://github.com/yourorg/mas/wiki/runbooks/llm-throttled"
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: (rate(mas_llm_errors_total{error_type="rate_limit"}[5m]) / rate(mas_llm_requests_total[5m])) * 100
+              instant: false
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [10]
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+
+      # ── 7. HITLQueueBacklog ──────────────────────
+      - uid: mas-alert-hitl-queue-backlog
+        title: HITLQueueBacklog
+        condition: C
+        for: 30m
+        labels:
+          severity: warning
+          team: mas
+        annotations:
+          summary: "{{ $value }} HITL items pending for >30 minutes"
+          description: "HITL approval queue has accumulated {{ $value }} pending items. Human operator attention needed. Check Telegram bot and dashboard notifications."
+          runbook_url: "https://github.com/yourorg/mas/wiki/runbooks/hitl-queue-backlog"
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 2400
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: mas_hitl_pending_count
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 2400
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [20]
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+
+      # ── 8. SlowDBQueries ─────────────────────────
+      - uid: mas-alert-slow-db-queries
+        title: SlowDBQueries
+        condition: C
+        for: 10m
+        labels:
+          severity: warning
+          team: mas
+        annotations:
+          summary: "Database P95 query time exceeds 500ms"
+          description: "P95 database query duration is {{ $value }}s (threshold: 0.5s). Check for missing indexes, full table scans, or connection pool exhaustion."
+          runbook_url: "https://github.com/yourorg/mas/wiki/runbooks/slow-db-queries"
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: histogram_quantile(0.95, rate(mas_db_query_duration_seconds_bucket[5m]))
+              instant: false
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0.5]
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+
+      # ── 9. DiskSpaceLow ──────────────────────────
+      - uid: mas-alert-disk-space-low
+        title: DiskSpaceLow
+        condition: C
+        for: 5m
+        labels:
+          severity: warning
+          team: mas
+        annotations:
+          summary: "Disk space below 15% on {{ $labels.mountpoint }}"
+          description: "Only {{ $value | humanizePercentage }} free disk space remaining on {{ $labels.mountpoint }}. Clean up Docker images, old logs, and database WAL files."
+          runbook_url: "https://github.com/yourorg/mas/wiki/runbooks/disk-space-low"
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [15]
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+
+  # ════════════════════════════════════════════════
+  # INFO ALERTS — Dashboard log only
+  # ════════════════════════════════════════════════
+  - orgId: 1
+    name: mas-info
+    folder: MAS Alerts
+    interval: 5m
+    rules:
+      # ── 10. AgentRestarted ───────────────────────
+      - uid: mas-alert-agent-restarted
+        title: AgentRestarted
+        condition: C
+        for: 0s
+        labels:
+          severity: info
+          team: mas
+        annotations:
+          summary: "Agent {{ $labels.agent }} was restarted"
+          description: "Agent {{ $labels.agent }} restart detected in the last 5 minutes. If restarts are frequent (>3 in 15 min), investigate heartbeat timeout or OOM kills."
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: increase(mas_agent_restart_total[5m])
+              instant: false
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+
+      # ── 11. CacheHitRateLow ──────────────────────
+      - uid: mas-alert-cache-hit-rate-low
+        title: CacheHitRateLow
+        condition: C
+        for: 1h
+        labels:
+          severity: info
+          team: mas
+        annotations:
+          summary: "Semantic cache hit rate below 5%"
+          description: "Cache hit rate is {{ $value }}% (expected ~15%). Low hit rate increases LLM costs. Check cache TTL, similarity threshold (0.92), or if query patterns have changed."
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 7200
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: mas_cache_hit_rate * 100
+              instant: false
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 7200
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [5]
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: avg

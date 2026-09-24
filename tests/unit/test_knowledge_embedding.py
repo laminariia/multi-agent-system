@@ -154,10 +154,10 @@ class TestEmbeddingServiceInit:
         assert service._bucket._capacity == 500
 
     def test_embedding_service_init_fallback_to_env_var(self, mock_openai_embeddings, monkeypatch):
-        """Falls back to OPENAI_API_KEY env var."""
+        """Falls back to OPENROUTER_API_KEY env var."""
         from src.knowledge.embedding_service import EmbeddingService
 
-        monkeypatch.setenv("OPENAI_API_KEY", "env-key-789")
+        monkeypatch.setenv("OPENROUTER_API_KEY", "env-key-789")
         service = EmbeddingService()
         assert service._dim == 3072
         call_kwargs = mock_openai_embeddings.call_args.kwargs
@@ -319,7 +319,7 @@ class TestModuleConstants:
         """_EMBEDDING_MODEL is correct."""
         from src.knowledge.embedding_service import _EMBEDDING_MODEL
 
-        assert _EMBEDDING_MODEL == "text-embedding-3-large"
+        assert _EMBEDDING_MODEL == "qwen/qwen3-embedding-8b"
 
     def test_embedding_dimension(self):
         """_EMBEDDING_DIM is 3072."""

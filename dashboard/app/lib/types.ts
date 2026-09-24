@@ -33,7 +33,23 @@ export interface RegisterRequest {
 
 export interface HITLItem {
   id: string;
-  type: "bid_approval" | "code_review" | "delivery" | "revision" | "scope_creep" | "plan_review" | "alert" | "email_approval" | "final_review" | "job_review";
+  type:
+    | "bid_approval"
+    | "code_review"
+    | "delivery"
+    | "revision"
+    | "scope_creep"
+    | "plan_review"
+    | "alert"
+    | "email_approval"
+    | "final_review"
+    | "job_review"
+    | "dev_launch"
+    | "agent_failure"
+    | "delivery_hold"
+    | "outreach_approval"
+    | "manual_action"
+    | "concept_review";
   priority: "urgent" | "normal" | "low";
   title: string;
   description: string | null;
@@ -87,6 +103,10 @@ export interface AgentStatus {
   current_task: string | null;
   restart_count: number;
   error_message: string | null;
+  uptime_seconds?: number;
+  llm_tokens_used?: number;
+  avg_task_duration?: number;
+  success_rate?: number;
 }
 
 export interface AgentStatusList {
@@ -164,6 +184,7 @@ export interface Lead {
   discovered_at: string | null;
   latitude: number | null;
   longitude: number | null;
+  lead_score: number | null;
 }
 
 export interface LeadDetail extends Lead {
@@ -176,6 +197,9 @@ export interface LeadDetail extends Lead {
   enrichment_cost: number | null;
   enrichment_data: Record<string, any> | null;
   osm_id: string | null;
+  temperature: string | null;
+  google_rating: number | null;
+  review_count: number | null;
 }
 
 export interface LeadListResponse {
@@ -256,6 +280,11 @@ export interface HealthReport {
   score: number;
   dimensions: Record<string, HealthDimension>;
   problems: HealthProblem[];
+  cpu_percent?: number;
+  memory_percent?: number;
+  db_connections?: number;
+  db_max_connections?: number;
+  valkey_latency_ms?: number;
 }
 
 export interface Phase {
@@ -321,6 +350,8 @@ export interface ScoutConfig {
   categories_auto: string[];
   categories_suggest: string[];
   custom_rules: string[];
+  geo_categories: string[];
+  prospect_rules: string[];
 }
 
 // --- Campaigns ---
@@ -384,6 +415,32 @@ export interface TelegramChannelListResponse {
   total: number;
 }
 
+// --- Deals (Pipeline B → A bridge) ---
+
+export interface Deal {
+  id: string;
+  lead_id: string | null;
+  title: string;
+  status: string;
+  agreed_scope: string | null;
+  budget: number | null;
+  deadline: string | null;
+  pipeline_a_thread_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface DealDetail extends Deal {
+  client_context: Record<string, any> | null;
+  design_versions: Record<string, any>[] | null;
+  conversation_history: Record<string, any>[] | null;
+}
+
+export interface DealListResponse {
+  deals: Deal[];
+  total: number;
+}
+
 export interface PipelineProgress {
   thread_id: string | null;
   agent_sequence: string[];
@@ -394,4 +451,243 @@ export interface PipelineProgress {
   status: "idle" | "running" | "paused" | "completed" | "failed";
   started_at: string | null;
   updated_at: string | null;
+}
+
+// --- Bids ---
+
+export interface Bid {
+  id: string;
+  job_id: string;
+  job_title: string | null;
+  platform: string;
+  bid_amount: number;
+  delivery_days: number | null;
+  cover_letter: string | null;
+  status: "draft" | "submitted" | "accepted" | "rejected" | "withdrawn";
+  platform_bid_id: string | null;
+  submitted_at: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface BidListResponse {
+  bids: Bid[];
+  total: number;
+}
+
+export interface BidStats {
+  total: number;
+  by_status: Record<string, number>;
+  avg_bid_amount: number | null;
+  win_rate: number | null;
+}
+
+// --- Projects ---
+
+export interface Project {
+  id: string;
+  job_id: string | null;
+  deal_id: string | null;
+  title: string;
+  status: "active" | "completed" | "on_hold" | "cancelled";
+  client_name: string | null;
+  budget: number | null;
+  deadline: string | null;
+  description: string | null;
+  artifacts: Record<string, any> | null;
+  progress: number | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface ProjectListResponse {
+  projects: Project[];
+  total: number;
+}
+
+// --- Portfolio ---
+
+export interface PortfolioProject {
+  id: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  tags: string[] | null;
+  tech_stack: string[] | null;
+  platform: string | null;
+  image_url: string | null;
+  demo_url: string | null;
+  source_url: string | null;
+  url: string | null;
+  client_name: string | null;
+  budget: number | null;
+  completed_at: string | null;
+  visible: boolean;
+  created_at: string;
+}
+
+export interface PortfolioListResponse {
+  projects: PortfolioProject[];
+  total: number;
+  published_count: number;
+  draft_count: number;
+}
+
+// --- Analytics ---
+
+export interface FunnelStep {
+  label: string;
+  count: number;
+  rate: number | null;
+}
+
+export interface CostBreakdown {
+  category: string;
+  amount: number;
+}
+
+export interface RevenueByPlatform {
+  platform: string;
+  revenue: number;
+  deals: number;
+}
+
+export interface LLMCostByAgent {
+  agent: string;
+  cost_usd: number;
+  calls: number;
+}
+
+export interface AnalyticsOverview {
+  period_days: number;
+  jobs_discovered: number;
+  bids_submitted: number;
+  deals_won: number;
+  revenue_total: number;
+  avg_deal_value: number | null;
+  pipeline_a_funnel: FunnelStep[];
+  pipeline_b_funnel: FunnelStep[];
+  cost_breakdown: CostBreakdown[];
+  revenue_by_platform: RevenueByPlatform[];
+  llm_cost_by_agent: LLMCostByAgent[];
+}
+
+export interface AnalyticsData {
+  overview: AnalyticsOverview;
+  generated_at: string;
+}
+
+// --- Health Metrics (Orchestrator real data) ---
+
+export interface HealthMetrics {
+  cpu_percent: number;
+  memory_percent: number;
+  db_connections: number;
+  db_max_connections: number;
+  valkey_latency_ms: number;
+}
+
+// --- Agent Performance ---
+
+export interface AgentPerformance {
+  agent_name: string;
+  weekly_tasks: { day: string; tasks: number }[];
+  uptime_percent: number;
+  llm_tokens_used: number;
+  avg_task_duration_seconds: number;
+  success_rate: number;
+}
+
+// --- Bid Chat / Negotiation ---
+
+export type NegotiationStatus =
+  | "initial"
+  | "qualifying"
+  | "proposing"
+  | "negotiating"
+  | "closing";
+
+export interface BidMessage {
+  id: string;
+  sender: "ai" | "client" | "operator";
+  text: string;
+  timestamp: string;
+}
+
+export interface BidChat {
+  bid_id: string;
+  messages: BidMessage[];
+  negotiation_status: NegotiationStatus;
+}
+
+// --- Bid Detail / Negotiation ---
+
+export type NegotiationStage =
+  | "initial"
+  | "qualifying"
+  | "proposing"
+  | "negotiating"
+  | "closing"
+  | "won"
+  | "lost";
+
+export interface BidDetail extends Bid {
+  proposal_text: string | null;
+  confidence_score: number | null;
+  negotiation_stage: NegotiationStage | null;
+  operator_override: boolean;
+}
+
+export interface NegotiationMessage {
+  id: string;
+  bid_id: string;
+  sender: "ai" | "client" | "operator";
+  content: string;
+  type: "message" | "proposal" | "counter_offer" | "system";
+  timestamp: string;
+}
+
+export interface NegotiationDetail {
+  bid_id: string;
+  stage: NegotiationStage;
+  operator_override: boolean;
+  messages_count: number;
+  last_activity: string | null;
+}
+
+// --- Project Detail ---
+
+export interface ProjectTask {
+  id: string;
+  title: string;
+  agent: string | null;
+  status: "pending" | "in_progress" | "completed" | "failed";
+  estimated_hours: number | null;
+  actual_hours: number | null;
+}
+
+export interface ProjectArtifact {
+  id: string;
+  filename: string;
+  type: string;
+  size_bytes: number | null;
+  url: string | null;
+  created_at: string;
+}
+
+export interface ProjectRevision {
+  id: string;
+  revision_number: number;
+  description: string;
+  agent: string | null;
+  created_at: string;
+}
+
+export interface ProjectDetail extends Project {
+  tasks: ProjectTask[];
+  artifacts_list: ProjectArtifact[];
+  revisions: ProjectRevision[];
+  agreed_amount: number | null;
+  revision_count: number;
+  type: string | null;
 }

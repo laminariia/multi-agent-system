@@ -56,12 +56,52 @@ function formatBudget(
 interface JobCardProps {
   job: Job;
   compact?: boolean;
+  rowMode?: boolean;
+  borderColor?: string;
+  score?: number | null;
 }
 
-export const JobCard = memo(function JobCard({ job, compact }: JobCardProps) {
+export const JobCard = memo(function JobCard({ job, compact, rowMode, borderColor, score: scoreProp }: JobCardProps) {
   const status = statusConfig[job.status] ?? statusConfig.discovered;
-  const scorePercent = job.score != null ? Math.round(job.score * 100) : null;
+  const scorePercent = scoreProp ?? (job.score != null ? Math.round(job.score * 100) : null);
   const budgetText = formatBudget(job.budget_min, job.budget_max, job.currency);
+
+  if (rowMode) {
+    return (
+      <Link
+        to={`/jobs/${job.id}`}
+        className={cn(
+          "flex items-center gap-4 rounded-lg border border-border/50 border-l-4 px-4 py-3 hover:border-primary/30 transition-colors animate-fade-in",
+          borderColor ?? "border-l-zinc-600"
+        )}
+      >
+        <span className="flex h-8 w-8 items-center justify-center rounded bg-secondary text-[10px] font-bold text-muted-foreground shrink-0">
+          {platformIcons[job.platform] ?? job.platform.slice(0, 2).toUpperCase()}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium truncate">{job.title}</p>
+          <div className="flex items-center gap-3 mt-0.5">
+            {budgetText && <span className="text-xs text-muted-foreground">{budgetText}</span>}
+            {job.skills_required && job.skills_required.slice(0, 2).map((skill) => (
+              <Badge key={skill} variant="secondary" className="px-1.5 py-0 text-[10px] font-normal">{skill}</Badge>
+            ))}
+          </div>
+        </div>
+        {scorePercent != null && (
+          <div className="flex items-center gap-2 shrink-0 w-[120px]">
+            <span className="text-xs text-muted-foreground w-8 text-right">{scorePercent}%</span>
+            <Progress value={scorePercent} className="h-1.5 flex-1" />
+          </div>
+        )}
+        <Badge variant="outline" className={cn("text-[10px] shrink-0", status.className)}>
+          {status.label}
+        </Badge>
+        <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">
+          {relativeTime(job.discovered_at)}
+        </span>
+      </Link>
+    );
+  }
 
   if (compact) {
     return (

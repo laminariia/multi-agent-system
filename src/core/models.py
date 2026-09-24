@@ -1,12 +1,12 @@
 """SQLAlchemy 2.0 ORM models for the Multi-Agent Service.
 
-All 18 tables from ``docs/database_schema.md`` are defined here using the
+All 21 tables from ``docs/Full_work/specs/database-spec.md`` are defined here using the
 modern ``Mapped`` / ``mapped_column`` annotation style.
 
 Key conventions:
 - UUIDs as primary keys (``gen_random_uuid()`` server-side default)
-- ``Vector(3072)`` for OpenAI text-embedding-3-large embedding columns
-- DiskANN indexes for vector columns (NOT HNSW)
+- ``Vector(3072)`` for qwen3-embedding-8b embedding columns (Matryoshka)
+- HNSW indexes for vector columns (pgvector)
 - ``datetime.now(timezone.utc)`` for Python-side timestamp defaults
 - Async Alembic with asyncpg for migrations
 """
@@ -24,6 +24,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -57,6 +58,29 @@ class Base(DeclarativeBase):
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+# ---------------------------------------------------------------------------
+# Soft-delete mixin
+# ---------------------------------------------------------------------------
+
+
+class SoftDeleteMixin:
+    """Mixin adding soft-delete support via ``deleted_at`` column.
+
+    Models using this mixin can be soft-deleted by setting ``deleted_at`` to a
+    UTC timestamp.  A ``NULL`` value means the row is live.  The column is
+    indexed with a partial index (``WHERE deleted_at IS NOT NULL``) so that
+    queries filtering on soft-deleted rows remain fast without penalising
+    normal reads.
+    """
+
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+        index=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +214,12 @@ class Bid(Base):
     bid_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     estimated_days: Mapped[int | None] = mapped_column(Integer)
     portfolio_items: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(Text))
+
+    # Platform reference
+    platform_bid_id: Mapped[str | None] = mapped_column(String(255))
+    platform_thread_id: Mapped[str | None] = mapped_column(String(255))
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    client_telegram_id: Mapped[int | None] = mapped_column(BigInteger)
 
     # Status
     status: Mapped[str] = mapped_column(String(30), default="draft", server_default="draft")
@@ -377,7 +407,7 @@ class Artifact(Base):
 # ---------------------------------------------------------------------------
 
 
-class HITLQueue(Base):
+class HITLQueue(SoftDeleteMixin, Base):
     __tablename__ = "hitl_queue"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -420,10 +450,56 @@ class HITLQueue(Base):
     project: Mapped[Project | None] = relationship(back_populates="hitl_items")
     task: Mapped[Task | None] = relationship(back_populates="hitl_items")
     resolved_by_user: Mapped[User | None] = relationship(back_populates="hitl_resolutions")
+    edit_history: Mapped[list[HITLEditHistory]] = relationship(
+        back_populates="hitl_item",
+        cascade="all, delete-orphan",
+        order_by="HITLEditHistory.edited_at",
+    )
 
     __table_args__ = (
         Index("idx_hitl_status", "status", "priority", "created_at"),
         Index("idx_hitl_type", "type", "status"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8b. hitl_edit_history — tracks payload changes on HITL edits
+# ---------------------------------------------------------------------------
+
+
+class HITLEditHistory(Base):
+    """Tracks payload changes when HITL items are edited during resolution."""
+
+    __tablename__ = "hitl_edit_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    hitl_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("hitl_queue.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    edited_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    before_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    after_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    edit_type: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        doc="field_edit | full_replace | action_edit",
+    )
+    edited_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    # Relationships
+    hitl_item: Mapped[HITLQueue] = relationship(
+        back_populates="edit_history",
+        foreign_keys=[hitl_id],
+    )
+    editor: Mapped[User | None] = relationship(foreign_keys=[edited_by])
+
+    __table_args__ = (
+        Index("idx_hitl_edit_history_hitl_id", "hitl_id"),
+        Index("idx_hitl_edit_history_edited_at", "edited_at"),
     )
 
 
@@ -506,17 +582,45 @@ class Lead(Base):
     # Status
     status: Mapped[str] = mapped_column(String(20), default="new", server_default="new")
 
+    # Scoring (pipeline-b-spec)
+    lead_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    temperature: Mapped[str | None] = mapped_column(String(10), nullable=True)  # hot/warm/cold
+
+    # Touch tracking
+    touch_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    channel_used: Mapped[str | None] = mapped_column(String(20), nullable=True)  # email/telegram/platform
+
+    # External data
+    google_rating: Mapped[Decimal | None] = mapped_column(Numeric(2, 1), nullable=True)
+    review_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     # Source
+    source: Mapped[str | None] = mapped_column(String(30), nullable=True)  # geo_scanner/web_search/telegram
+    source_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     osm_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
     discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=_utcnow, nullable=True)
+
+    # Pipeline B extensions
+    touch_state: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )  # pending/active/replied/completed/stopped/paused
+    next_touch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    battlecard_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    scoring_rules: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    analysis_tier: Mapped[str | None] = mapped_column(String(10), default="quick", nullable=True)
 
     # Relationships
     campaign_links: Mapped[list[CampaignLead]] = relationship(back_populates="lead", cascade="all, delete-orphan")
+    touch_history: Mapped[list[TouchHistory]] = relationship(back_populates="lead", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_leads_city", "city", "category", "status"),
         Index("idx_leads_h3", "h3_index"),
         Index("idx_leads_status", "status"),
+        Index("idx_leads_temperature", "temperature"),
+        Index("idx_leads_touch_state", "touch_state"),
     )
 
 
@@ -596,7 +700,7 @@ class CampaignLead(Base):
 # ---------------------------------------------------------------------------
 
 
-class AgentLog(Base):
+class AgentLog(SoftDeleteMixin, Base):
     __tablename__ = "agent_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -717,7 +821,7 @@ class KnowledgeBase(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # Embedding for RAG — OpenAI text-embedding-3-large (3072 dim)
+    # Embedding for RAG — Qwen3-Embedding-8B (3072 dim, Matryoshka)
     embedding = mapped_column(Vector(3072))
 
     # Stats
@@ -729,9 +833,8 @@ class KnowledgeBase(Base):
 
     __table_args__ = (
         Index("idx_knowledge_type", "type", "category"),
-        # DiskANN index for ultra-fast vector search (pgvectorscale).
-        # Created via raw DDL in init migration or init.sql because SQLAlchemy
-        # does not natively support USING diskann.
+        # HNSW index for vector search (pgvector).
+        # Created via raw DDL in init migration or init.sql.
     )
 
 
@@ -752,7 +855,7 @@ class SemanticCache(Base):
     response: Mapped[str] = mapped_column(Text, nullable=False)
     query_type: Mapped[str] = mapped_column(Text, default="default", server_default="default")
 
-    # Embedding — OpenAI text-embedding-3-large (3072 dim)
+    # Embedding — Qwen3-Embedding-8B (3072 dim, Matryoshka)
     embedding = mapped_column(Vector(3072))
 
     hit_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
@@ -762,7 +865,7 @@ class SemanticCache(Base):
     __table_args__ = (
         Index("idx_cache_expires", "expires_at"),
         Index("idx_cache_type", "query_type"),
-        # DiskANN index for embedding created via raw DDL (see init migration).
+        # HNSW index for embedding created via raw DDL (see init migration).
     )
 
 
@@ -771,7 +874,7 @@ class SemanticCache(Base):
 # ---------------------------------------------------------------------------
 
 
-class ABTestResult(Base):
+class ABTestResult(SoftDeleteMixin, Base):
     __tablename__ = "ab_test_results"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -835,7 +938,35 @@ class OrchestratorGoal(Base):
 
 
 # ---------------------------------------------------------------------------
-# 19. telegram_channels
+# 19. portfolio_projects
+# ---------------------------------------------------------------------------
+
+
+class PortfolioProject(Base):
+    """Portfolio project used as social proof in bids."""
+
+    __tablename__ = "portfolio_projects"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    platform: Mapped[str] = mapped_column(String(50), default="direct", server_default="direct")
+    status: Mapped[str] = mapped_column(String(20), default="draft", server_default="draft")
+    description: Mapped[str | None] = mapped_column(Text)
+    tech_stack: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    url: Mapped[str | None] = mapped_column(Text)
+    thumbnail_url: Mapped[str | None] = mapped_column(Text)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (Index("idx_portfolio_platform", "platform", "status"),)
+
+
+# ---------------------------------------------------------------------------
+# 20. telegram_channels
 # ---------------------------------------------------------------------------
 
 
@@ -912,7 +1043,7 @@ class Deal(Base):
 # ---------------------------------------------------------------------------
 
 
-class ScheduledMessage(Base):
+class ScheduledMessage(SoftDeleteMixin, Base):
     """Scheduled progress messages for delivery throttling (execution cloaking)."""
 
     __tablename__ = "scheduled_messages"
@@ -934,3 +1065,321 @@ class ScheduledMessage(Base):
         Index("idx_scheduled_messages_status_send_at", "status", "send_at"),
         Index("idx_scheduled_messages_thread", "thread_id"),
     )
+
+
+# ---------------------------------------------------------------------------
+# 22. email_suppression_list
+# ---------------------------------------------------------------------------
+
+
+class EmailSuppressionEntry(Base):
+    """CAN-SPAM / GDPR email suppression list."""
+
+    __tablename__ = "email_suppression_list"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    reason: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # hard_bounce | unsubscribe | complaint | manual | gdpr_erasure
+    source: Mapped[str] = mapped_column(String(100), nullable=False)  # bounce_handler | user_request | admin | webhook
+    suppressed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (Index("idx_suppression_email", "email"),)
+
+
+# ---------------------------------------------------------------------------
+# 23. client_messages
+# ---------------------------------------------------------------------------
+
+
+class ClientMessage(Base):
+    """Inbound/outbound messages exchanged during bid negotiation.
+
+    Captures every platform message, AI-generated response, and operator
+    intervention for the Negotiation Engine.  Linked to a bid and optionally
+    to a project (once the deal is accepted).
+    """
+
+    __tablename__ = "client_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    bid_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("bids.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"),
+    )
+    direction: Mapped[str] = mapped_column(String(10))  # inbound / outbound
+    sender: Mapped[str] = mapped_column(String(20))  # client / ai / operator
+    message_type: Mapped[str | None] = mapped_column(String(30))  # classification result
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    platform: Mapped[str | None] = mapped_column(String(50))
+    external_id: Mapped[str | None] = mapped_column(String(255))
+    auto_generated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    hitl_reviewed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    hitl_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("hitl_queue.id", ondelete="SET NULL"),
+    )
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(
+        "metadata",
+        type_=JSONB,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    __table_args__ = (
+        Index("idx_client_messages_bid_created", "bid_id", "created_at"),
+        Index("idx_client_messages_platform_ext", "platform", "external_id"),
+        Index("idx_client_messages_bid_dir_created", "bid_id", "direction", "created_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 24. negotiations
+# ---------------------------------------------------------------------------
+
+
+class Negotiation(Base):
+    """State-machine record tracking negotiation progress per bid.
+
+    One negotiation per bid (unique constraint).  Stores the FSM state,
+    financial terms, round counter, follow-up tracking, and a JSONB history
+    of all state transitions for audit.
+    """
+
+    __tablename__ = "negotiations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    bid_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("bids.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+    )
+    state: Mapped[str] = mapped_column(String(30), default="initial", server_default="initial", nullable=False)
+    previous_state: Mapped[str | None] = mapped_column(String(30))
+    state_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    state_reason: Mapped[str | None] = mapped_column(Text)
+
+    # Financial terms
+    original_amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    current_amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    final_amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+
+    # Counters
+    rounds: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    followup_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_followup_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Outcome
+    outcome: Mapped[str | None] = mapped_column(String(20))  # won / lost / stale / cancelled
+
+    # Audit
+    history: Mapped[dict[str, Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(
+        "metadata",
+        type_=JSONB,
+    )
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index(
+            "idx_negotiations_active_state",
+            "state",
+            postgresql_where=text("state NOT IN ('won', 'lost')"),
+        ),
+        Index("idx_negotiations_bid", "bid_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 25. telegram_user_profiles
+# ---------------------------------------------------------------------------
+
+
+class TelegramUserProfile(Base):
+    """Telegram user profile aggregated from channel messages."""
+
+    __tablename__ = "telegram_user_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
+    username: Mapped[str | None] = mapped_column(String(255))
+    first_name: Mapped[str | None] = mapped_column(String(255))
+    last_name: Mapped[str | None] = mapped_column(String(255))
+    messages_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    channels: Mapped[dict[str, Any] | None] = mapped_column(JSONB, server_default="[]")
+    score: Mapped[float] = mapped_column(Float, default=0.0, server_default="0.0")
+    needs: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="new", server_default="new")
+    bio: Mapped[str | None] = mapped_column(Text)
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=_utcnow, nullable=True)
+
+    __table_args__ = (Index("idx_tg_profile_status_score", "status", "score"),)
+
+
+# ---------------------------------------------------------------------------
+# 26. touch_history
+# ---------------------------------------------------------------------------
+
+
+class TouchHistory(Base):
+    """Tracks each outreach touch in a multi-step sequence for a lead."""
+
+    __tablename__ = "touch_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    lead_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    step_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    template: Mapped[str] = mapped_column(String(50), nullable=False)
+    channel: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    external_id: Mapped[str | None] = mapped_column(String(255))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    # Relationships
+    lead: Mapped[Lead] = relationship(back_populates="touch_history")
+
+    __table_args__ = (Index("idx_touch_history_lead_created", "lead_id", "created_at"),)
+
+
+# ---------------------------------------------------------------------------
+# 27. telegram_notification_prefs
+# ---------------------------------------------------------------------------
+
+
+class TelegramNotificationPref(Base):
+    """Per-user notification preferences for Telegram alerts."""
+
+    __tablename__ = "telegram_notification_prefs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+    )
+    notification_types: Mapped[list[str] | None] = mapped_column(
+        ARRAY(Text),
+        server_default=text(
+            "ARRAY['bid_approval','dev_launch','final_review','design_review','concept_review','escalation']::text[]"
+        ),
+    )
+    quiet_hours_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    quiet_hours_start: Mapped[int] = mapped_column(Integer, default=23, server_default="23")
+    quiet_hours_end: Mapped[int] = mapped_column(Integer, default=8, server_default="8")
+    timezone: Mapped[str] = mapped_column(String(50), default="Europe/Moscow", server_default="Europe/Moscow")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=_utcnow, nullable=True)
+
+    # Relationships
+    user: Mapped[User] = relationship()
+
+
+# ---------------------------------------------------------------------------
+# 28. telegram_notification_log
+# ---------------------------------------------------------------------------
+
+
+class TelegramNotificationLog(Base):
+    """Audit log for Telegram notifications sent to users."""
+
+    __tablename__ = "telegram_notification_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"),
+    )
+    hitl_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("hitl_queue.id", ondelete="SET NULL"),
+    )
+    telegram_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    chat_id: Mapped[int | None] = mapped_column(BigInteger)
+    notification_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    content_preview: Mapped[str | None] = mapped_column(String(200))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    action_taken: Mapped[str | None] = mapped_column(String(30))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    # Relationships
+    user: Mapped[User | None] = relationship()
+    hitl_item: Mapped[HITLQueue | None] = relationship()
+
+    __table_args__ = (
+        Index("idx_tg_notif_log_user", "user_id"),
+        Index("idx_tg_notif_log_hitl", "hitl_id"),
+        Index("idx_tg_notif_log_sent", "sent_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 29. client_context
+# ---------------------------------------------------------------------------
+
+
+class ClientContext(Base):
+    """Accumulated client context for a deal in Pipeline B negotiations."""
+
+    __tablename__ = "client_context"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    lead_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    deal_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("deals.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+    )
+    key_facts: Mapped[dict[str, Any] | None] = mapped_column(JSONB, server_default="{}")
+    agreed_scope: Mapped[str | None] = mapped_column(Text)
+    decisions: Mapped[dict[str, Any] | None] = mapped_column(JSONB, server_default="[]")
+    design_versions: Mapped[dict[str, Any] | None] = mapped_column(JSONB, server_default="[]")
+    client_preferences: Mapped[dict[str, Any] | None] = mapped_column(JSONB, server_default="{}")
+    conversation_summary: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    # Relationships
+    lead: Mapped[Lead] = relationship()
+    deal: Mapped[Deal] = relationship()
+
+    __table_args__ = (Index("idx_client_context_lead", "lead_id"),)

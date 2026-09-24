@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import structlog
 from litestar import Litestar, MediaType, Request, Response
@@ -26,7 +27,6 @@ from litestar.channels.backends.redis import RedisChannelsPubSubBackend
 from litestar.config.cors import CORSConfig
 from litestar.exceptions import HTTPException
 from litestar.middleware import AbstractMiddleware
-from litestar.middleware.rate_limit import RateLimitConfig
 from litestar.openapi import OpenAPIConfig
 from litestar.openapi.plugins import RedocRenderPlugin, SwaggerRenderPlugin
 from litestar.types import Receive, Scope, Send
@@ -35,17 +35,24 @@ from sqlalchemy import text as sa_text
 from src.api.dependencies import provide_db_session, provide_settings, provide_valkey
 from src.api.guards import jwt_auth
 from src.api.routes.agents import AgentController
+from src.api.routes.analytics import AnalyticsController
 from src.api.routes.auth import AuthController
+from src.api.routes.bids import BidController
 from src.api.routes.campaigns import CampaignController
 from src.api.routes.deals import DealController
 from src.api.routes.health import health_check
 from src.api.routes.hitl import HITLController
 from src.api.routes.jobs import JobController
-from src.api.routes.metrics import MetricsController
+from src.api.routes.metrics import ApiV1MetricsController, MetricsController
+from src.api.routes.negotiations import NegotiationController
 from src.api.routes.orchestrator import OrchestratorController
 from src.api.routes.pipeline_b import PipelineBController
+from src.api.routes.portfolio import PortfolioController
+from src.api.routes.projects import ProjectController
 from src.api.routes.settings import SettingsController
 from src.api.routes.telegram_channels import TelegramChannelController
+from src.api.routes.telegram_webhook import TelegramWebhookController
+from src.api.routes.unsubscribe import UnsubscribeController
 from src.api.routes.users import UserController
 from src.api.schemas import ErrorResponseSchema, ErrorSchema
 from src.api.websocket import (
@@ -53,6 +60,10 @@ from src.api.websocket import (
     CHANNEL_AGENT_LOG,
     CHANNEL_HITL_NEW,
     CHANNEL_HITL_RESOLVED,
+    CHANNEL_NEGOTIATION_FOLLOWUP,
+    CHANNEL_NEGOTIATION_HITL,
+    CHANNEL_NEGOTIATION_MESSAGE,
+    CHANNEL_NEGOTIATION_STATE,
     CHANNEL_NOTIFICATION,
     CHANNEL_ORCH_GOAL,
     CHANNEL_ORCH_LOG,
@@ -291,6 +302,17 @@ async def lifespan(app: Litestar) -> AsyncGenerator[None, None]:
     # Seed admin user if users table is empty and ADMIN_EMAIL/PASSWORD are set.
     await _seed_admin_user(settings)
 
+    # Crash recovery — resume stale pipeline threads (best-effort, non-blocking)
+    try:
+        from src.core.crash_recovery import startup_crash_recovery  # noqa: PLC0415
+        from src.core.database import get_db_session as _get_session  # noqa: PLC0415
+
+        async with _get_session() as recovery_session:
+            summary = await startup_crash_recovery(recovery_session)
+            logger.info("app.crash_recovery_complete", **summary)
+    except Exception as exc:
+        logger.warning("app.crash_recovery_failed", error=str(exc))
+
     yield
 
     # ── Shutdown ────────────────────────────────────────────────────
@@ -331,13 +353,18 @@ cors_config = CORSConfig(
     allow_credentials=True,
 )
 
-# Default rate limit (applied globally; per-route overrides are set on controllers).
-# Set high because Railway reverse proxy collapses all client IPs into one
-# internal address — IP-based limiting effectively caps ALL users together.
-rate_limit_config = RateLimitConfig(
-    rate_limit=("minute", 300),
-    exclude=["/health", "/schema", "/swagger", "/redoc", "/metrics"],
-)
+# Per-user JWT rate limiting via Valkey.
+# Replaces IP-based RateLimitConfig which was useless on Railway (all IPs
+# collapse to a single internal address).
+_valkey_for_rate_limit = get_valkey()
+
+
+def _jwt_rate_limit_middleware_factory(app: Any) -> Any:
+    """Create the JWT rate limiter middleware wrapping the given ASGI app."""
+    from src.api.middleware.jwt_rate_limiter import JWTRateLimiterMiddleware
+
+    return JWTRateLimiterMiddleware(app=app, valkey=_valkey_for_rate_limit)
+
 
 # ChannelsPlugin for WebSocket real-time events
 _valkey_for_channels = get_valkey()
@@ -355,6 +382,10 @@ channels_plugin = ChannelsPlugin(
         CHANNEL_ORCH_STATUS,
         CHANNEL_ORCH_GOAL,
         CHANNEL_ORCH_LOG,
+        CHANNEL_NEGOTIATION_MESSAGE,
+        CHANNEL_NEGOTIATION_STATE,
+        CHANNEL_NEGOTIATION_HITL,
+        CHANNEL_NEGOTIATION_FOLLOWUP,
     ],
     arbitrary_channels_allowed=True,
 )
@@ -380,17 +411,25 @@ openapi_config = OpenAPIConfig(
 app = Litestar(
     route_handlers=[
         health_check,
+        AgentController,
+        AnalyticsController,
         AuthController,
+        BidController,
         CampaignController,
         DealController,
         HITLController,
-        AgentController,
         JobController,
         MetricsController,
+        ApiV1MetricsController,
+        NegotiationController,
         OrchestratorController,
         PipelineBController,
+        PortfolioController,
+        ProjectController,
         SettingsController,
         TelegramChannelController,
+        TelegramWebhookController,
+        UnsubscribeController,
         UserController,
         ws_handler,
     ],
@@ -406,7 +445,7 @@ app = Litestar(
         Exception: _generic_exception_handler,  # type: ignore[dict-item]
     },
     cors_config=cors_config,
-    middleware=[rate_limit_config.middleware, SecurityHeadersMiddleware],
+    middleware=[_jwt_rate_limit_middleware_factory, SecurityHeadersMiddleware],
     plugins=[channels_plugin],
     openapi_config=openapi_config,
     lifespan=[lifespan],

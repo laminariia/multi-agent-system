@@ -7,15 +7,21 @@ control.  No delivery is ever auto-submitted.
 The Packager Agent:
 1. Collects all artifacts from state (dev, content, design agents).
 2. Reads ``delivery_type`` from state to determine packaging strategy.
-3. Calls the LLM (Claude Haiku 4.5) with PACKAGER_SYSTEM_PROMPT to generate
+3. Calls the LLM (DeepSeek V3.2, Tier 6) with PACKAGER_SYSTEM_PROMPT to generate
    a delivery package description and README.
 4. Validates completeness based on delivery_type requirements.
 5. Creates an HITL queue entry for final review.
-6. Pauses the workflow until human approval.
+6. Saves project experience to ExperienceStore for future RAG retrieval.
+7. Pauses the workflow until human approval.
 
 Role constraints: can ASSEMBLE artifacts, CANNOT modify code, CANNOT submit
 without HITL approval.
-LLM: Claude Haiku 4.5 (no fallback).
+LLM: DeepSeek V3.2 (Tier 6: Simple).
+
+RAG Integration (Phase 6, pipeline-a-spec.md):
+After successful packaging, ``_save_project_experience()`` stores a structured
+record in the Experience Store (pgvector) so that future agents (Bid, Planner,
+Dev, Negotiation Engine) can retrieve similar past projects via similarity search.
 """
 
 from __future__ import annotations
@@ -216,6 +222,21 @@ class PackagerAgent(ConstrainedAgent):
             delivery_info=delivery_info,
             thread_id=state["thread_id"],
         )
+
+        # 7b. Save project experience to ExperienceStore for RAG (Phase 6).
+        # Errors are caught internally — experience save must never break the pipeline.
+        try:
+            await self._save_project_experience(
+                project=project,
+                delivery_info=delivery_info,
+                collected_artifacts=collected,
+            )
+        except Exception:
+            self._log.warning(
+                "experience_save_failed",
+                project_id=project_id,
+                exc_info=True,
+            )
 
         self._log.info(
             "delivery_package_ready",
@@ -584,9 +605,174 @@ class PackagerAgent(ConstrainedAgent):
                     "requires_hitl": True,
                     "thread_id": thread_id,
                 },
-                llm_model="claude-haiku-4-5",
+                llm_model="deepseek-v3.2",
             )
             session.add(log_entry)
+
+    # ------------------------------------------------------------------
+    # Experience Store integration (RAG Phase 6)
+    # ------------------------------------------------------------------
+
+    async def _save_project_experience(
+        self,
+        *,
+        project: dict[str, Any],
+        delivery_info: dict[str, Any],
+        collected_artifacts: dict[str, list[str]],
+    ) -> None:
+        """Save a structured experience record to the Experience Store.
+
+        This enables future agents (Bid, Planner, Dev, Negotiation Engine)
+        to retrieve similar past projects via pgvector similarity search.
+
+        Errors are logged but never raised — experience saving must not
+        block the delivery pipeline.
+
+        Spec: docs/Full_work/pipeline-a-spec.md Phase 6 (RAG section).
+        """
+        try:
+            store = await _get_experience_store()
+        except Exception:
+            self._log.warning(
+                "experience_store_unavailable",
+                project_id=project.get("project_id", "unknown"),
+                exc_info=True,
+            )
+            return
+
+        if store is None:
+            self._log.debug(
+                "experience_store_not_configured",
+                project_id=project.get("project_id", "unknown"),
+            )
+            return
+
+        project_id = project.get("project_id", "unknown")
+        platform = project.get("platform", "unknown")
+        budget = project.get("budget")
+        requirements = project.get("requirements", "")
+        delivery_type = delivery_info.get("delivery_type", "files")
+        files_count = delivery_info.get("files_count", 0)
+        quality_notes = delivery_info.get("quality_notes", "")
+        includes = delivery_info.get("includes", [])
+
+        # Build a human-readable title for the experience entry.
+        title = f"Completed project {project_id} [{delivery_type}] on {platform}"
+
+        # Build structured content for embedding and RAG retrieval.
+        # Include all fields relevant for future similarity search.
+        artifact_summary = ", ".join(f"{agent}: {len(arts)} artifacts" for agent, arts in collected_artifacts.items())
+
+        content_parts = [
+            f"Project: {project_id}",
+            f"Platform: {platform}",
+            f"Requirements: {requirements}",
+        ]
+        if budget is not None:
+            content_parts.append(f"Budget: {budget}")
+        content_parts.extend(
+            [
+                f"Delivery type: {delivery_type}",
+                f"Files delivered: {files_count}",
+                f"Includes: {', '.join(includes) if includes else 'N/A'}",
+                f"Artifacts: {artifact_summary}",
+            ]
+        )
+        if quality_notes:
+            content_parts.append(f"Quality notes: {quality_notes}")
+
+        content = "\n".join(content_parts)
+
+        # Extract success_score from critic artifacts if available.
+        success_score = self._extract_critic_score(collected_artifacts)
+
+        # Build metadata for structured queries.
+        metadata = {
+            "project_id": project_id,
+            "platform": platform,
+            "budget": budget,
+            "delivery_type": delivery_type,
+            "files_count": files_count,
+            "includes": includes,
+        }
+
+        try:
+            entry_id = await store.save_experience(
+                "bid",  # Category: completed project experience.
+                title,
+                content,
+                metadata=metadata,
+                success_score=success_score,
+            )
+            self._log.info(
+                "experience_saved",
+                project_id=project_id,
+                experience_id=str(entry_id),
+                success_score=success_score,
+            )
+        except Exception:
+            self._log.warning(
+                "experience_save_store_error",
+                project_id=project_id,
+                exc_info=True,
+            )
+
+    @staticmethod
+    def _extract_critic_score(
+        collected_artifacts: dict[str, list[str]],
+    ) -> float:
+        """Extract the critic quality score from artifacts, defaulting to 0.7.
+
+        Parses the last critic artifact JSON for a ``score`` field.
+        Returns 0.7 as a neutral default when no critic data is available.
+        """
+        default_score = 0.7
+        critic_arts = collected_artifacts.get("critic", [])
+        if not critic_arts:
+            return default_score
+
+        # Use the last critic artifact (most recent review).
+        try:
+            critic_data = json.loads(critic_arts[-1])
+            score = float(critic_data.get("score", default_score))
+            return max(0.0, min(1.0, score))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return default_score
+
+
+# ======================================================================
+# Module-level helpers
+# ======================================================================
+
+
+async def _get_experience_store():
+    """Retrieve an ExperienceStore instance from the application container.
+
+    Returns ``None`` if the store is not available (e.g. no DB pool configured).
+    This is a module-level function so it can be easily mocked in tests.
+    """
+    try:
+        from src.core.container import get_container  # noqa: PLC0415
+
+        container = get_container()
+        db_pool = getattr(container, "db_pool", None)
+        if db_pool is None:
+            return None
+
+        from src.knowledge.embedding_service import EmbeddingService  # noqa: PLC0415
+        from src.knowledge.experience_store import ExperienceStore  # noqa: PLC0415
+
+        embedding_service = getattr(container, "embedding_service", None)
+        if embedding_service is None:
+            embedding_service = EmbeddingService()
+
+        return ExperienceStore(
+            embedding_service=embedding_service,
+            db_pool=db_pool,
+        )
+    except Exception:
+        logger.warning("experience_store_init_failed", exc_info=True)
+        return None
 
 
 # ======================================================================
@@ -594,7 +780,7 @@ class PackagerAgent(ConstrainedAgent):
 # ======================================================================
 
 
-async def packager_node(state: AgentState) -> AgentState:
+async def packager_node(state: dict[str, Any]) -> dict[str, Any]:
     """LangGraph node function that creates and invokes the Packager Agent.
 
     This is the entry-point wired into the ``StateGraph``.

@@ -5,7 +5,7 @@ The ``requires_hitl`` field is ALWAYS set to ``True`` before this agent
 returns control.  No bid is ever auto-submitted.
 
 Role constraints: can GENERATE proposals, CANNOT submit bids directly.
-LLM: Gemini 3 Flash (fallback Claude Haiku).
+LLM: Gemini 3.1 Pro (Tier 2: Client-facing).
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ class BidAgent(ConstrainedAgent):
     Parameters
     ----------
     llm_client:
-        Shared :class:`LLMClient` instance (Gemini 3 Flash primary).
+        Shared :class:`LLMClient` instance (Gemini 3.1 Pro primary, Tier 2).
     heartbeat:
         Shared :class:`HeartbeatMonitor` for liveness pings.
     loop_detector:
@@ -120,8 +120,11 @@ class BidAgent(ConstrainedAgent):
             # 2. Fetch similar won bids from knowledge_base (RAG).
             similar_bids = await self._fetch_similar_bids(job_dict)
 
+            # 2b. RAG: retrieve similar proposal experiences from ExperienceStore.
+            rag_context = await self._fetch_rag_context(job_dict)
+
             # 3. Generate proposal via LLM.
-            proposal = await self._generate_proposal(job_dict, similar_bids)
+            proposal = await self._generate_proposal(job_dict, similar_bids, rag_context)
             if proposal is None:
                 self._log.warning("proposal_generation_failed", job_id=job_dict.get("id"))
                 continue
@@ -327,6 +330,48 @@ class BidAgent(ConstrainedAgent):
         return "web_development"  # default
 
     # ------------------------------------------------------------------
+    # RAG: experience store context
+    # ------------------------------------------------------------------
+
+    async def _fetch_rag_context(self, job: dict[str, Any]) -> list[dict[str, Any]]:
+        """Retrieve similar proposal experiences from ExperienceStore.
+
+        Returns an empty list on any failure -- RAG must never block
+        agent execution.
+        """
+        try:
+            from src.core.database import get_asyncpg_pool  # noqa: PLC0415
+            from src.knowledge.embedding_service import EmbeddingService  # noqa: PLC0415
+            from src.knowledge.experience_store import ExperienceStore  # noqa: PLC0415
+
+            pool = await get_asyncpg_pool()
+            if pool is None:
+                return []
+            store = ExperienceStore(
+                embedding_service=EmbeddingService(),
+                db_pool=pool,
+            )
+            query_parts: list[str] = []
+            if job.get("title"):
+                query_parts.append(job["title"])
+            if job.get("description"):
+                query_parts.append(job["description"][:500])
+            if job.get("skills_required"):
+                query_parts.append(", ".join(job["skills_required"]))
+            query_text = " ".join(query_parts)
+            if not query_text.strip():
+                return []
+
+            return await store.retrieve_context(
+                query=query_text,
+                category="bid",
+                top_k=3,
+            )
+        except Exception:  # noqa: BLE001
+            self._log.debug("rag_retrieval_skipped", reason="store_unavailable")
+            return []
+
+    # ------------------------------------------------------------------
     # LLM proposal generation
     # ------------------------------------------------------------------
 
@@ -334,6 +379,7 @@ class BidAgent(ConstrainedAgent):
         self,
         job: dict[str, Any],
         similar_bids: list[dict[str, Any]],
+        rag_context: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
         """Call the LLM to generate a complete proposal for a job.
 
@@ -349,6 +395,16 @@ class BidAgent(ConstrainedAgent):
                 context_parts.append(
                     f"\n--- Reference {idx} (win rate: {sb.get('success_rate', 'N/A')}) ---\n"
                     f"{sb.get('content', '')[:500]}"
+                )
+
+        if rag_context:
+            context_parts.append("\nHistorical proposal experiences (RAG):")
+            for idx, r in enumerate(rag_context, 1):
+                score = r.get("similarity_score", 0.0)
+                sr = r.get("success_rate")
+                sr_text = f", success rate: {sr:.0%}" if sr is not None else ""
+                context_parts.append(
+                    f"\n--- Experience {idx} (similarity: {score:.2f}{sr_text}) ---\n{r.get('content', '')[:400]}"
                 )
 
         user_content = "\n".join(context_parts)
@@ -440,7 +496,7 @@ class BidAgent(ConstrainedAgent):
                 bid_amount=Decimal(str(proposal["bid_amount"])),
                 estimated_days=proposal.get("delivery_days"),
                 status="hitl_pending",
-                generation_model="gemini-3-flash",
+                generation_model="gemini-3.1-pro",
             )
             session.add(bid)
 
@@ -529,7 +585,7 @@ class BidAgent(ConstrainedAgent):
                     "confidence_score": proposal.get("confidence_score"),
                     "milestones_count": len(proposal.get("milestones", [])),
                 },
-                llm_model="gemini-3-flash",
+                llm_model="gemini-3.1-pro",
             )
             session.add(log_entry)
 
@@ -539,7 +595,7 @@ class BidAgent(ConstrainedAgent):
 # ======================================================================
 
 
-async def bid_node(state: AgentState) -> AgentState:
+async def bid_node(state: dict[str, Any]) -> dict[str, Any]:
     """LangGraph node function that creates and invokes the Bid Agent.
 
     This is the entry-point wired into the ``StateGraph``.

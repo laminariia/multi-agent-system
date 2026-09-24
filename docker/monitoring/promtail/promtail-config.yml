@@ -1,0 +1,199 @@
+# Promtail 3.x Configuration for MAS
+# Scrapes all MAS Docker containers + application log files
+# Sends to Loki for aggregation
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: warn
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    tenant_id: mas
+    batchwait: 1s
+    batchsize: 1048576  # 1 MB
+    backoff_config:
+      min_period: 500ms
+      max_period: 5m
+      max_retries: 10
+
+scrape_configs:
+  # ──────────────────────────────────────────────
+  # Docker container logs (all MAS services)
+  # ──────────────────────────────────────────────
+  - job_name: docker-containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: label
+            values: ["com.docker.compose.project"]
+    relabel_configs:
+      # Keep only MAS project containers
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(mas-.+)'
+        target_label: container
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(mas-.+)'
+        action: keep
+      # Extract service name from container name (mas-api -> api)
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/mas-(.+)'
+        target_label: service
+      # Compose service label
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: compose_service
+      # Container ID
+      - source_labels: ['__meta_docker_container_id']
+        target_label: container_id
+    pipeline_stages:
+      # Parse Docker JSON log format
+      - docker: {}
+      # Try to parse structlog JSON output from Python services
+      - match:
+          selector: '{service=~"api|worker|bot"}'
+          stages:
+            - json:
+                expressions:
+                  level: level
+                  event: event
+                  agent: agent
+                  log_type: log_type
+                  timestamp: timestamp
+                  logger: logger
+                  request_id: request_id
+                  duration: duration
+            - labels:
+                level:
+                agent:
+                log_type:
+                logger:
+            - timestamp:
+                source: timestamp
+                format: "2006-01-02T15:04:05.000Z"
+                fallback_formats:
+                  - "2006-01-02T15:04:05Z07:00"
+                  - "2006-01-02 15:04:05"
+            # Classify log types for tiered retention
+            - match:
+                selector: '{level=""}'
+                stages:
+                  - labels:
+                      level:
+                    action:
+                      set:
+                        level: info
+            # Tag access logs
+            - match:
+                selector: '{logger="litestar.access"}'
+                stages:
+                  - labels:
+                      log_type:
+                    action:
+                      set:
+                        log_type: access
+            # Tag agent activity logs
+            - match:
+                selector: '{agent=~".+"}'
+                stages:
+                  - labels:
+                      log_type:
+                    action:
+                      set:
+                        log_type: agent
+            # Tag security logs
+            - match:
+                selector: '{logger=~"security|auth|semgrep.*"}'
+                stages:
+                  - labels:
+                      log_type:
+                    action:
+                      set:
+                        log_type: security
+      # Parse Remix/Node dashboard logs
+      - match:
+          selector: '{service="dashboard"}'
+          stages:
+            - regex:
+                expression: '(?P<level>INFO|WARN|ERROR|DEBUG).*'
+            - labels:
+                level:
+      # Parse Nginx access logs
+      - match:
+          selector: '{service="nginx"}'
+          stages:
+            - regex:
+                expression: '^(?P<remote_addr>[\d.]+) - (?P<remote_user>\S+) \[(?P<time_local>[^\]]+)\] "(?P<method>\S+) (?P<path>\S+) (?P<protocol>\S+)" (?P<status>\d+) (?P<body_bytes_sent>\d+)'
+            - labels:
+                status:
+                method:
+                log_type:
+              action:
+                set:
+                  log_type: access
+      # Parse PostgreSQL logs
+      - match:
+          selector: '{service="postgres"}'
+          stages:
+            - regex:
+                expression: '(?P<pg_level>LOG|WARNING|ERROR|FATAL|PANIC):.*'
+            - labels:
+                level:
+              action:
+                set:
+                  level: "{{ .pg_level }}"
+      # Drop high-cardinality debug logs in production to save storage
+      - match:
+          selector: '{level="debug"}'
+          stages:
+            - drop:
+                expression: ".*healthcheck.*"
+                drop_counter_reason: healthcheck_noise
+            - drop:
+                expression: ".*PING.*"
+                drop_counter_reason: ping_noise
+
+  # ──────────────────────────────────────────────
+  # Application log files (mounted volume)
+  # ──────────────────────────────────────────────
+  - job_name: mas-app-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: mas-app-logs
+          service: api
+          log_type: agent
+          __path__: /var/log/mas/api.log
+      - targets:
+          - localhost
+        labels:
+          job: mas-app-logs
+          service: api
+          log_type: audit
+          __path__: /var/log/mas/audit.log
+      - targets:
+          - localhost
+        labels:
+          job: mas-app-logs
+          service: api
+          log_type: security
+          __path__: /var/log/mas/security.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            event: event
+            agent: agent
+            timestamp: timestamp
+      - labels:
+          level:
+          agent:
+      - timestamp:
+          source: timestamp
+          format: "2006-01-02T15:04:05.000Z"
+          fallback_formats:
+            - "2006-01-02T15:04:05Z07:00"

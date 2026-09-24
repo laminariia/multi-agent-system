@@ -12,7 +12,7 @@ The Critic Agent:
 6. Logs the review decision to the ``agent_logs`` table.
 
 Role constraints: can REVIEW and SCORE, CANNOT modify code directly.
-LLM: GPT-4o (fallback Claude Sonnet 4.5).
+LLM: Claude Sonnet 4.6 (Tier 3: Content+Review).
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ class CriticAgent(ConstrainedAgent):
     Parameters
     ----------
     llm_client:
-        Shared :class:`LLMClient` instance (GPT-4o primary).
+        Shared :class:`LLMClient` instance (Claude Sonnet 4.6 primary, Tier 3).
     heartbeat:
         Shared :class:`HeartbeatMonitor` for liveness pings.
     loop_detector:
@@ -231,6 +231,7 @@ class CriticAgent(ConstrainedAgent):
                 score=score,
                 revision_count=revision_count,
                 project=state.get("project"),
+                hitl_type="revision_escalation",
             )
             return update_state(
                 state,
@@ -595,17 +596,27 @@ class CriticAgent(ConstrainedAgent):
         score: float,
         revision_count: int,
         project: dict[str, Any] | None = None,
+        hitl_type: str = "revision_escalation",
     ) -> None:
-        """Persist a HITL queue entry so the dashboard shows the escalation."""
+        """Persist a HITL queue entry so the dashboard shows the escalation.
+
+        Args:
+            hitl_type: The HITL queue entry type. Defaults to ``"revision_escalation"``.
+        """
         project = project or {}
         title = f"Critic escalation: {reason}"
         if project.get("title"):
             title = f"Critic escalation: {project['title'][:150]} — {reason}"
 
+        try:
+            parsed_id = uuid.UUID(hitl_id)
+        except (ValueError, AttributeError):
+            parsed_id = uuid.uuid5(uuid.NAMESPACE_DNS, hitl_id)
+
         async with get_db_session() as session:
             hitl = HITLQueue(
-                id=uuid.UUID(hitl_id),
-                type="code_review",
+                id=parsed_id,
+                type=hitl_type,
                 priority="urgent",
                 title=title[:500],
                 description=(f"Score: {score:.2f} | Revisions: {revision_count} | Reason: {reason}"),
@@ -658,7 +669,7 @@ class CriticAgent(ConstrainedAgent):
                     "issues_count": issues_count,
                     "revision_count": revision_count,
                 },
-                llm_model="gpt-4o",
+                llm_model="claude-sonnet-4-6",
             )
             session.add(log_entry)
 
@@ -676,7 +687,7 @@ class CriticAgent(ConstrainedAgent):
 # ======================================================================
 
 
-async def critic_node(state: AgentState) -> AgentState:
+async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
     """LangGraph node function that creates and invokes the Critic Agent.
 
     This is the entry-point wired into the ``StateGraph``.

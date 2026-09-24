@@ -3,6 +3,7 @@
 Verifies the full flow from BrowserPool.acquire() through the adapter's
 fetch_jobs() to normalised job dicts — all with mocked Playwright.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -16,6 +17,7 @@ from src.adapters.upwork import UpworkClient
 # ---------------------------------------------------------------------------
 # Helpers — shared mock infrastructure
 # ---------------------------------------------------------------------------
+
 
 def _mock_element(inner_text: str = "", href: str = "") -> AsyncMock:
     el = AsyncMock()
@@ -52,6 +54,7 @@ def _make_mock_pool(platform: str, cards: list[dict[str, Any]]) -> tuple[AsyncMo
                 if "budget" in selector.lower() or "price" in selector.lower() or "fixed-price" in selector.lower():
                     return _mock_element(d.get("budget", ""))
                 return None
+
             return _qs
 
         card.query_selector = AsyncMock(side_effect=_make_qs())
@@ -70,6 +73,7 @@ def _make_mock_pool(platform: str, cards: list[dict[str, Any]]) -> tuple[AsyncMo
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestBrowserAdapterIntegration:
     """Full flow: pool → stealth page → adapter → normalised output."""
@@ -118,7 +122,7 @@ class TestBrowserAdapterIntegration:
         pool, page = _make_mock_pool("kwork", cards)
         client = KworkClient(browser_pool=pool)
 
-        jobs = await client.fetch_jobs()
+        jobs = await client.fetch_jobs(max_pages=1)
 
         assert len(jobs) == 1
         job = jobs[0]

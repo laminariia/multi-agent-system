@@ -10,19 +10,20 @@
 - Launch with `litestar --app src.api.main:app run --reload`, NOT uvicorn.
 - Cache is **Valkey 8.1** (Redis-compatible). Use `valkey://` scheme.
 - DB is **PostgreSQL 16** via `timescale/timescaledb-ha:pg16` Docker image.
-- Embeddings are **OpenAI text-embedding-3-large** (3072 dim). NOT SentenceTransformer, NOT text-embedding-004.
+- Embeddings are **Qwen3-Embedding-8B** (3072 dim, Matryoshka) via OpenRouter. NOT text-embedding-3-large, NOT SentenceTransformer.
 - WebSocket via **Litestar ChannelsPlugin**, NOT Socket.IO.
 - DB env var is `DATABASE_URL`, NOT `POSTGRES_URL`.
 - All LLM calls go through **OpenRouter** (`OPENROUTER_API_KEY` + `OPENROUTER_BASE_URL`).
-- Embeddings go through **OpenAI direct** (`OPENAI_API_KEY`).
+- Embeddings also go through **OpenRouter** (same key). `OPENAI_API_KEY` no longer required for embeddings.
 
-## LLM Assignment Rules
+## LLM Assignment Rules (6-Tier System — canonical)
 
-- Scout/Bid/Content/Packager/GeoScout/Outreach use **DeepSeek V3.2** (`deepseek/deepseek-v3.2`).
-- Planner uses **Claude Opus 4.6** (`anthropic/claude-opus-4.6`).
-- Dev (complex) uses **Claude Opus 4.6**, Dev (standard) uses **Claude Sonnet 4.5**.
-- Design uses **NanoBanana Pro** = Gemini 3 Pro Image (`google/gemini-3-pro-image-preview`).
-- Critic uses **Claude Sonnet 4.5** (`anthropic/claude-sonnet-4.5`).
+- **Tier 1 (Reasoning):** Planner, Dev (complex), SalesAgent → **Claude Opus 4.6** (`anthropic/claude-opus-4-6`)
+- **Tier 2 (Client-facing):** Bid, Outreach → **Gemini 3.1 Pro** (`google/gemini-3.1-pro`)
+- **Tier 3 (Content+Review):** Content, Dev (standard), Critic → **Claude Sonnet 4.6** (`anthropic/claude-sonnet-4-6`)
+- **Tier 4 (Design):** Design → **NanoBanana Pro** (`google/gemini-3-pro-image-preview`)
+- **Tier 5 (Extraction):** Scout, GeoScout → **Gemini 2.5 Flash** (`google/gemini-2.5-flash`)
+- **Tier 6 (Simple):** Packager → **DeepSeek V3.2** (`deepseek/deepseek-v3.2`)
 
 ## Code Rules
 

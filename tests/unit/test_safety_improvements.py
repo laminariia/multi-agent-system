@@ -258,7 +258,7 @@ async def test_critic_creates_hitl_entry_on_revision_limit(
     # session.add should have been called with an HITLQueue instance
     mock_session.add.assert_called()
     hitl_obj = mock_session.add.call_args[0][0]
-    assert hitl_obj.type == "code_review"
+    assert hitl_obj.type == "revision_escalation"
     assert hitl_obj.priority == "urgent"
     assert "revision_limit_exceeded" in hitl_obj.description
 
@@ -302,7 +302,7 @@ async def test_critic_creates_hitl_entry_on_scope_creep(
     assert result["requires_hitl"] is True
     mock_session.add.assert_called()
     hitl_obj = mock_session.add.call_args[0][0]
-    assert hitl_obj.type == "code_review"
+    assert hitl_obj.type == "revision_escalation"
     assert "scope_creep" in hitl_obj.description
 
 
@@ -341,7 +341,7 @@ async def test_critic_creates_hitl_entry_on_rejection(
     assert result["requires_hitl"] is True
     mock_session.add.assert_called()
     hitl_obj = mock_session.add.call_args[0][0]
-    assert hitl_obj.type == "code_review"
+    assert hitl_obj.type == "revision_escalation"
     assert "rejected" in hitl_obj.description
 
 

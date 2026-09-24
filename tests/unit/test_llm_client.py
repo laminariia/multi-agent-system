@@ -66,16 +66,21 @@ async def test_call_falls_back_on_rate_limit():
     with patch.object(client, "_invoke_with_retries") as mock_invoke:
         mock_invoke.side_effect = [
             LLMRateLimitError(
-                "Rate limit", model="deepseek/deepseek-v3.2",
-                provider="deepseek", agent_name="scout",
-            ),
-            (mock_fallback_response, CallMetrics(
+                "Rate limit",
+                model="deepseek/deepseek-v3.2",
+                provider="deepseek",
                 agent_name="scout",
-                model_id="anthropic/claude-haiku-4.5",
-                provider="anthropic",
-                was_fallback=True,
-                attempt=1,
-            )),
+            ),
+            (
+                mock_fallback_response,
+                CallMetrics(
+                    agent_name="scout",
+                    model_id="anthropic/claude-haiku-4.5",
+                    provider="anthropic",
+                    was_fallback=True,
+                    attempt=1,
+                ),
+            ),
         ]
 
         response, metrics = await client.call("scout", [HumanMessage(content="find jobs")])
@@ -90,9 +95,7 @@ async def test_call_all_providers_exhausted_raises():
     client = LLMClient(max_retries=1, base_backoff_seconds=0.0)
 
     with patch.object(client, "_invoke_with_retries") as mock_invoke:
-        mock_invoke.side_effect = LLMRateLimitError(
-            "Rate limit", model="test", provider="test", agent_name="scout"
-        )
+        mock_invoke.side_effect = LLMRateLimitError("Rate limit", model="test", provider="test", agent_name="scout")
 
         with pytest.raises(LLMException, match="All LLM providers exhausted"):
             await client.call("scout", [HumanMessage(content="find jobs")])
@@ -125,8 +128,16 @@ async def test_cost_tracker_records_metrics():
 def test_agent_model_registry_completeness():
     """Every agent in AGENT_MODEL_REGISTRY should reference models that exist in MODELS."""
     expected_agents = {
-        "scout", "bid", "planner", "dev", "content",
-        "design", "critic", "packager", "geoscout", "outreach",
+        "scout",
+        "bid",
+        "planner",
+        "dev",
+        "content",
+        "design",
+        "critic",
+        "packager",
+        "geoscout",
+        "outreach",
     }
 
     assert set(AGENT_MODEL_REGISTRY.keys()) == expected_agents, (
@@ -237,8 +248,10 @@ def test_get_or_create_model_falls_back_to_env_var():
     client = LLMClient()  # no api_key
     spec = MODELS["claude-haiku-4-5"]
 
-    with patch("src.core.llm_client.ChatOpenAI") as mock_chat_cls, \
-         patch.dict("os.environ", {"OPENROUTER_API_KEY": "sk-env-key"}):
+    with (
+        patch("src.core.llm_client.ChatOpenAI") as mock_chat_cls,
+        patch.dict("os.environ", {"OPENROUTER_API_KEY": "sk-env-key"}),
+    ):
         mock_chat_cls.return_value = MagicMock()
         client._get_or_create_model("claude-haiku-4-5", spec, 0.7, None)
 

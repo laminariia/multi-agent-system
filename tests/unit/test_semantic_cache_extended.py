@@ -54,7 +54,7 @@ def _make_valkey_search_result(
 @pytest.fixture()
 def cache(mock_valkey: AsyncMock, mock_db_pool: AsyncMock, monkeypatch: pytest.MonkeyPatch) -> SemanticCache:
     """SemanticCache wired to mock infrastructure with patched embeddings."""
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key-for-unit-tests")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-for-unit-tests")
     with patch("src.core.semantic_cache.OpenAIEmbeddings"):
         c = SemanticCache(mock_valkey, mock_db_pool, similarity_threshold=0.92)
     c._embeddings = AsyncMock()
@@ -161,9 +161,13 @@ async def test_pg_fallback_on_valkey_miss(cache: SemanticCache, mock_valkey: Asy
 
     # PG returns a hit
     conn = mock_db_pool._test_conn
-    conn.fetchrow = AsyncMock(return_value={
-        "id": 1, "response": "PG cached answer", "similarity": 0.95,
-    })
+    conn.fetchrow = AsyncMock(
+        return_value={
+            "id": 1,
+            "response": "PG cached answer",
+            "similarity": 0.95,
+        }
+    )
 
     result = await cache.get("Cold layer query", query_type="default")
     assert result == "PG cached answer"
@@ -179,9 +183,13 @@ async def test_pg_miss_below_threshold(cache: SemanticCache, mock_valkey: AsyncM
     mock_valkey.ft = MagicMock(return_value=ft_mock)
 
     conn = mock_db_pool._test_conn
-    conn.fetchrow = AsyncMock(return_value={
-        "id": 1, "response": "Low similarity", "similarity": 0.80,
-    })
+    conn.fetchrow = AsyncMock(
+        return_value={
+            "id": 1,
+            "response": "Low similarity",
+            "similarity": 0.80,
+        }
+    )
 
     result = await cache.get("Low match", query_type="default")
     assert result is None
@@ -197,9 +205,13 @@ async def test_pg_hit_warms_valkey(cache: SemanticCache, mock_valkey: AsyncMock,
     mock_valkey.ft = MagicMock(return_value=ft_mock)
 
     conn = mock_db_pool._test_conn
-    conn.fetchrow = AsyncMock(return_value={
-        "id": 1, "response": "Warmed answer", "similarity": 0.96,
-    })
+    conn.fetchrow = AsyncMock(
+        return_value={
+            "id": 1,
+            "response": "Warmed answer",
+            "similarity": 0.96,
+        }
+    )
 
     await cache.get("Warming query", query_type="default")
 
@@ -210,7 +222,7 @@ async def test_pg_hit_warms_valkey(cache: SemanticCache, mock_valkey: AsyncMock,
 
 async def test_pg_none_pool_skips_cold_layer(mock_valkey: AsyncMock, monkeypatch: pytest.MonkeyPatch):
     """If db_pool is None, PG layer is skipped entirely."""
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key-for-unit-tests")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-for-unit-tests")
     with patch("src.core.semantic_cache.OpenAIEmbeddings"):
         c = SemanticCache(mock_valkey, None, similarity_threshold=0.92)  # type: ignore[arg-type]
     c._embeddings = AsyncMock()
@@ -405,7 +417,7 @@ async def test_ttl_map_code_is_1h():
 
 async def test_custom_threshold(mock_valkey: AsyncMock, mock_db_pool: AsyncMock, monkeypatch: pytest.MonkeyPatch):
     """Cache with lower threshold should accept lower-similarity results."""
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key-for-unit-tests")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-for-unit-tests")
     with patch("src.core.semantic_cache.OpenAIEmbeddings"):
         c = SemanticCache(mock_valkey, mock_db_pool, similarity_threshold=0.80)
     c._embeddings = AsyncMock()

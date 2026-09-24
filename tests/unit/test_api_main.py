@@ -3,6 +3,7 @@
 Tests exception handlers (_mas_exception_handler, _http_exception_handler,
 _generic_exception_handler), lifespan management, and app configuration.
 """
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -224,9 +225,7 @@ class TestLifespan:
             mock_valkey.ping = AsyncMock(return_value=True)
             mock_valkey.aclose = AsyncMock()
             mock_get_valkey.return_value = mock_valkey
-            mock_settings.return_value = MagicMock(
-                SENTRY_DSN="", DEBUG=True, DATABASE_URL="postgresql://host/db"
-            )
+            mock_settings.return_value = MagicMock(SENTRY_DSN="", DEBUG=True, DATABASE_URL="postgresql://host/db")
 
             from src.api.main import lifespan
 
@@ -260,9 +259,7 @@ class TestLifespan:
             mock_valkey.aclose = AsyncMock()
             mock_get_valkey.return_value = mock_valkey
 
-            mock_settings.return_value = MagicMock(
-                SENTRY_DSN="", DEBUG=True, DATABASE_URL="postgresql://host/db"
-            )
+            mock_settings.return_value = MagicMock(SENTRY_DSN="", DEBUG=True, DATABASE_URL="postgresql://host/db")
 
             from src.api.main import lifespan
 
@@ -330,9 +327,7 @@ class TestLifespan:
             mock_valkey.aclose = AsyncMock()
             mock_get_valkey.return_value = mock_valkey
 
-            mock_settings.return_value = MagicMock(
-                SENTRY_DSN="", DEBUG=True, DATABASE_URL="postgresql://host/db"
-            )
+            mock_settings.return_value = MagicMock(SENTRY_DSN="", DEBUG=True, DATABASE_URL="postgresql://host/db")
 
             from src.api.main import lifespan
 
@@ -366,9 +361,7 @@ class TestLifespan:
             mock_valkey.aclose = AsyncMock()
             mock_get_valkey.return_value = mock_valkey
 
-            mock_settings.return_value = MagicMock(
-                SENTRY_DSN="", DEBUG=True, DATABASE_URL="postgresql://host/db"
-            )
+            mock_settings.return_value = MagicMock(SENTRY_DSN="", DEBUG=True, DATABASE_URL="postgresql://host/db")
 
             from src.api.main import lifespan
 
@@ -403,9 +396,7 @@ class TestLifespan:
             mock_valkey.aclose = AsyncMock()
             mock_get_valkey.return_value = mock_valkey
 
-            mock_settings.return_value = MagicMock(
-                SENTRY_DSN="", DEBUG=True, DATABASE_URL="postgresql://host/db"
-            )
+            mock_settings.return_value = MagicMock(SENTRY_DSN="", DEBUG=True, DATABASE_URL="postgresql://host/db")
 
             from src.api.main import lifespan
 
@@ -441,9 +432,7 @@ class TestLifespan:
             mock_valkey.aclose = AsyncMock()
             mock_get_valkey.return_value = mock_valkey
 
-            mock_settings.return_value = MagicMock(
-                SENTRY_DSN="", DEBUG=True, DATABASE_URL="postgresql://host/db"
-            )
+            mock_settings.return_value = MagicMock(SENTRY_DSN="", DEBUG=True, DATABASE_URL="postgresql://host/db")
 
             from src.api.main import lifespan
 
@@ -480,9 +469,7 @@ class TestLifespan:
             mock_valkey.aclose = AsyncMock(side_effect=RuntimeError("Close failed"))
             mock_get_valkey.return_value = mock_valkey
 
-            mock_settings.return_value = MagicMock(
-                SENTRY_DSN="", DEBUG=True, DATABASE_URL="postgresql://host/db"
-            )
+            mock_settings.return_value = MagicMock(SENTRY_DSN="", DEBUG=True, DATABASE_URL="postgresql://host/db")
 
             from src.api.main import lifespan
 
@@ -530,18 +517,18 @@ class TestAppConfiguration:
         assert "content-type" in cors_config.allow_headers
 
     def test_rate_limit_config_300_per_minute(self) -> None:
-        """Should set rate limit to 300 requests per minute."""
-        from src.api.main import rate_limit_config
+        """JWT rate limiter uses 300 req/min default limit."""
+        from src.api.middleware.jwt_rate_limiter import DEFAULT_RATE_LIMIT
 
-        assert rate_limit_config.rate_limit == ("minute", 300)
+        assert DEFAULT_RATE_LIMIT == 300
 
     def test_rate_limit_config_excludes_health_schema_metrics(self) -> None:
-        """Should exclude /health, /schema, /metrics from rate limiting."""
-        from src.api.main import rate_limit_config
+        """JWT rate limiter excludes /health, /schema, /metrics from limiting."""
+        from src.api.middleware.jwt_rate_limiter import EXCLUDE_PATHS
 
-        assert "/health" in rate_limit_config.exclude
-        assert "/schema" in rate_limit_config.exclude
-        assert "/metrics" in rate_limit_config.exclude
+        assert "/health" in EXCLUDE_PATHS
+        assert "/schema" in EXCLUDE_PATHS
+        assert "/metrics" in EXCLUDE_PATHS
 
     def test_openapi_config_title_is_mas_api_version_1_0(self) -> None:
         """Should set OpenAPI title to 'MAS API' and version to '1.0'."""
@@ -574,9 +561,9 @@ class TestAppConfiguration:
         plugin_types = [type(p) for p in openapi_config.render_plugins]
         assert RedocRenderPlugin in plugin_types
 
-    def test_rate_limit_config_excludes_swagger_and_redoc(self) -> None:
-        """Should exclude /swagger and /redoc from rate limiting."""
-        from src.api.main import rate_limit_config
+    def test_jwt_rate_limiter_excludes_swagger_and_redoc(self) -> None:
+        """Should exclude /swagger and /redoc from JWT rate limiting."""
+        from src.api.middleware.jwt_rate_limiter import EXCLUDE_PATHS
 
-        assert "/swagger" in rate_limit_config.exclude
-        assert "/redoc" in rate_limit_config.exclude
+        assert "/swagger" in EXCLUDE_PATHS
+        assert "/redoc" in EXCLUDE_PATHS

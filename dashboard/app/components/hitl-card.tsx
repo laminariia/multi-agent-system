@@ -24,6 +24,12 @@ const typeConfig: Record<
   email_approval: { label: "Email", variant: "bid" },
   final_review: { label: "Final", variant: "delivery" },
   job_review: { label: "Job", variant: "review" },
+  dev_launch: { label: "Dev Launch", variant: "plan" },
+  agent_failure: { label: "Agent Failure", variant: "alert" },
+  delivery_hold: { label: "Delivery Hold", variant: "delivery" },
+  outreach_approval: { label: "Outreach", variant: "bid" },
+  manual_action: { label: "Manual", variant: "review" },
+  concept_review: { label: "Concept", variant: "plan" },
 };
 
 const actionVariants: Record<string, "default" | "success" | "warning" | "destructive" | "outline"> = {

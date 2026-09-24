@@ -152,7 +152,14 @@ class GeoScoutAgent(ConstrainedAgent):
             # 4. Store leads in PostgreSQL.
             stored_count = await self._store_leads(all_leads, city)
 
-            # 5. Update state and hand off to outreach.
+            # 5. Score leads (best-effort — failure does not block pipeline).
+            lead_scores = self._score_leads(all_leads)
+
+            # 5b. Persist scores to DB (best-effort).
+            if lead_scores:
+                await self._persist_lead_scores(lead_scores)
+
+            # 6. Update state and hand off to outreach.
             artifacts = dict(state.get("artifacts") or {})
             artifacts["_geo_scan_results"] = {
                 "city": city,
@@ -160,6 +167,7 @@ class GeoScoutAgent(ConstrainedAgent):
                 "hexagons_scanned": len(hexagons),
                 "leads_found": len(all_leads),
                 "leads_stored": stored_count,
+                "lead_scores": lead_scores,
             }
             # Store lead OSM IDs for the outreach agent to process.
             artifacts["_lead_osm_ids"] = [lead.osm_id for lead in all_leads]
@@ -186,6 +194,105 @@ class GeoScoutAgent(ConstrainedAgent):
                 next_agent=None,
                 status="failed",
             )
+
+    # ------------------------------------------------------------------
+    # Lead scoring (best-effort)
+    # ------------------------------------------------------------------
+
+    def _score_leads(self, leads: list[GeoLead]) -> list[dict[str, Any]]:
+        """Score discovered leads using LeadScorer.
+
+        Scoring is best-effort: if the scorer raises for any lead,
+        that lead is skipped. If the entire scorer fails to initialise,
+        an empty list is returned.
+        """
+        from src.core.lead_scorer import AnalysisResult, LeadScorer, WebsiteCheck  # noqa: PLC0415
+
+        scores: list[dict[str, Any]] = []
+        try:
+            scorer = LeadScorer()
+        except Exception:  # noqa: BLE001
+            self._log.warning("geoscout_scorer_init_failed", exc_info=True)
+            return scores
+
+        for geo_lead in leads:
+            try:
+                # Offline businesses found by GeoScout have no website
+                analysis = AnalysisResult(
+                    lead_id=str(geo_lead.osm_id),
+                    tier="quick",
+                    website=WebsiteCheck(exists=False),
+                )
+                result = scorer.score(geo_lead, analysis)
+                scores.append(
+                    {
+                        "osm_id": geo_lead.osm_id,
+                        "name": geo_lead.name,
+                        "score": result.total_score,
+                        "temperature": result.temperature,
+                        "analysis_tier": result.analysis_tier,
+                        "matched_rules": [r.name for r in result.matched_rules],
+                    }
+                )
+            except Exception:  # noqa: BLE001
+                self._log.warning(
+                    "geoscout_score_lead_failed",
+                    osm_id=geo_lead.osm_id,
+                    exc_info=True,
+                )
+                continue
+
+        self._log.info(
+            "geoscout_leads_scored",
+            total=len(leads),
+            scored=len(scores),
+        )
+        return scores
+
+    # ------------------------------------------------------------------
+    # Persist lead scores to DB
+    # ------------------------------------------------------------------
+
+    async def _persist_lead_scores(self, scores: list[dict[str, Any]]) -> int:
+        """Update Lead rows with lead_score and temperature from scoring results.
+
+        Best-effort: individual update failures are logged and skipped.
+        Returns the number of leads successfully updated.
+        """
+        from sqlalchemy import update as sa_update  # noqa: PLC0415
+
+        updated = 0
+        try:
+            async with get_db_session() as session:
+                for score_data in scores:
+                    osm_id = score_data.get("osm_id")
+                    lead_score = score_data.get("score")
+                    temperature = score_data.get("temperature")
+                    if osm_id is None:
+                        continue
+                    try:
+                        await session.execute(
+                            sa_update(Lead)
+                            .where(Lead.osm_id == osm_id)
+                            .values(
+                                lead_score=lead_score,
+                                temperature=temperature,
+                            )
+                        )
+                        updated += 1
+                    except Exception:  # noqa: BLE001
+                        self._log.warning(
+                            "geoscout_persist_score_failed",
+                            osm_id=osm_id,
+                            exc_info=True,
+                        )
+                        continue
+                await session.commit()
+        except Exception:  # noqa: BLE001
+            self._log.warning("geoscout_persist_scores_failed", exc_info=True)
+
+        self._log.info("geoscout_scores_persisted", updated=updated, total=len(scores))
+        return updated
 
     # ------------------------------------------------------------------
     # Database persistence

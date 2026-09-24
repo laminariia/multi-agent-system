@@ -298,6 +298,79 @@ class HITLTrendsResponseSchema(_BaseSchema):
     totals: HITLTrendTotalsSchema
 
 
+class HITLViewingLockResponseSchema(_BaseSchema):
+    """Response for viewing-lock acquire / release operations."""
+
+    locked: bool = Field(..., description="Whether the lock is currently held")
+    locked_by: str | None = Field(default=None, description="User ID of the lock holder (None if unlocked)")
+
+
+class HITLDetailResponseSchema(_BaseSchema):
+    """Single HITL item detail with viewing-lock info."""
+
+    id: uuid.UUID
+    type: str = Field(
+        ...,
+        examples=["bid_approval"],
+        description="bid_approval | code_review | delivery | revision | alert",
+    )
+    priority: str = Field(default="normal", examples=["urgent"], description="urgent | normal | low")
+    title: str = Field(..., examples=["React Dashboard for Analytics"])
+    description: str | None = Field(default=None)
+    expires_at: datetime | None = Field(default=None)
+    payload: dict[str, Any] = Field(default_factory=dict, description="Type-specific data blob")
+    available_actions: list[str] = Field(
+        default_factory=list,
+        examples=[["approve", "edit", "skip", "later"]],
+        description="Actions the user may take",
+    )
+    created_at: datetime
+    locked_by: str | None = Field(default=None, description="User ID currently viewing this item (soft lock)")
+
+
+class HITLEditHistoryEntrySchema(_BaseSchema):
+    """A single edit history record for a HITL item."""
+
+    id: uuid.UUID
+    hitl_id: uuid.UUID
+    edited_by: uuid.UUID | None = Field(default=None, description="User who made the edit")
+    before_payload: dict[str, Any] = Field(default_factory=dict, description="Payload before the edit")
+    after_payload: dict[str, Any] = Field(default_factory=dict, description="Payload after the edit")
+    edit_type: str = Field(..., examples=["field_edit"], description="field_edit | full_replace | action_edit")
+    edited_at: datetime
+
+
+class HITLEditHistoryResponseSchema(_BaseSchema):
+    """List of edit history entries for a HITL item."""
+
+    hitl_id: uuid.UUID
+    entries: list[HITLEditHistoryEntrySchema] = Field(default_factory=list)
+    total: int = Field(default=0, ge=0, description="Total number of edit history entries")
+
+
+class HITLExpiringItemSchema(_BaseSchema):
+    """A HITL item approaching its expiry deadline."""
+
+    id: uuid.UUID
+    type: str
+    title: str
+    priority: str = Field(default="normal")
+    expires_at: datetime
+    created_at: datetime
+    time_remaining_seconds: float = Field(
+        ..., description="Seconds remaining until expiry (negative if already expired)"
+    )
+    pct_elapsed: float = Field(..., ge=0.0, le=100.0, description="Percentage of TTL elapsed (0-100)")
+
+
+class HITLExpiringResponseSchema(_BaseSchema):
+    """Response listing HITL items nearing expiry."""
+
+    items: list[HITLExpiringItemSchema] = Field(default_factory=list)
+    total: int = Field(default=0, ge=0)
+    expired_count: int = Field(default=0, ge=0, description="Count of expired but unresolved items")
+
+
 # =============================================================================
 # Agent schemas
 # =============================================================================
@@ -638,6 +711,32 @@ class PipelineBScanRequestSchema(_BaseSchema):
         examples=["Berlin"],
         description="City name to scan for offline businesses",
     )
+    mode: str = Field(
+        default="geoscanner",
+        pattern=r"^(geoscanner|web_search|telegram)$",
+        description="Scan mode: geoscanner | web_search | telegram",
+    )
+    categories: list[str] | None = Field(
+        default=None,
+        examples=[["restaurant", "cafe"]],
+        description="Business categories to scan (optional filter)",
+    )
+
+
+class DealMessageCreateSchema(_BaseSchema):
+    """Request body for sending a message in deal context."""
+
+    content: str = Field(
+        ...,
+        min_length=1,
+        max_length=5000,
+        description="Message content",
+    )
+    channel: str = Field(
+        default="internal",
+        pattern=r"^(internal|email|telegram)$",
+        description="Channel for the message: internal | email | telegram",
+    )
 
 
 class CredentialTestRequestSchema(_BaseSchema):
@@ -884,13 +983,28 @@ class ScoutConfigSchema(_BaseSchema):
         max_length=50,
         description="Free-text custom rules for Scout LLM (max 50)",
     )
+    geo_categories: list[str] = Field(
+        default_factory=lambda: ["auto_repair", "dental", "beauty", "med_clinics"],
+        description="Geo-scout business categories to scan",
+    )
+    prospect_rules: list[str] = Field(
+        default_factory=lambda: [
+            "Only contact businesses with a published email address or contact form on their site",
+            "Prioritize businesses active on social media and with consistently positive reviews (3.5+ stars)",
+            "Skip chains",
+        ],
+        description="Free-text prospect qualification rules (max 50)",
+    )
 
-    @field_validator("custom_rules")
+    @field_validator("custom_rules", "prospect_rules")
     @classmethod
     def _validate_rule_length(cls, v: list[str]) -> list[str]:
+        if len(v) > 50:
+            msg = f"Maximum 50 rules allowed, got {len(v)}"
+            raise ValueError(msg)
         for rule in v:
             if len(rule) > 500:
-                msg = f"Custom rule exceeds 500 characters: {len(rule)}"
+                msg = f"Rule exceeds 500 characters: {len(rule)}"
                 raise ValueError(msg)
         return v
 
@@ -907,10 +1021,33 @@ class DealUpdateSchema(_BaseSchema):
     """Request body for updating an existing deal (all fields optional)."""
 
     title: str | None = Field(default=None, min_length=1, max_length=255)
-    status: str | None = Field(default=None, pattern=r"^(new|negotiating|proposal_sent|won|lost|cancelled)$")
+    status: str | None = Field(
+        default=None,
+        pattern=r"^(new|negotiating|concept|design|proposal_sent|in_development|won|lost|completed|cancelled)$",
+    )
     agreed_scope: str | None = Field(default=None)
     budget: float | None = Field(default=None, ge=0)
     deadline: datetime | None = Field(default=None)
     client_context: dict[str, Any] | None = Field(default=None)
     design_versions: dict[str, Any] | None = Field(default=None)
     conversation_history: list[dict[str, Any]] | None = Field(default=None)
+
+
+# =============================================================================
+# Negotiation schemas
+# =============================================================================
+
+
+class NegotiationSendMessageSchema(_BaseSchema):
+    """Request body for operator-sent negotiation message."""
+
+    content: str = Field(..., min_length=1, max_length=10000, description="Message text to send")
+
+
+class NegotiationReleaseSchema(_BaseSchema):
+    """Request body for releasing operator control of a negotiation."""
+
+    target_state: str | None = Field(
+        default=None,
+        description="State to transition to. Defaults to previous state.",
+    )

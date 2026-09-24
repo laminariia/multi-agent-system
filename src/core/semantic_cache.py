@@ -6,11 +6,11 @@ queries.  The similarity threshold is 0.92 (cosine).
 **Hot layer (Valkey):** RediSearch vector index (HNSW, FLOAT32, DIM=3072,
 COSINE).  Provides sub-millisecond lookup for active queries.
 
-**Cold layer (PostgreSQL):** pgvector with DiskANN index (``<=>`` operator).
+**Cold layer (PostgreSQL):** pgvector with HNSW index (``<=>`` operator).
 Acts as persistent fallback and long-term audit store.
 
-Embeddings are produced by OpenAI ``text-embedding-3-large`` (3072 dimensions)
-via ``langchain_openai.OpenAIEmbeddings``.
+Embeddings are produced by Qwen3-Embedding-8B (3072 dimensions, Matryoshka)
+via OpenRouter (OpenAI-compatible endpoint).
 """
 
 from __future__ import annotations
@@ -36,10 +36,12 @@ logger = structlog.get_logger(__name__)
 # TTL by query type (seconds)
 # ---------------------------------------------------------------------------
 
+
 def _build_ttl_map() -> dict[str, int]:
     """Build TTL map from application settings (falls back to defaults)."""
     try:
         from src.core.config import get_settings
+
         s = get_settings()
         return {
             "proposal": s.SEMANTIC_CACHE_TTL_PROPOSAL,
@@ -62,6 +64,7 @@ def _get_similarity_threshold() -> float:
     """Return similarity threshold from application settings."""
     try:
         from src.core.config import get_settings
+
         return get_settings().SEMANTIC_CACHE_SIMILARITY_THRESHOLD
     except Exception:  # noqa: BLE001
         return 0.92
@@ -76,6 +79,62 @@ SIMILARITY_THRESHOLD: float = _get_similarity_threshold()
 EMBEDDING_DIM: int = 3072
 VALKEY_INDEX_NAME: str = "semantic_cache"
 VALKEY_PREFIX: str = "sem_cache:"
+
+
+def _build_embedding_model() -> Any:
+    """Build the embedding model from application settings with fallback.
+
+    Uses ``Settings.EMBEDDING_PROVIDER`` to decide the provider:
+
+    * ``"openrouter"`` (default) -- Qwen3-Embedding-8B via OpenRouter.
+    * ``"openai"`` -- OpenAI text-embedding-3-large directly.
+
+    Both produce 3072-dimensional vectors so HNSW indexes remain compatible.
+    Falls back to OpenRouter defaults if settings cannot be loaded.
+    """
+
+    # Defaults matching the spec
+    provider = "openrouter"
+    model = "qwen/qwen3-embedding-8b"
+    model_openai = "text-embedding-3-large"
+    dimensions = EMBEDDING_DIM
+
+    try:
+        from src.core.config import get_settings  # noqa: PLC0415
+
+        s = get_settings()
+        provider = s.EMBEDDING_PROVIDER
+        model = s.EMBEDDING_MODEL
+        model_openai = s.EMBEDDING_MODEL_OPENAI
+        dimensions = s.EMBEDDING_DIMENSIONS
+    except Exception:  # noqa: BLE001
+        logger.debug("embedding_config_load_failed_using_defaults")
+
+    if provider == "openrouter":
+        api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY is required for semantic cache embeddings")
+        base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        logger.info("embedding_model_configured", provider="openrouter", model=model)
+        return OpenAIEmbeddings(
+            model=model,
+            openai_api_key=api_key,
+            openai_api_base=base_url,
+            dimensions=dimensions,
+            check_embedding_ctx_length=False,
+        )
+
+    # OpenAI direct
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY is required when EMBEDDING_PROVIDER=openai")
+    logger.info("embedding_model_configured", provider="openai", model=model_openai)
+    return OpenAIEmbeddings(
+        model=model_openai,
+        openai_api_key=api_key,
+        dimensions=dimensions,
+        check_embedding_ctx_length=False,
+    )
 
 
 class SemanticCache:
@@ -97,13 +156,7 @@ class SemanticCache:
         self.valkey = valkey
         self.db_pool = db_pool
         self.similarity_threshold = similarity_threshold
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY is required for semantic cache embeddings")
-        self._embeddings = OpenAIEmbeddings(
-            model="text-embedding-3-large",
-            openai_api_key=api_key,
-        )
+        self._embeddings = _build_embedding_model()
         self._index_created = False
 
     # ------------------------------------------------------------------
@@ -201,9 +254,7 @@ class SemanticCache:
         deleted_pg = 0
         if self.db_pool is not None:
             async with self.db_pool.acquire() as conn:
-                result = await conn.execute(
-                    "DELETE FROM semantic_cache WHERE query_type = $1", query_type
-                )
+                result = await conn.execute("DELETE FROM semantic_cache WHERE query_type = $1", query_type)
                 deleted_pg = int(result.split()[-1])
 
         logger.info("semantic_cache_invalidated", query_type=query_type, valkey=deleted_valkey, pg=deleted_pg)
@@ -372,9 +423,83 @@ class SemanticCache:
     # ------------------------------------------------------------------
 
     async def _embed(self, text: str) -> np.ndarray:
-        """Compute the 3072-dim embedding for *text*."""
+        """Compute the 3072-dim embedding for *text* via qwen3-embedding-8b."""
         raw = await self._embeddings.aembed_query(text)
         return np.array(raw, dtype=np.float32)
+
+    async def cleanup(self, max_entries: int = 10_000) -> int:
+        """LRU eviction + TTL purge.
+
+        Removes expired entries from the PostgreSQL cold layer and evicts
+        least-recently-used entries when the total count exceeds
+        *max_entries*.
+
+        Returns the number of removed entries.
+        """
+        removed = 0
+
+        # --- TTL purge: delete expired rows from PostgreSQL ---
+        if self.db_pool is not None:
+            try:
+                async with self.db_pool.acquire() as conn:
+                    result = await conn.execute("DELETE FROM semantic_cache WHERE expires_at <= NOW()")
+                    ttl_removed = int(result.split()[-1])
+                    removed += ttl_removed
+                    if ttl_removed:
+                        logger.info("semantic_cache_ttl_purge", removed=ttl_removed)
+            except Exception:
+                logger.warning("semantic_cache_ttl_purge_failed", exc_info=True)
+
+        # --- LRU eviction: keep only max_entries rows ---
+        if self.db_pool is not None:
+            try:
+                async with self.db_pool.acquire() as conn:
+                    total = await conn.fetchval("SELECT COUNT(*) FROM semantic_cache")
+                    if total is not None and total > max_entries:
+                        overflow = total - max_entries
+                        result = await conn.execute(
+                            """
+                            DELETE FROM semantic_cache
+                            WHERE id IN (
+                                SELECT id FROM semantic_cache
+                                ORDER BY hit_count ASC, expires_at ASC
+                                LIMIT $1
+                            )
+                            """,
+                            overflow,
+                        )
+                        lru_removed = int(result.split()[-1])
+                        removed += lru_removed
+                        if lru_removed:
+                            logger.info(
+                                "semantic_cache_lru_eviction",
+                                removed=lru_removed,
+                                total_before=total,
+                            )
+            except Exception:
+                logger.warning("semantic_cache_lru_eviction_failed", exc_info=True)
+
+        # --- Valkey: scan for expired keys (belt-and-suspenders) ---
+        try:
+            valkey_removed = 0
+            async for key in self.valkey.scan_iter(f"{VALKEY_PREFIX}*"):
+                ts = await self.valkey.hget(key, "timestamp")  # type: ignore[arg-type]
+                if ts is not None:
+                    ts_val = float(ts.decode() if isinstance(ts, bytes) else ts)
+                    qt = await self.valkey.hget(key, "query_type")  # type: ignore[arg-type]
+                    qt_str = (qt.decode() if isinstance(qt, bytes) else qt) if qt else "default"
+                    ttl = TTL_MAP.get(qt_str, TTL_MAP["default"])
+                    if (time.time() - ts_val) > ttl:
+                        await self.valkey.delete(key)
+                        valkey_removed += 1
+            removed += valkey_removed
+            if valkey_removed:
+                logger.info("semantic_cache_valkey_cleanup", removed=valkey_removed)
+        except Exception:
+            logger.warning("semantic_cache_valkey_cleanup_failed", exc_info=True)
+
+        logger.info("semantic_cache_cleanup_complete", total_removed=removed)
+        return removed
 
     async def _bump_stats(self, *, hit: bool) -> None:
         key = "cache:hits" if hit else "cache:misses"
@@ -382,3 +507,44 @@ class SemanticCache:
             await self.valkey.incr(key)
         except Exception:
             logger.debug("cache_stats_bump_failed", key=key)
+
+
+# ---------------------------------------------------------------------------
+# Scheduled cleanup (APScheduler integration)
+# ---------------------------------------------------------------------------
+
+
+def schedule_cleanup(scheduler: Any, cache: SemanticCache) -> None:
+    """Register a semantic cache cleanup job with APScheduler.
+
+    Runs every 6 hours.  The job is idempotent and safe to call on
+    every application startup.
+
+    Args:
+        scheduler: An APScheduler ``AsyncIOScheduler`` instance.
+        cache: The :class:`SemanticCache` instance to clean up.
+    """
+    import asyncio  # noqa: PLC0415
+
+    async def _run_cleanup() -> None:
+        try:
+            removed = await cache.cleanup(max_entries=10_000)
+            logger.info("scheduled_cleanup_complete", removed=removed)
+        except Exception:
+            logger.warning("scheduled_cleanup_failed", exc_info=True)
+
+    def _sync_wrapper() -> None:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(_run_cleanup())
+        else:
+            loop.run_until_complete(_run_cleanup())
+
+    scheduler.add_job(
+        _sync_wrapper,
+        "interval",
+        hours=6,
+        id="semantic_cache_cleanup",
+        replace_existing=True,
+    )
+    logger.info("semantic_cache_cleanup_scheduled", interval_hours=6)

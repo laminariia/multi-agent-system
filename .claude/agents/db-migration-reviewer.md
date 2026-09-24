@@ -31,7 +31,7 @@ PostgreSQL 16 + pgvector + pgvectorscale, 18+ tables, SQLAlchemy 2.0 ORM.
 - Foreign key constraints reference correct tables/columns
 - Index names follow convention: `ix_{table}_{column}`
 - Enum types created before use, dropped in downgrade
-- pgvector columns use correct dimensions (3072 for text-embedding-3-large)
+- pgvector columns use correct dimensions (3072 for qwen3-embedding-8b)
 
 ### Performance
 - Indexes on all foreign key columns

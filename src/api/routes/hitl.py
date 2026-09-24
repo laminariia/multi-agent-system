@@ -13,7 +13,7 @@ from typing import Any
 
 import redis.asyncio as aioredis
 import structlog
-from litestar import Controller, Request, get, post
+from litestar import Controller, Request, delete, get, post
 from litestar.channels import ChannelsPlugin
 from litestar.exceptions import NotFoundException
 from litestar.params import Parameter
@@ -26,6 +26,11 @@ from src.api.routes import _escape_like
 from src.api.schemas import (
     HITLBulkResolveRequestSchema,
     HITLBulkResolveResponseSchema,
+    HITLDetailResponseSchema,
+    HITLEditHistoryEntrySchema,
+    HITLEditHistoryResponseSchema,
+    HITLExpiringItemSchema,
+    HITLExpiringResponseSchema,
     HITLItemSchema,
     HITLPendingResponseSchema,
     HITLResolveRequestSchema,
@@ -36,12 +41,17 @@ from src.api.schemas import (
     HITLTrendsResponseSchema,
     HITLTrendTotalsSchema,
     HITLTypeStatsSchema,
+    HITLViewingLockResponseSchema,
 )
 from src.api.websocket import CHANNEL_HITL_RESOLVED, publish_event
 from src.core.exceptions import MASException
 from src.core.models import HITLQueue, User
 
 logger = structlog.get_logger(__name__)
+
+# Valkey key prefix and TTL for HITL viewing locks
+_HITL_LOCK_PREFIX = "mas:hitl_lock:"
+_HITL_LOCK_TTL = 300  # 5 minutes
 
 # Set to prevent GC of fire-and-forget resume tasks (asyncio.create_task pattern)
 _background_resume_tasks: set[Any] = set()
@@ -103,6 +113,12 @@ _NEXT_ACTION_MAP: dict[str, dict[str, str]] = {
         "skip": "emails_skipped",
         "later": "emails_deferred",
     },
+    "dev_launch": {
+        "approve": "development_cycle_started",
+        "reject": "development_cycle_cancelled",
+        "skip": "dev_launch_skipped",
+        "later": "dev_launch_deferred",
+    },
     "final_review": {
         "approve": "work_delivered_to_client",
         "reject": "work_rejected_for_rework",
@@ -116,6 +132,55 @@ _NEXT_ACTION_MAP: dict[str, dict[str, str]] = {
         "edit": "job_criteria_modified",
         "skip": "job_skipped",
         "later": "job_review_deferred",
+    },
+    "agent_failure": {
+        "resume": "agent_will_retry",
+        "skip": "agent_skipped",
+        "manual": "manual_artifacts_provided",
+        "later": "agent_failure_deferred",
+    },
+    "delivery_hold": {
+        "deliver_now": "delivery_released_early",
+        "wait": "delivery_hold_continued",
+        "later": "delivery_hold_deferred",
+    },
+    "manual_action": {
+        "approve": "manual_action_completed",
+        "reject": "manual_action_rejected",
+        "skip": "manual_action_skipped",
+        "later": "manual_action_deferred",
+    },
+    "outreach_approval": {
+        "approve": "outreach_emails_will_be_sent",
+        "reject": "outreach_emails_discarded",
+        "edit": "outreach_emails_revised",
+        "skip": "outreach_skipped",
+        "later": "outreach_deferred",
+    },
+    "design_review": {
+        "design_approve": "design_forwarded_to_client",
+        "design_revise": "design_revision_requested",
+        "design_reject": "design_rejected_escalate_planner",
+        "approve": "design_forwarded_to_client",
+        "request_changes": "design_revision_requested",
+        "reject": "design_rejected_escalate_planner",
+        "later": "design_review_deferred",
+    },
+    "design_client_approval": {
+        "client_approved": "design_approved_start_development",
+        "client_changes": "design_client_changes_requested",
+        "client_rejected": "design_client_rejected_escalate_planner",
+        "approve": "design_approved_start_development",
+        "request_changes": "design_client_changes_requested",
+        "reject": "design_client_rejected_escalate_planner",
+        "later": "design_client_approval_deferred",
+    },
+    "concept_review": {
+        "approve": "concept_approved_for_delivery",
+        "edit": "concept_revised_for_regeneration",
+        "reject": "concept_discarded",
+        "skip": "concept_review_skipped",
+        "later": "concept_review_deferred",
     },
 }
 
@@ -200,6 +265,182 @@ class HITLController(Controller):
         )
 
     # -----------------------------------------------------------------
+    # GET /api/v1/hitl/{hitl_id} — detail with viewing-lock info
+    # -----------------------------------------------------------------
+
+    @get(
+        "/{hitl_id:uuid}",
+        summary="Get HITL item detail",
+        description="Returns full detail of a single HITL item including viewing-lock information.",
+    )
+    async def get_detail(
+        self,
+        hitl_id: uuid.UUID,
+        db_session: AsyncSession,
+        valkey: aioredis.Redis,
+    ) -> HITLDetailResponseSchema:
+        """Return a single HITL item with ``locked_by`` from Valkey.
+
+        Raises:
+            NotFoundException: When the HITL item does not exist.
+        """
+        stmt = select(HITLQueue).where(HITLQueue.id == hitl_id)
+        result = await db_session.execute(stmt)
+        item = result.scalar_one_or_none()
+
+        if item is None:
+            raise NotFoundException(detail=f"HITL item {hitl_id} not found")
+
+        # Look up viewing lock from Valkey (soft, non-fatal on error)
+        locked_by: str | None = None
+        try:
+            raw = await valkey.get(f"{_HITL_LOCK_PREFIX}{hitl_id}")
+            if raw is not None:
+                locked_by = raw.decode() if isinstance(raw, bytes) else str(raw)
+        except (OSError, ConnectionError):
+            logger.debug("hitl.viewing_lock_check_failed", hitl_id=str(hitl_id), exc_info=True)
+
+        return HITLDetailResponseSchema(
+            id=item.id,
+            type=item.type,
+            priority=item.priority,
+            title=item.title,
+            description=item.description,
+            expires_at=item.expires_at,
+            payload=item.payload,
+            available_actions=item.available_actions,
+            created_at=item.created_at,
+            locked_by=locked_by,
+        )
+
+    # -----------------------------------------------------------------
+    # POST /api/v1/hitl/{hitl_id}/viewing — acquire viewing lock
+    # -----------------------------------------------------------------
+
+    @post(
+        "/{hitl_id:uuid}/viewing",
+        summary="Acquire HITL viewing lock",
+        description="Soft-lock a HITL item to indicate that an operator is viewing it. TTL 5 min.",
+        status_code=200,
+    )
+    async def acquire_viewing_lock(
+        self,
+        hitl_id: uuid.UUID,
+        request: Request[User, Token, Any],
+        db_session: AsyncSession,
+        valkey: aioredis.Redis,
+    ) -> HITLViewingLockResponseSchema:
+        """Acquire a soft viewing lock on a HITL item via Valkey SET NX EX.
+
+        - If the lock is free, acquires it and returns ``locked=True``.
+        - If the lock is already held by the same user, refreshes TTL and returns ``locked=True``.
+        - If the lock is held by another user, returns ``locked=False`` with their user_id.
+        - On Valkey errors, degrades gracefully returning ``locked=False``.
+
+        Raises:
+            NotFoundException: When the HITL item does not exist.
+        """
+        # Verify HITL item exists
+        stmt = select(HITLQueue).where(HITLQueue.id == hitl_id)
+        result = await db_session.execute(stmt)
+        item = result.scalar_one_or_none()
+
+        if item is None:
+            raise NotFoundException(detail=f"HITL item {hitl_id} not found")
+
+        user_id = str(request.user.id)
+        lock_key = f"{_HITL_LOCK_PREFIX}{hitl_id}"
+
+        try:
+            # Attempt atomic SET NX EX
+            acquired = await valkey.set(lock_key, user_id, nx=True, ex=_HITL_LOCK_TTL)
+
+            if acquired:
+                logger.debug("hitl.viewing_lock_acquired", hitl_id=str(hitl_id), user_id=user_id)
+                return HITLViewingLockResponseSchema(locked=True, locked_by=user_id)
+
+            # Lock exists — check who holds it
+            current_holder_raw = await valkey.get(lock_key)
+            if current_holder_raw is not None:
+                current_holder = (
+                    current_holder_raw.decode() if isinstance(current_holder_raw, bytes) else str(current_holder_raw)
+                )
+            else:
+                # Race condition: lock expired between SET and GET — treat as free
+                current_holder = None
+
+            if current_holder == user_id:
+                # Same user — refresh TTL (re-entrant)
+                await valkey.expire(lock_key, _HITL_LOCK_TTL)
+                logger.debug("hitl.viewing_lock_refreshed", hitl_id=str(hitl_id), user_id=user_id)
+                return HITLViewingLockResponseSchema(locked=True, locked_by=user_id)
+
+            # Another user holds the lock
+            logger.debug(
+                "hitl.viewing_lock_conflict",
+                hitl_id=str(hitl_id),
+                requested_by=user_id,
+                held_by=current_holder,
+            )
+            return HITLViewingLockResponseSchema(locked=False, locked_by=current_holder)
+
+        except (OSError, ConnectionError):
+            logger.warning("hitl.viewing_lock_acquire_failed", hitl_id=str(hitl_id), exc_info=True)
+            return HITLViewingLockResponseSchema(locked=False, locked_by=None)
+
+    # -----------------------------------------------------------------
+    # DELETE /api/v1/hitl/{hitl_id}/viewing — release viewing lock
+    # -----------------------------------------------------------------
+
+    @delete(
+        "/{hitl_id:uuid}/viewing",
+        summary="Release HITL viewing lock",
+        description="Release the soft viewing lock on a HITL item.",
+        status_code=200,
+    )
+    async def release_viewing_lock(
+        self,
+        hitl_id: uuid.UUID,
+        request: Request[User, Token, Any],
+        valkey: aioredis.Redis,
+    ) -> HITLViewingLockResponseSchema:
+        """Release a viewing lock. Only the lock owner may release it.
+
+        - If the lock is not held, returns ``locked=False`` (idempotent).
+        - If the lock is held by another user, raises ``MASException``.
+        - On Valkey errors, degrades gracefully returning ``locked=False``.
+        """
+        user_id = str(request.user.id)
+        lock_key = f"{_HITL_LOCK_PREFIX}{hitl_id}"
+
+        try:
+            current_holder_raw = await valkey.get(lock_key)
+
+            if current_holder_raw is None:
+                # Lock not held — idempotent success
+                return HITLViewingLockResponseSchema(locked=False, locked_by=None)
+
+            current_holder = (
+                current_holder_raw.decode() if isinstance(current_holder_raw, bytes) else str(current_holder_raw)
+            )
+
+            if current_holder != user_id:
+                raise MASException(
+                    "Cannot release viewing lock held by another operator",
+                    details={"error_code": "LOCK_HELD_BY_ANOTHER", "status_code": 409},
+                )
+
+            await valkey.delete(lock_key)
+            logger.debug("hitl.viewing_lock_released", hitl_id=str(hitl_id), user_id=user_id)
+            return HITLViewingLockResponseSchema(locked=False, locked_by=None)
+
+        except MASException:
+            raise
+        except (OSError, ConnectionError):
+            logger.warning("hitl.viewing_lock_release_failed", hitl_id=str(hitl_id), exc_info=True)
+            return HITLViewingLockResponseSchema(locked=False, locked_by=None)
+
+    # -----------------------------------------------------------------
     # POST /api/v1/hitl/{hitl_id}/resolve
     # -----------------------------------------------------------------
 
@@ -263,10 +504,22 @@ class HITLController(Controller):
         item.resolved_by = request.user.id
         item.resolved_at = now
 
-        # If the action is "edit", merge the edited payload
+        # If the action is "edit", merge the edited payload and record history
         if data.action == "edit" and data.edited_payload is not None:
+            before_payload = dict(item.payload) if item.payload else {}
             merged_payload = {**item.payload, **data.edited_payload}
             item.payload = merged_payload
+
+            from src.core.models import HITLEditHistory  # noqa: PLC0415
+
+            history_entry = HITLEditHistory(
+                hitl_id=item.id,
+                edited_by=request.user.id,
+                before_payload=before_payload,
+                after_payload=merged_payload,
+                edit_type="field_edit",
+            )
+            db_session.add(history_entry)
 
         await db_session.flush()
 
@@ -321,7 +574,19 @@ class HITLController(Controller):
         # Resume the paused pipeline if this HITL type has a graph to resume.
         # Fire-and-forget: the pipeline runs asynchronously; the HTTP
         # response returns immediately so the dashboard stays responsive.
-        _RESUMABLE_TYPES = {"bid_approval", "plan_review", "email_approval", "final_review"}
+        _RESUMABLE_TYPES = {
+            "bid_approval",
+            "dev_launch",
+            "plan_review",
+            "email_approval",
+            "final_review",
+            "agent_failure",
+            "outreach_approval",
+            "delivery_hold",
+            "design_review",
+            "design_client_approval",
+            "concept_review",
+        }
         thread_id_from_payload = (item.payload or {}).get("thread_id")
         if item.type in _RESUMABLE_TYPES and thread_id_from_payload and data.action != "later":
             try:
@@ -454,7 +719,19 @@ class HITLController(Controller):
         )
 
         # Fire-and-forget resume for each resumable item
-        _RESUMABLE_TYPES = {"bid_approval", "plan_review", "email_approval", "final_review"}
+        _RESUMABLE_TYPES = {
+            "bid_approval",
+            "dev_launch",
+            "plan_review",
+            "email_approval",
+            "final_review",
+            "agent_failure",
+            "outreach_approval",
+            "delivery_hold",
+            "design_review",
+            "design_client_approval",
+            "concept_review",
+        }
         for item_id_str in resolved_ids:
             item_id_uuid = uuid.UUID(item_id_str)
             item = items_by_id.get(item_id_uuid)
@@ -677,4 +954,121 @@ class HITLController(Controller):
                 resolved=total_resolved,
                 pending=max(total_created - total_resolved, 0),
             ),
+        )
+
+    # -----------------------------------------------------------------
+    # GET /api/v1/hitl/{hitl_id}/history — edit history
+    # -----------------------------------------------------------------
+
+    @get(
+        "/{hitl_id:uuid}/history",
+        summary="Get HITL edit history",
+        description="Returns the chronological list of payload edits for a HITL item.",
+    )
+    async def get_edit_history(
+        self,
+        hitl_id: uuid.UUID,
+        db_session: AsyncSession,
+    ) -> HITLEditHistoryResponseSchema:
+        """Return all edit history entries for a given HITL item, ordered by edited_at ascending."""
+        from src.core.models import HITLEditHistory  # noqa: PLC0415
+
+        # Verify the HITL item exists
+        item_stmt = select(HITLQueue).where(HITLQueue.id == hitl_id)
+        item_result = await db_session.execute(item_stmt)
+        if item_result.scalar_one_or_none() is None:
+            raise NotFoundException(detail=f"HITL item {hitl_id} not found")
+
+        stmt = (
+            select(HITLEditHistory).where(HITLEditHistory.hitl_id == hitl_id).order_by(HITLEditHistory.edited_at.asc())
+        )
+        result = await db_session.execute(stmt)
+        rows = result.scalars().all()
+
+        entries = [
+            HITLEditHistoryEntrySchema(
+                id=row.id,
+                hitl_id=row.hitl_id,
+                edited_by=row.edited_by,
+                before_payload=row.before_payload,
+                after_payload=row.after_payload,
+                edit_type=row.edit_type,
+                edited_at=row.edited_at,
+            )
+            for row in rows
+        ]
+
+        return HITLEditHistoryResponseSchema(
+            hitl_id=hitl_id,
+            entries=entries,
+            total=len(entries),
+        )
+
+    # -----------------------------------------------------------------
+    # GET /api/v1/hitl/expiring — items nearing expiry
+    # -----------------------------------------------------------------
+
+    @get(
+        "/expiring",
+        summary="List HITL items nearing expiry",
+        description="Returns pending HITL items that will expire within the given threshold.",
+    )
+    async def list_expiring(
+        self,
+        db_session: AsyncSession,
+        threshold_hours: float = Parameter(default=6.0, ge=0.1, le=168.0, description="Hours until expiry threshold"),
+    ) -> HITLExpiringResponseSchema:
+        """Return pending HITL items expiring within *threshold_hours*."""
+        now = datetime.now(UTC)
+        threshold_dt = now + timedelta(hours=threshold_hours)
+
+        # Items with expires_at between now and now+threshold (i.e. expiring soon)
+        stmt = (
+            select(HITLQueue)
+            .where(
+                HITLQueue.status == "pending",
+                HITLQueue.expires_at.is_not(None),
+                HITLQueue.expires_at <= threshold_dt,
+            )
+            .order_by(HITLQueue.expires_at.asc())
+        )
+        result = await db_session.execute(stmt)
+        rows = result.scalars().all()
+
+        # Count expired-but-unresolved items (expires_at < now, still pending)
+        expired_stmt = select(func.count()).select_from(
+            select(HITLQueue)
+            .where(
+                HITLQueue.status == "pending",
+                HITLQueue.expires_at.is_not(None),
+                HITLQueue.expires_at < now,
+            )
+            .subquery()
+        )
+        expired_count = (await db_session.execute(expired_stmt)).scalar_one()
+
+        items: list[HITLExpiringItemSchema] = []
+        for row in rows:
+            total_ttl = (row.expires_at - row.created_at).total_seconds()
+            elapsed = (now - row.created_at).total_seconds()
+            remaining = (row.expires_at - now).total_seconds()
+            pct = min(max((elapsed / total_ttl) * 100.0, 0.0), 100.0) if total_ttl > 0 else 100.0
+
+            items.append(
+                HITLExpiringItemSchema(
+                    id=row.id,
+                    type=row.type,
+                    title=row.title,
+                    priority=row.priority,
+                    expires_at=row.expires_at,
+                    created_at=row.created_at,
+                    time_remaining_seconds=remaining,
+                    pct_elapsed=round(pct, 1),
+                )
+            )
+
+        return HITLExpiringResponseSchema(
+            items=items,
+            total=len(items),
+            expired_count=expired_count,
         )

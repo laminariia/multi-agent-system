@@ -136,8 +136,13 @@ def test_route_after_planner_no_next():
 
 
 def test_route_after_dev_to_content():
-    """Dev routes to content_node when next_agent=content."""
-    state = {"thread_id": "t1", "status": "active", "next_agent": "content"}
+    """Dev routes to content_node via dynamic sequence routing."""
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "agent_sequence": ["dev", "content", "design"],
+        "current_sequence_index": 1,
+    }
     assert _route_after_dev(state) == "content_node"
 
 
@@ -148,9 +153,9 @@ def test_route_after_dev_failed():
 
 
 def test_route_after_dev_no_next():
-    """Dev routes to END when next_agent is missing."""
-    state = {"thread_id": "t1", "status": "active"}
-    assert _route_after_dev(state) == END
+    """Dev routes to packager when sequence is empty (no next agent)."""
+    state = {"thread_id": "t1", "status": "active", "agent_sequence": [], "current_sequence_index": 0}
+    assert _route_after_dev(state) == "packager_node"
 
 
 # ---------------------------------------------------------------------------
@@ -159,8 +164,13 @@ def test_route_after_dev_no_next():
 
 
 def test_route_after_content_to_design():
-    """Content routes to design_node when next_agent=design."""
-    state = {"thread_id": "t1", "status": "active", "next_agent": "design"}
+    """Content routes to design_node via dynamic sequence routing."""
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "agent_sequence": ["dev", "content", "design"],
+        "current_sequence_index": 2,
+    }
     assert _route_after_content(state) == "design_node"
 
 
@@ -176,8 +186,13 @@ def test_route_after_content_failed():
 
 
 def test_route_after_design_to_critic():
-    """Design routes to critic_node when next_agent=critic."""
-    state = {"thread_id": "t1", "status": "active", "next_agent": "critic"}
+    """Design routes to critic_node when sequence exhausted."""
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "agent_sequence": ["dev", "content", "design"],
+        "current_sequence_index": 3,
+    }
     assert _route_after_design(state) == "critic_node"
 
 
@@ -432,10 +447,10 @@ def test_create_graph_with_persistence_pipeline_b_overrides_full(mock_build_b, m
 # ---------------------------------------------------------------------------
 
 
-def test_route_after_bid_submission_to_planner():
-    """Bid submission always routes to planner_node (normal path)."""
+def test_route_after_bid_submission_to_dev_launch():
+    """Bid submission routes to hitl_dev_launch_node (safety gate before planner)."""
     state = {"thread_id": "t1", "status": "active"}
-    assert _route_after_bid_submission(state) == "planner_node"
+    assert _route_after_bid_submission(state) == "hitl_dev_launch_node"
 
 
 def test_route_after_bid_submission_failed():
@@ -558,3 +573,265 @@ def test_build_planner_pipeline_graph_compiles():
     """build_planner_pipeline_graph returns a compiled graph starting at planner."""
     graph = build_planner_pipeline_graph()
     assert graph is not None
+
+
+# ---------------------------------------------------------------------------
+# Design HITL routing tests
+# ---------------------------------------------------------------------------
+
+
+def test_route_after_design_for_review_normal():
+    """Design routes to hitl_design_review_node when not failed."""
+    from src.core.graph import _route_after_design_for_review
+
+    state = {"thread_id": "t1", "status": "active"}
+    assert _route_after_design_for_review(state) == "hitl_design_review_node"
+
+
+def test_route_after_design_for_review_failed():
+    """Design routes to END when status=failed."""
+    from src.core.graph import _route_after_design_for_review
+
+    state = {"thread_id": "t1", "status": "failed"}
+    assert _route_after_design_for_review(state) == END
+
+
+def test_route_after_hitl_design_review_operator_approved():
+    """Design review routes to client approval when operator approved."""
+    from src.core.graph import _route_after_hitl_design_review
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "artifacts": {"_design_operator_approved": True},
+    }
+    assert _route_after_hitl_design_review(state) == "hitl_design_approval_node"
+
+
+def test_route_after_hitl_design_review_request_changes():
+    """Design review routes to design_node when feedback provided (revision)."""
+    from src.core.graph import _route_after_hitl_design_review
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "design_feedback": "Make the hero section bigger",
+        "design_revision": 1,
+    }
+    assert _route_after_hitl_design_review(state) == "design_node"
+
+
+def test_route_after_hitl_design_review_revision_limit():
+    """Design review routes to planner when revision limit exceeded."""
+    from src.core.graph import MAX_DESIGN_REVISIONS, _route_after_hitl_design_review
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "design_feedback": "Still not right",
+        "design_revision": MAX_DESIGN_REVISIONS,
+    }
+    assert _route_after_hitl_design_review(state) == "planner_node"
+
+
+def test_route_after_hitl_design_review_failed():
+    """Design review routes to END when status=failed."""
+    from src.core.graph import _route_after_hitl_design_review
+
+    state = {"thread_id": "t1", "status": "failed"}
+    assert _route_after_hitl_design_review(state) == END
+
+
+def test_route_after_hitl_design_review_still_paused():
+    """Design review continues to default when paused (no explicit failed)."""
+    from src.core.graph import _route_after_hitl_design_review
+
+    # After HITL routing fix: only "failed" goes to END; paused without
+    # rejection flags falls through to default (client approval).
+    state = {"thread_id": "t1", "status": "paused"}
+    assert _route_after_hitl_design_review(state) == "hitl_design_approval_node"
+
+
+def test_route_after_hitl_design_review_default_approve():
+    """Design review defaults to client approval when active with no flags."""
+    from src.core.graph import _route_after_hitl_design_review
+
+    state = {"thread_id": "t1", "status": "active"}
+    assert _route_after_hitl_design_review(state) == "hitl_design_approval_node"
+
+
+def test_route_after_hitl_design_approval_client_approved():
+    """Client approval routes to next in sequence when design_approved=True."""
+    from src.core.graph import _route_after_hitl_design_approval
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "design_approved": True,
+        "agent_sequence": ["dev", "content", "design"],
+        "current_sequence_index": 3,  # past design
+    }
+    # Index 3 >= len(sequence) -> critic_node
+    assert _route_after_hitl_design_approval(state) == "critic_node"
+
+
+def test_route_after_hitl_design_approval_client_changes():
+    """Client approval routes to design_node when client requests changes."""
+    from src.core.graph import _route_after_hitl_design_approval
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "design_feedback": "Change the color scheme",
+    }
+    assert _route_after_hitl_design_approval(state) == "design_node"
+
+
+def test_route_after_hitl_design_approval_failed():
+    """Client approval routes to END when status=failed."""
+    from src.core.graph import _route_after_hitl_design_approval
+
+    state = {"thread_id": "t1", "status": "failed"}
+    assert _route_after_hitl_design_approval(state) == END
+
+
+def test_route_after_hitl_design_approval_still_paused():
+    """Client approval continues to default when paused (no explicit failed)."""
+    from src.core.graph import _route_after_hitl_design_approval
+
+    # After HITL routing fix: only "failed" goes to END; paused without
+    # rejection flags falls through to default (_route_next_in_sequence).
+    state = {"thread_id": "t1", "status": "paused"}
+    result = _route_after_hitl_design_approval(state)
+    assert result != END  # should continue, not terminate
+
+
+def test_route_after_hitl_design_approval_default_next():
+    """Client approval defaults to next in sequence when active, no flags."""
+    from src.core.graph import _route_after_hitl_design_approval
+
+    state = {
+        "thread_id": "t1",
+        "status": "active",
+        "agent_sequence": ["dev"],
+        "current_sequence_index": 1,  # past all agents
+    }
+    assert _route_after_hitl_design_approval(state) == "critic_node"
+
+
+# ---------------------------------------------------------------------------
+# _apply_design_review tests
+# ---------------------------------------------------------------------------
+
+
+def test_apply_design_review_approve():
+    """Approve sets _design_operator_approved flag and status=active."""
+    from src.core.graph import _apply_design_review
+
+    saved = {"thread_id": "t1", "status": "paused", "artifacts": {}, "errors": []}
+    result = _apply_design_review(saved, "approve", {}, "t1")
+    assert result["status"] == "active"
+    assert result["artifacts"]["_design_operator_approved"] is True
+    assert result["requires_hitl"] is False
+
+
+def test_apply_design_review_request_changes():
+    """Request changes increments design_revision and sets feedback."""
+    from src.core.graph import _apply_design_review
+
+    saved = {
+        "thread_id": "t1",
+        "status": "paused",
+        "artifacts": {},
+        "errors": [],
+        "design_revision": 0,
+    }
+    result = _apply_design_review(saved, "request_changes", {"feedback": "Fix colors"}, "t1")
+    assert result["status"] == "active"
+    assert result["design_revision"] == 1
+    assert result["design_feedback"] == "Fix colors"
+
+
+def test_apply_design_review_request_changes_max_revision():
+    """Request changes still works at max revisions (routing handles escalation)."""
+    from src.core.graph import MAX_DESIGN_REVISIONS, _apply_design_review
+
+    saved = {
+        "thread_id": "t1",
+        "status": "paused",
+        "artifacts": {},
+        "errors": [],
+        "design_revision": MAX_DESIGN_REVISIONS - 1,
+    }
+    result = _apply_design_review(saved, "request_changes", {"feedback": "Last try"}, "t1")
+    assert result["status"] == "active"
+    assert result["design_revision"] == MAX_DESIGN_REVISIONS
+
+
+def test_apply_design_review_reject():
+    """Reject escalates to Planner for re-decomposition (status=active, next_agent=planner)."""
+    from src.core.graph import _apply_design_review
+
+    saved = {"thread_id": "t1", "status": "paused", "artifacts": {}, "errors": []}
+    result = _apply_design_review(saved, "reject", {}, "t1")
+    assert result["status"] == "active"
+    assert result["next_agent"] == "planner"
+    assert result["requires_hitl"] is False
+
+
+def test_apply_design_review_unknown_action():
+    """Unknown action fails closed."""
+    from src.core.graph import _apply_design_review
+
+    saved = {"thread_id": "t1", "status": "paused", "artifacts": {}, "errors": []}
+    result = _apply_design_review(saved, "magic", {}, "t1")
+    assert result["status"] == "failed"
+    assert "unknown" in result["errors"][-1].lower()
+
+
+# ---------------------------------------------------------------------------
+# _apply_design_client_approval tests
+# ---------------------------------------------------------------------------
+
+
+def test_apply_design_client_approval_approve():
+    """Client approve sets design_approved=True and status=active."""
+    from src.core.graph import _apply_design_client_approval
+
+    saved = {"thread_id": "t1", "status": "paused", "artifacts": {}, "errors": []}
+    result = _apply_design_client_approval(saved, "approve", {}, "t1")
+    assert result["status"] == "active"
+    assert result["design_approved"] is True
+    assert result["requires_hitl"] is False
+
+
+def test_apply_design_client_approval_request_changes():
+    """Client request_changes sets design_feedback and design_approved=False."""
+    from src.core.graph import _apply_design_client_approval
+
+    saved = {"thread_id": "t1", "status": "paused", "artifacts": {}, "errors": []}
+    result = _apply_design_client_approval(saved, "request_changes", {"feedback": "Too dark"}, "t1")
+    assert result["status"] == "active"
+    assert result["design_approved"] is False
+    assert result["design_feedback"] == "Too dark"
+
+
+def test_apply_design_client_approval_reject():
+    """Client reject escalates to Planner for re-decomposition (status=active, next_agent=planner)."""
+    from src.core.graph import _apply_design_client_approval
+
+    saved = {"thread_id": "t1", "status": "paused", "artifacts": {}, "errors": []}
+    result = _apply_design_client_approval(saved, "reject", {}, "t1")
+    assert result["status"] == "active"
+    assert result["next_agent"] == "planner"
+    assert result["requires_hitl"] is False
+
+
+def test_apply_design_client_approval_unknown():
+    """Unknown action fails closed."""
+    from src.core.graph import _apply_design_client_approval
+
+    saved = {"thread_id": "t1", "status": "paused", "artifacts": {}, "errors": []}
+    result = _apply_design_client_approval(saved, "maybe", {}, "t1")
+    assert result["status"] == "failed"
+    assert "unknown" in result["errors"][-1].lower()

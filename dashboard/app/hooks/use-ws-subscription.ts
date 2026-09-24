@@ -8,7 +8,7 @@ import { useEffect, useRef } from "react";
  * This hook accesses it via window.__masWs.
  */
 export function useWsSubscription(
-  type: "subscribe:agent" | "subscribe:project",
+  type: "subscribe:agent" | "subscribe:project" | "subscribe:channel",
   id: string | undefined,
   onMessage?: (msg: Record<string, unknown>) => void
 ) {
@@ -24,6 +24,7 @@ export function useWsSubscription(
         const payload: Record<string, string> = { type };
         if (type === "subscribe:agent") payload.agent = id;
         if (type === "subscribe:project") payload.project_id = id;
+        if (type === "subscribe:channel") payload.channel = id;
         ws.send(JSON.stringify(payload));
         return true;
       }

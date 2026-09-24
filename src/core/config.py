@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     HUNTER_API_KEY: str | None = None
     APOLLO_API_KEY: str | None = None
 
+    # ── Geo APIs (Russian markets) ────────────────────────────────────────
+    YANDEX_MAPS_API_KEY: str = ""
+    DGIS_API_KEY: str = ""
+
     # ── Proxy (BrightData) ───────────────────────────────────────────────
     BRIGHTDATA_USERNAME: str | None = None
     BRIGHTDATA_PASSWORD: str | None = None
@@ -96,6 +100,12 @@ class Settings(BaseSettings):
     HEARTBEAT_MAX_RESTARTS: int = 3
     HEARTBEAT_MONITOR_POLL_SECONDS: int = 30
 
+    # ── Embedding Configuration ────────────────────────────────────────
+    EMBEDDING_PROVIDER: str = "openrouter"  # "openrouter" or "openai"
+    EMBEDDING_MODEL: str = "qwen/qwen3-embedding-8b"  # OpenRouter model ID
+    EMBEDDING_MODEL_OPENAI: str = "text-embedding-3-large"  # Fallback model
+    EMBEDDING_DIMENSIONS: int = 3072
+
     # ── Semantic Cache ────────────────────────────────────────────────
     SEMANTIC_CACHE_SIMILARITY_THRESHOLD: float = 0.92
     SEMANTIC_CACHE_TTL_PROPOSAL: int = 86_400  # 24 h
@@ -113,6 +123,15 @@ class Settings(BaseSettings):
     HEARTBEAT_CLEANUP_MINUTES: int = 10
     PIPELINE_B_SCAN_INTERVAL_HOURS: int = 24
     PIPELINE_B_CITIES: str = ""  # Comma-separated city names
+
+    # ── Data Retention ─────────────────────────────────────────────────
+    DATA_RETENTION_INTERVAL_HOURS: int = 6
+    RETENTION_AGENT_LOGS_DAYS: int = 90
+    RETENTION_CHECKPOINTS_DAYS: int = 30
+    RETENTION_CACHE_GRACE_HOURS: int = 0
+    RETENTION_HITL_DAYS: int = 90
+    RETENTION_AB_TEST_DAYS: int = 180
+    RETENTION_MESSAGES_DAYS: int = 30
 
     # ── Email / SMTP ─────────────────────────────────────────────────
     SMTP_HOST: str = ""
@@ -138,6 +157,15 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str | None = None
     TELEGRAM_CHAT_ID: str | None = None
 
+    # ── Telegram Webhook Mode ─────────────────────────────────────────
+    TELEGRAM_WEBHOOK_URL: str = ""
+    TELEGRAM_WEBHOOK_SECRET: str = ""
+    TELEGRAM_WEBHOOK_MAX_CONNECTIONS: int = 100
+
+    # ── Telegram Quiet Hours ──────────────────────────────────────────
+    TELEGRAM_QUIET_HOURS_START: int = 22
+    TELEGRAM_QUIET_HOURS_END: int = 8
+
     # ── Telegram Channel Monitoring (Telethon MTProto) ────────────────
     TELEGRAM_API_ID: int | None = None
     TELEGRAM_API_HASH: str | None = None
@@ -146,6 +174,10 @@ class Settings(BaseSettings):
     # ── Telegram DM Outreach ─────────────────────────────────────────
     TELEGRAM_DM_MAX_PER_HOUR: int = 5
     TELEGRAM_DM_MIN_INTERVAL_SECONDS: int = 720
+
+    # ── LinkedIn OAuth ────────────────────────────────────────────────
+    LINKEDIN_CLIENT_ID: str = ""
+    LINKEDIN_CLIENT_SECRET: str = ""
 
     # ── Monitoring ───────────────────────────────────────────────────────
     LANGSMITH_API_KEY: str | None = None
@@ -164,7 +196,7 @@ class Settings(BaseSettings):
             if not self.OPENROUTER_API_KEY:
                 raise ValueError("CRITICAL: OPENROUTER_API_KEY must be set in production")
             if not self.OPENAI_API_KEY:
-                _logger.warning("OPENAI_API_KEY is not set -- embeddings will be unavailable")
+                _logger.info("OPENAI_API_KEY not set -- embeddings use OPENROUTER_API_KEY via qwen3-embedding-8b")
         return self
 
     # ── Computed ─────────────────────────────────────────────────────────

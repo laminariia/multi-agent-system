@@ -5,6 +5,7 @@ Rate limits: 100 req/hour for API, 30 req/min for search, 10 bids/hour.
 
 Reference: https://developers.freelancer.com/docs
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -28,6 +29,11 @@ _DEFAULT_TIMEOUT = 30.0
 
 # Timeout for individual HTTP requests (seconds).
 _REQUEST_TIMEOUT = 30.0
+
+# Pagination defaults.
+_DEFAULT_MAX_PAGES = 5
+_PAGE_SIZE = 100
+_PAGE_DELAY_SECONDS = 1.0
 
 
 class FreelancerClient:
@@ -120,7 +126,7 @@ class FreelancerClient:
 
         if response.status_code == 403:
             raise PlatformBannedError(
-                message="Freelancer API returned 403 Forbidden — possible account issue",
+                message="Freelancer API returned 403 Forbidden - possible account issue",
                 platform="freelancer",
                 operation=operation,
             )
@@ -169,68 +175,126 @@ class FreelancerClient:
         self,
         category: str,
         min_budget: int,
-        max_results: int = 50,
+        max_results: int | None = None,
+        max_pages: int = _DEFAULT_MAX_PAGES,
     ) -> list[dict[str, Any]]:
-        """Fetch active projects matching *category* and *min_budget*.
+        """Fetch active projects matching *category* and *min_budget* with pagination.
 
-        Calls ``GET /projects/0.1/projects/active/``.
+        Calls ``GET /projects/0.1/projects/active/`` repeatedly with increasing
+        ``offset`` until *max_pages* is reached, an empty/partial page is returned,
+        or *max_results* total jobs have been collected.
 
-        Returns a normalised list of job dicts with keys:
-        ``external_id``, ``platform``, ``title``, ``description``,
-        ``budget_min``, ``budget_max``, ``currency``, ``skills_required``,
-        ``client_info``, ``url``, ``raw_data``.
+        Parameters
+        ----------
+        category:
+            Freelancer job category slug (e.g. ``"python"``).
+        min_budget:
+            Minimum average price filter.
+        max_results:
+            Maximum total number of jobs to return across all pages.
+        max_pages:
+            Maximum number of API pages to fetch (default 5 = 500 results max).
+
+        Returns a normalised list of job dicts.
         """
-        if self._rate_limiter:
-            await self._rate_limiter.acquire("freelancer")
-
         http = await self._get_http()
-        params: dict[str, Any] = {
-            "jobs[]": category,
-            "min_avg_price": min_budget,
-            "limit": min(max_results, 100),
-            "full_description": True,
-            "job_details": True,
-            "user_details": True,
-            "compact": False,
-        }
-
-        self._log.info("fetch_jobs", category=category, min_budget=min_budget, max_results=max_results)
+        all_jobs: list[dict[str, Any]] = []
         start = time.monotonic()
-        response = await asyncio.wait_for(
-            http.get("/projects/0.1/projects/active/", params=params),
-            timeout=_REQUEST_TIMEOUT,
+
+        self._log.info(
+            "fetch_jobs",
+            category=category,
+            min_budget=min_budget,
+            max_results=max_results,
+            max_pages=max_pages,
         )
-        elapsed_ms = int((time.monotonic() - start) * 1000)
-        self._log.debug("fetch_jobs_response", status=response.status_code, latency_ms=elapsed_ms)
 
-        data = self._handle_response(response, operation="fetch_jobs")
+        for page_num in range(max_pages):
+            if self._rate_limiter:
+                await self._rate_limiter.acquire("freelancer")
 
-        raw_projects: list[dict[str, Any]] = data.get("result", {}).get("projects", [])
+            offset = page_num * _PAGE_SIZE
+            if max_results is not None:
+                remaining = max_results - len(all_jobs)
+                page_limit = min(remaining, _PAGE_SIZE)
+            else:
+                page_limit = _PAGE_SIZE
+            params: dict[str, Any] = {
+                "jobs[]": category,
+                "min_avg_price": min_budget,
+                "limit": page_limit,
+                "offset": offset,
+                "full_description": True,
+                "job_details": True,
+                "user_details": True,
+                "compact": False,
+            }
+
+            response = await asyncio.wait_for(
+                http.get("/projects/0.1/projects/active/", params=params),
+                timeout=_REQUEST_TIMEOUT,
+            )
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+            self._log.debug(
+                "fetch_jobs_page_response",
+                page=page_num + 1,
+                status=response.status_code,
+                latency_ms=elapsed_ms,
+            )
+
+            data = self._handle_response(response, operation="fetch_jobs")
+            raw_projects: list[dict[str, Any]] = data.get("result", {}).get("projects", [])
+
+            page_jobs = self._normalise_projects(raw_projects)
+            all_jobs.extend(page_jobs)
+
+            self._log.info(
+                "fetch_jobs_page_done",
+                page=page_num + 1,
+                page_count=len(page_jobs),
+                total=len(all_jobs),
+            )
+
+            # Stop on empty page, partial page (< requested limit), or max_results reached.
+            if not page_jobs or len(page_jobs) < page_limit:
+                break
+            if max_results is not None and len(all_jobs) >= max_results:
+                break
+
+            # Delay between pages for rate limiting.
+            if page_num < max_pages - 1:
+                await asyncio.sleep(_PAGE_DELAY_SECONDS)
+
+        self._log.info("fetch_jobs_done", count=len(all_jobs))
+        return all_jobs[:max_results]
+
+    @staticmethod
+    def _normalise_projects(raw_projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Normalise a list of raw Freelancer project dicts into standard format."""
         normalised: list[dict[str, Any]] = []
-
         for proj in raw_projects:
             budget_info = proj.get("budget", {})
             owner = proj.get("owner", {})
-            normalised.append({
-                "external_id": str(proj.get("id", "")),
-                "platform": "freelancer",
-                "title": proj.get("title", ""),
-                "description": proj.get("description", proj.get("preview_description", "")),
-                "budget_min": budget_info.get("minimum"),
-                "budget_max": budget_info.get("maximum"),
-                "currency": proj.get("currency", {}).get("code", "USD"),
-                "skills_required": [j.get("name", "") for j in proj.get("jobs", [])],
-                "client_info": {
-                    "user_id": owner.get("id"),
-                    "username": owner.get("username"),
-                    "rating": owner.get("employer_reputation", {}).get("overall"),
-                    "country": owner.get("location", {}).get("country", {}).get("name"),
-                },
-                "url": f"https://www.freelancer.com/projects/{proj.get('seo_url', '')}",
-                "raw_data": proj,
-            })
-
-        self._log.info("fetch_jobs_done", count=len(normalised))
+            normalised.append(
+                {
+                    "external_id": str(proj.get("id", "")),
+                    "platform": "freelancer",
+                    "title": proj.get("title", ""),
+                    "description": proj.get("description", proj.get("preview_description", "")),
+                    "budget_min": budget_info.get("minimum"),
+                    "budget_max": budget_info.get("maximum"),
+                    "currency": proj.get("currency", {}).get("code", "USD"),
+                    "skills_required": [j.get("name", "") for j in proj.get("jobs", [])],
+                    "client_info": {
+                        "user_id": owner.get("id"),
+                        "username": owner.get("username"),
+                        "rating": owner.get("employer_reputation", {}).get("overall"),
+                        "country": owner.get("location", {}).get("country", {}).get("name"),
+                    },
+                    "url": f"https://www.freelancer.com/projects/{proj.get('seo_url', '')}",
+                    "raw_data": proj,
+                }
+            )
         return normalised
 
     async def submit_bid(

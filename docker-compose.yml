@@ -42,6 +42,10 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql://mas:mas_password@postgres:5432/mas
+      VALKEY_URL: valkey://valkey:6379
+      DEBUG: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,6 +61,10 @@ services:
     command: python -m src.worker
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql://mas:mas_password@postgres:5432/mas
+      VALKEY_URL: valkey://valkey:6379
+      DEBUG: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -72,11 +80,28 @@ services:
     command: python -m src.bot
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql://mas:mas_password@postgres:5432/mas
+      VALKEY_URL: valkey://valkey:6379
+      DEBUG: "true"
     depends_on:
       postgres:
         condition: service_healthy
       valkey:
         condition: service_healthy
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: mas-dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      API_URL: http://localhost:8000
+    depends_on:
+      - api
 
 volumes:
   postgres_data:

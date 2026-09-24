@@ -5,14 +5,16 @@ The Design Agent:
 2. Determines the design type from the project context.
 3. Calls the LLM with DESIGN_SYSTEM_PROMPT to produce design specifications.
 4. Parses the JSON response into a list of design deliverables.
-5. Stores results in ``artifacts["design"]`` and routes to the Critic Agent.
-6. Logs every decision to the ``agent_logs`` table.
+5. Calls PencilMCPClient to generate .pen files and screenshots (if MCP available).
+6. Stores results in ``artifacts["design"]`` and ``artifacts["design_mockup"]``.
+7. Logs every decision to the ``agent_logs`` table.
 
-In MVP phase, the Design Agent produces detailed JSON specs (colours, fonts,
-layout descriptions, responsive notes) rather than actual image files.
+When Pencil.dev MCP is available, the agent generates visual mockups (.pen files)
+and exports PNG screenshots for HITL review.  When MCP is unavailable, the agent
+falls back to JSON-only design specs (current behavior).
 
 Role constraints: can CREATE design artefacts, CANNOT execute code, CANNOT modify code files.
-LLM: Claude Sonnet 4.5 (fallback Claude Haiku 4.5).
+LLM: NanoBanana Pro / Gemini 3 Pro Image (Tier 4: Design).
 """
 
 from __future__ import annotations
@@ -51,7 +53,7 @@ class DesignAgent(ConstrainedAgent):
     Parameters
     ----------
     llm_client:
-        Shared :class:`LLMClient` instance (Claude Sonnet 4.5 primary).
+        Shared :class:`LLMClient` instance (NanoBanana Pro primary, Tier 4).
     heartbeat:
         Shared :class:`HeartbeatMonitor` for liveness pings.
     loop_detector:
@@ -85,9 +87,10 @@ class DesignAgent(ConstrainedAgent):
         3. Call LLM with DESIGN_SYSTEM_PROMPT.
         4. Parse JSON response with deliverables[].
         5. Store as artifacts["design"].
-        6. Set next_agent="critic".
-        7. Log the action.
-        8. Return updated state.
+        6. Call PencilMCPClient to generate mockup (if available).
+        7. Store mockup in artifacts["design_mockup"].
+        8. Log the action.
+        9. Advance sequence index and return updated state.
         """
         self._log.info("design_execute_start", thread_id=state["thread_id"])
 
@@ -105,6 +108,11 @@ class DesignAgent(ConstrainedAgent):
         # 3. Determine design type from requirements.
         design_type = self._infer_design_type(requirements)
 
+        # Check for design feedback from HITL revision loop.
+        design_feedback = state.get("design_feedback")
+        if design_feedback:
+            existing_context += f"\n\nDesign revision feedback:\n{design_feedback}"
+
         # 4. Call LLM.
         design_result = await self._generate_design(
             requirements=requirements,
@@ -121,23 +129,111 @@ class DesignAgent(ConstrainedAgent):
         serialized = json.dumps(design_result, ensure_ascii=False, default=str)
         artifacts["design"] = [serialized]
 
-        # 6. Log the action.
+        # 6. Call PencilMCPClient to generate visual mockup.
+        await self._generate_pencil_mockup(design_result, design_type, artifacts)
+
+        # 7. Log the action.
         await self._log_design_generated(
             thread_id=state["thread_id"],
             design_type=design_type,
             deliverable_count=len(design_result.get("deliverables", [])),
         )
 
-        # 7. Advance sequence index and let routing decide next agent.
+        # 8. Advance sequence index and let routing decide next agent.
+        #    During a revision loop the critic sends us back without changing
+        #    sequence position -- only bump the index on a fresh (non-revision)
+        #    pass so that routing advances to the next agent correctly.
+        is_revision = state.get("revision_severity") is not None
+        new_index = state["current_sequence_index"] if is_revision else state.get("current_sequence_index", 0) + 1
+
         return update_state(
             state,
             current_agent="design",
-            current_sequence_index=state.get("current_sequence_index", 0) + 1,
+            current_sequence_index=new_index,
             revision_target=None,
             revision_severity=None,
+            design_feedback=None,
             artifacts=artifacts,
             status="active",
         )
+
+    # ------------------------------------------------------------------
+    # Pencil.dev MCP integration
+    # ------------------------------------------------------------------
+
+    async def _generate_pencil_mockup(
+        self,
+        design_result: dict[str, Any],
+        design_type: str,
+        artifacts: dict[str, Any],
+    ) -> None:
+        """Call PencilMCPClient to generate a visual mockup from the design spec.
+
+        Stores the result in ``artifacts["design_mockup"]``.  On failure
+        (MCP unavailable or error), logs a warning and continues without
+        a mockup -- the JSON spec is still stored in ``artifacts["design"]``.
+
+        Args:
+            design_result: Parsed design specification from the LLM.
+            design_type: Inferred design type (e.g. "ui_mockup").
+            artifacts: Mutable artifacts dict to update in-place.
+        """
+        from src.integrations.pencil_mcp import (  # noqa: PLC0415
+            build_design_spec,
+            get_pencil_client,
+        )
+
+        try:
+            # Map LLM design type to Pencil.dev project type.
+            project_type_map = {
+                "ui_mockup": "landing_page",
+                "graphic": "graphic",
+                "icon_set": "icon_set",
+                "design_system": "design_system",
+                "wireframe": "wireframe",
+            }
+            project_type = project_type_map.get(design_type, "landing_page")
+
+            # Extract style from LLM result deliverables.
+            deliverables = design_result.get("deliverables", [])
+            style: dict[str, Any] = {}
+            if deliverables:
+                first_spec = deliverables[0].get("specs", {})
+                style = {
+                    "colors": first_spec.get("colors", []),
+                    "typography": ", ".join(first_spec.get("fonts", [])),
+                    "theme": "modern_minimal",
+                }
+
+            # Build sections from deliverables.
+            sections = [
+                {"type": d.get("name", "section"), "layout": d.get("specs", {}).get("layout", "")} for d in deliverables
+            ]
+
+            pencil_spec = build_design_spec(
+                project_type=project_type,
+                style=style if style else None,
+                sections=sections,
+                responsive=True,
+                export_format="react",
+            )
+
+            client = get_pencil_client()
+            result = await client.create_design(pencil_spec)
+
+            # Store mockup result in artifacts.
+            mockup_data = result.to_dict()
+            artifacts["design_mockup"] = [json.dumps(mockup_data, ensure_ascii=False, default=str)]
+
+            self._log.info(
+                "pencil_mockup_generated",
+                is_fallback=result.is_fallback,
+                pen_file=result.pen_file_path,
+            )
+
+        except Exception:
+            self._log.warning("pencil_mockup_generation_failed", exc_info=True)
+            # Continue without mockup -- design JSON spec is still available.
 
     # ------------------------------------------------------------------
     # Context building
@@ -277,7 +373,7 @@ class DesignAgent(ConstrainedAgent):
                     "design_type": design_type,
                     "deliverable_count": deliverable_count,
                 },
-                llm_model="claude-sonnet-4-5",
+                llm_model="nanobana-pro",
             )
             session.add(log_entry)
 
@@ -293,7 +389,7 @@ class DesignAgent(ConstrainedAgent):
 # ======================================================================
 
 
-async def design_node(state: AgentState) -> AgentState:
+async def design_node(state: dict[str, Any]) -> dict[str, Any]:
     """LangGraph node function that creates and invokes the Design Agent.
 
     This is the entry-point wired into the ``StateGraph``.

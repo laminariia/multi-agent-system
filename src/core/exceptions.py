@@ -29,6 +29,7 @@ class MASException(Exception):
 # Agent exceptions
 # ---------------------------------------------------------------------------
 
+
 class AgentException(MASException):
     """Base exception for agent-level failures."""
 
@@ -131,6 +132,7 @@ class HITLRequiredError(AgentException):
 # ---------------------------------------------------------------------------
 # LLM exceptions
 # ---------------------------------------------------------------------------
+
 
 class LLMException(MASException):
     """Base exception for LLM provider failures."""
@@ -251,6 +253,7 @@ class LLMInvalidResponseError(LLMException):
 # Cache exceptions
 # ---------------------------------------------------------------------------
 
+
 class CacheException(MASException):
     """Base exception for Valkey/semantic cache failures."""
 
@@ -270,6 +273,7 @@ class CacheException(MASException):
 # ---------------------------------------------------------------------------
 # Checkpoint exceptions
 # ---------------------------------------------------------------------------
+
 
 class CheckpointException(MASException):
     """Base exception for LangGraph checkpoint persistence failures."""
@@ -300,6 +304,7 @@ class CheckpointException(MASException):
 # ---------------------------------------------------------------------------
 # Platform exceptions
 # ---------------------------------------------------------------------------
+
 
 class PlatformException(MASException):
     """Base exception for freelance platform interaction failures."""
@@ -369,6 +374,7 @@ class PlatformBannedError(PlatformException):
 # Security exceptions
 # ---------------------------------------------------------------------------
 
+
 class SecurityException(MASException):
     """Base exception for security-related failures."""
 
@@ -403,6 +409,24 @@ class CloudflareBlockError(PlatformException):
     def __init__(
         self,
         message: str = "Cloudflare anti-bot block detected",
+        *,
+        platform: str = "",
+        operation: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, platform=platform, operation=operation, details=details)
+
+
+class SessionExpiredError(PlatformException):
+    """Raised when the browser session has expired (e.g. redirected to login page).
+
+    Unlike CaptchaDetectedError, this is a recoverable condition -- the adapter
+    can retry after re-authenticating or refreshing the session cookie.
+    """
+
+    def __init__(
+        self,
+        message: str = "Session expired -- re-authentication required",
         *,
         platform: str = "",
         operation: str = "",

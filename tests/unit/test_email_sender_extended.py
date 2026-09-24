@@ -161,7 +161,9 @@ async def test_send_email_custom_from_addr():
 
     with patch("aiosmtplib.send", side_effect=capture_send):
         await sender.send_email(
-            "lead@example.com", "Subject", "Body",
+            "lead@example.com",
+            "Subject",
+            "Body",
             from_addr="custom@example.com",
         )
 
@@ -342,6 +344,9 @@ async def test_rate_limit_resets_after_reset():
 _IS_CONFIGURED = "src.enrichment.email_sender.EmailSender.is_configured"
 _SEND_EMAIL = "src.enrichment.email_sender.EmailSender.send_email"
 
+# SuppressionList is imported lazily inside send_approved_emails; patch at source.
+_SUPPRESSION_CLS = "src.enrichment.suppression.SuppressionList"
+
 
 def _prop_true():
     return property(lambda self: True)
@@ -349,6 +354,33 @@ def _prop_true():
 
 def _prop_false():
     return property(lambda self: False)
+
+
+def _send_approved_patches(send_return=True):
+    """Context manager stack that patches is_configured, send_email, and
+    SuppressionList so send_approved_emails works without a real DB.
+
+    The warmup gate (``select(WarmupRecord)``) raises ``ArgumentError``
+    because ``WarmupRecord`` is a dataclass, but the function already
+    catches that inside its own ``try/except Exception`` block -- no
+    patching needed.  We only need to mock ``SuppressionList`` so the
+    suppression check doesn't hit a real database.
+    """
+    from contextlib import ExitStack  # noqa: PLC0415
+
+    stack = ExitStack()
+
+    stack.enter_context(patch(_IS_CONFIGURED, new_callable=_prop_true))
+    stack.enter_context(patch(_SEND_EMAIL, new_callable=AsyncMock, return_value=send_return))
+
+    # Suppression: mock whose is_suppressed always returns False.
+    mock_suppression_cls = MagicMock()
+    mock_suppression_instance = AsyncMock()
+    mock_suppression_instance.is_suppressed = AsyncMock(return_value=False)
+    mock_suppression_cls.return_value = mock_suppression_instance
+    stack.enter_context(patch(_SUPPRESSION_CLS, mock_suppression_cls))
+
+    return stack
 
 
 async def test_send_approved_emails_returns_stats():
@@ -374,8 +406,7 @@ async def test_send_approved_emails_returns_stats():
     mock_session.execute = AsyncMock(return_value=mock_result)
     mock_session.commit = AsyncMock()
 
-    with patch(_IS_CONFIGURED, new_callable=_prop_true), \
-         patch(_SEND_EMAIL, new_callable=AsyncMock, return_value=True):
+    with _send_approved_patches(send_return=True):
         stats = await send_approved_emails(campaign_id, mock_session)
 
     assert stats["sent"] == 1
@@ -389,7 +420,7 @@ async def test_send_approved_emails_unconfigured_smtp():
     with patch(_IS_CONFIGURED, new_callable=_prop_false):
         stats = await send_approved_emails(uuid.uuid4(), mock_session)
 
-    assert stats == {"sent": 0, "failed": 0, "rate_limited": 0, "bounced": 0}
+    assert stats == {"sent": 0, "failed": 0, "rate_limited": 0, "bounced": 0, "suppressed": 0}
 
 
 async def test_send_approved_emails_no_email_on_lead():
@@ -413,8 +444,7 @@ async def test_send_approved_emails_no_email_on_lead():
     mock_session.execute = AsyncMock(return_value=mock_result)
     mock_session.commit = AsyncMock()
 
-    with patch(_IS_CONFIGURED, new_callable=_prop_true), \
-         patch(_SEND_EMAIL, new_callable=AsyncMock):
+    with _send_approved_patches(send_return=True):
         stats = await send_approved_emails(campaign_id, mock_session)
 
     assert stats["failed"] == 1
@@ -442,8 +472,7 @@ async def test_send_approved_emails_smtp_failure_counts_as_failed():
     mock_session.execute = AsyncMock(return_value=mock_result)
     mock_session.commit = AsyncMock()
 
-    with patch(_IS_CONFIGURED, new_callable=_prop_true), \
-         patch(_SEND_EMAIL, new_callable=AsyncMock, return_value=False):
+    with _send_approved_patches(send_return=False):
         stats = await send_approved_emails(campaign_id, mock_session)
 
     assert stats["failed"] == 1

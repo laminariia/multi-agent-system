@@ -5,6 +5,7 @@ Enhanced delays (2-7s instead of 1-5s) due to aggressive anti-bot measures.
 
 Kwork is a Russian-language platform — budgets are in rubles (RUB).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -29,6 +30,11 @@ _MAX_DELAY = 7.0
 
 # Default page load timeout (ms).
 _PAGE_TIMEOUT_MS = 30_000
+
+# Pagination defaults.
+_DEFAULT_MAX_PAGES = 5
+_PAGE_DELAY_MIN = 2.0
+_PAGE_DELAY_MAX = 5.0
 
 # Approximate RUB to USD conversion rate.
 _RUB_TO_USD = 0.011
@@ -94,47 +100,86 @@ class KworkClient:
         self,
         category: str | None = None,
         max_results: int = 50,
+        max_pages: int = _DEFAULT_MAX_PAGES,
     ) -> list[dict[str, Any]]:
-        """Fetch job listings from Kwork projects page.
+        """Fetch job listings from Kwork projects page with pagination.
 
         Parameters
         ----------
         category:
             Optional category filter appended to URL.
         max_results:
-            Maximum number of jobs to return.
+            Maximum number of jobs to return across all pages.
+        max_pages:
+            Maximum number of pages to scrape (default 5, up to 500 results).
 
         Returns
         -------
         A list of normalised job dicts.
         """
-        if self._rate_limiter:
-            await self._rate_limiter.acquire("kwork")
+        all_jobs: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        start = time.monotonic()
 
-        page = await self.browser_pool.acquire("kwork")
-        try:
-            url = self._build_search_url(category)
-            self._log.info("fetch_jobs_start", url=url, max_results=max_results)
+        for page_num in range(1, max_pages + 1):
+            if self._rate_limiter:
+                await self._rate_limiter.acquire("kwork")
 
-            start = time.monotonic()
-            await asyncio.wait_for(
-                page.goto(url, wait_until="domcontentloaded", timeout=_PAGE_TIMEOUT_MS),
-                timeout=_PAGE_TIMEOUT_MS / 1000 + 5,
-            )
-            # Extra-long initial delay for Kwork.
-            await page.wait_random(min_s=_MIN_DELAY, max_s=_MAX_DELAY)
+            page = await self.browser_pool.acquire("kwork")
+            try:
+                url = self._build_search_url(category, page_num=page_num)
+                self._log.info(
+                    "fetch_jobs_page_start",
+                    url=url,
+                    page=page_num,
+                    max_results=max_results,
+                )
 
-            # Detect blocking conditions.
-            await self._detect_blocks(page)
+                await asyncio.wait_for(
+                    page.goto(url, wait_until="domcontentloaded", timeout=_PAGE_TIMEOUT_MS),
+                    timeout=_PAGE_TIMEOUT_MS / 1000 + 5,
+                )
+                # Extra-long initial delay for Kwork.
+                await page.wait_random(min_s=_MIN_DELAY, max_s=_MAX_DELAY)
 
-            # Parse job cards from the page.
-            jobs = await self._parse_job_cards(page, max_results)
+                # Detect blocking conditions.
+                await self._detect_blocks(page)
 
-            elapsed_ms = int((time.monotonic() - start) * 1000)
-            self._log.info("fetch_jobs_done", count=len(jobs), latency_ms=elapsed_ms)
-            return jobs
-        finally:
-            await self.browser_pool.release("kwork", page)
+                # Parse job cards from the page.
+                remaining = max_results - len(all_jobs)
+                page_jobs = await self._parse_job_cards(page, remaining)
+
+                # Deduplicate by external_id (same job can appear across pages).
+                new_jobs: list[dict[str, Any]] = []
+                for job in page_jobs:
+                    eid = job.get("external_id", "")
+                    if eid and eid in seen_ids:
+                        continue
+                    if eid:
+                        seen_ids.add(eid)
+                    new_jobs.append(job)
+                all_jobs.extend(new_jobs)
+
+                self._log.info(
+                    "fetch_jobs_page_done",
+                    page=page_num,
+                    page_count=len(new_jobs),
+                    total=len(all_jobs),
+                )
+
+                # Stop if no new jobs on this page or max_results reached.
+                if not new_jobs or len(all_jobs) >= max_results:
+                    break
+            finally:
+                await self.browser_pool.release("kwork", page)
+
+            # Delay between pages to avoid detection.
+            if page_num < max_pages:
+                await asyncio.sleep(_PAGE_DELAY_MIN + (_PAGE_DELAY_MAX - _PAGE_DELAY_MIN) * 0.5)
+
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        self._log.info("fetch_jobs_done", count=len(all_jobs), pages=page_num, latency_ms=elapsed_ms)
+        return all_jobs[:max_results]
 
     async def close(self) -> None:
         """No-op for interface compatibility. Pool manages browser lifecycle."""
@@ -143,11 +188,16 @@ class KworkClient:
     # URL building
     # ------------------------------------------------------------------
 
-    def _build_search_url(self, category: str | None = None) -> str:
-        """Build the Kwork projects search URL."""
+    def _build_search_url(self, category: str | None = None, *, page_num: int = 1) -> str:
+        """Build the Kwork projects search URL with optional page number."""
         url = self.base_url
+        params: list[str] = []
         if category:
-            url = f"{url}?c={category}"
+            params.append(f"c={category}")
+        if page_num > 1:
+            params.append(f"page={page_num}")
+        if params:
+            url = f"{url}?{'&'.join(params)}"
         return url
 
     # ------------------------------------------------------------------

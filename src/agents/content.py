@@ -9,7 +9,7 @@ The Content Agent:
 6. Logs every decision to the ``agent_logs`` table.
 
 Role constraints: can WRITE text, CANNOT execute code, CANNOT submit proposals.
-LLM: Claude Haiku 4.5 (fallback GPT-4o-mini).
+LLM: Claude Sonnet 4.6 (Tier 3: Content+Review).
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ class ContentAgent(ConstrainedAgent):
     Parameters
     ----------
     llm_client:
-        Shared :class:`LLMClient` instance (Claude Haiku 4.5 primary).
+        Shared :class:`LLMClient` instance (Claude Sonnet 4.6 primary, Tier 3).
     heartbeat:
         Shared :class:`HeartbeatMonitor` for liveness pings.
     loop_detector:
@@ -127,10 +127,16 @@ class ContentAgent(ConstrainedAgent):
         )
 
         # 7. Advance sequence index and let routing decide next agent.
+        #    During a revision loop the critic sends us back without changing
+        #    sequence position -- only bump the index on a fresh (non-revision)
+        #    pass so that routing advances to the next agent correctly.
+        is_revision = state.get("revision_severity") is not None
+        new_index = state["current_sequence_index"] if is_revision else state.get("current_sequence_index", 0) + 1
+
         return update_state(
             state,
             current_agent="content",
-            current_sequence_index=state.get("current_sequence_index", 0) + 1,
+            current_sequence_index=new_index,
             revision_target=None,
             revision_severity=None,
             artifacts=artifacts,
@@ -284,7 +290,7 @@ class ContentAgent(ConstrainedAgent):
                     "deliverable_count": deliverable_count,
                     "word_count": word_count,
                 },
-                llm_model="claude-haiku-4-5",
+                llm_model="claude-sonnet-4-6",
             )
             session.add(log_entry)
 
@@ -301,7 +307,7 @@ class ContentAgent(ConstrainedAgent):
 # ======================================================================
 
 
-async def content_node(state: AgentState) -> AgentState:
+async def content_node(state: dict[str, Any]) -> dict[str, Any]:
     """LangGraph node function that creates and invokes the Content Agent.
 
     This is the entry-point wired into the ``StateGraph``.

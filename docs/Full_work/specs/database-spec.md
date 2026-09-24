@@ -108,7 +108,7 @@
 | generation_model | String(50) | nullable |
 
 **Constraints:** `UNIQUE(job_id, account_id)`
-**Индексы:** `idx_bids_status(status)`, `idx_bids_job(job_id)`
+**Индексы:** `idx_bids_status(status)`, `idx_bids_job(job_id)`, `idx_bids_platform_bid_id(platform_bid_id)`
 
 ### 5. projects
 Проекты, созданные из выигранных заказов.
@@ -217,13 +217,24 @@ Telegram-каналы для мониторинга (PK = auto-increment Integer
 
 Ключевые поля: `username` (UNIQUE), `title`, `category`, `active` (bool).
 
+### 20. deals
+Сделки Pipeline B (конвертация лида в проект).
+
+Ключевые поля: `lead_id` (FK → leads), `status`, `pipeline`, `proposed_budget`, `notes`, `created_at`, `updated_at`.
+
+### 21. scheduled_messages
+Запланированные сообщения для delivery throttling (execution cloaking).
+
+Ключевые поля: `project_id`, `thread_id`, `send_at`, `content`, `channel`, `status`, `sent_at`.
+Индексы: `(status, send_at)`, `(thread_id)`.
+
 ## pgvector
 
 - **Dimension:** 3072 (OpenAI text-embedding-3-large)
 - **Таблицы с embedding:** `knowledge_base`, `semantic_cache`
-- **Тип индекса:** HNSW (pgvector) (pgvector) -- НЕ HNSW
+- **Тип индекса:** HNSW (pgvector)
 - **Оператор:** cosine similarity
-- HNSW (pgvector) индексы создаются через raw DDL, т.к. SQLAlchemy не поддерживает `USING hnsw` нативно
+- HNSW индексы создаются через raw DDL, т.к. SQLAlchemy не поддерживает `USING hnsw` нативно
 
 ## Миграции Alembic
 
@@ -239,7 +250,9 @@ Telegram-каналы для мониторинга (PK = auto-increment Integer
 | `20260221_1930_add_telegram_channels.py` | Таблица telegram_channels |
 | `20260224_1200_seed_telegram_channels.py` | Seed: 22 Telegram-канала |
 | `20260226_1200_add_multichannel_outreach.py` | channel_type в campaign_leads |
-| `20260301_1000_add_bid_platform_bid_id.py` | platform_bid_id в bids |
+| `20260310_1500_add_deals_table.py` | Таблица deals |
+| `20260310_1800_add_scheduled_messages.py` | Таблица scheduled_messages |
+| `20260311_0100_add_bid_platform_bid_id.py` | platform_bid_id в bids |
 
 **Naming convention:** `YYYYMMDD_HHMM_описание.py`
 
@@ -254,12 +267,12 @@ done
 
 | Файл | Назначение |
 |------|------------|
-| `src/core/models.py` | 19 ORM-моделей (Base -> DeclarativeBase) |
-| `alembic/versions/` | 11 миграций |
+| `src/core/models.py` | 21 ORM-моделей (Base -> DeclarativeBase) |
+| `alembic/versions/` | 14 миграций |
 | `alembic/env.py` | Async Alembic config (asyncpg) |
 | `src/core/database.py` | engine, get_db_session, get_valkey |
 | `src/api/routes/__init__.py` | `_escape_like()` хелпер |
-| `init.sql` | DDL для HNSW (pgvector) индексов |
+| `init.sql` | DDL для HNSW индексов + расширения PostgreSQL |
 
 ---
 

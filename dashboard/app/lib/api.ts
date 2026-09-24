@@ -35,6 +35,23 @@ import type {
   TelegramChannelListResponse,
   PipelineProgress,
   ScoutConfig,
+  Deal,
+  DealDetail,
+  DealListResponse,
+  Bid,
+  BidListResponse,
+  BidStats,
+  Project,
+  ProjectListResponse,
+  PortfolioProject,
+  PortfolioListResponse,
+  AnalyticsData,
+  HealthMetrics,
+  AgentPerformance,
+  BidDetail,
+  NegotiationDetail,
+  NegotiationMessage,
+  ProjectDetail,
 } from "./types";
 
 declare global {
@@ -688,8 +705,284 @@ export async function deleteTelegramChannel(id: number): Promise<{ status: strin
   });
 }
 
+// --- Deals ---
+
+export async function fetchDeals(params?: {
+  status?: string;
+  search?: string;
+  sort?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<DealListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.sort) searchParams.set("sort", params.sort);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+  const query = searchParams.toString();
+  return apiFetch<DealListResponse>(`/deals${query ? `?${query}` : ""}`);
+}
+
+export async function fetchDeal(id: string): Promise<DealDetail> {
+  return apiFetch<DealDetail>(`/deals/${id}`);
+}
+
+export async function createDeal(data: {
+  title: string;
+  agreed_scope?: string;
+  budget?: number;
+  lead_id?: string;
+  deadline?: string;
+  client_context?: Record<string, any>;
+}): Promise<{ status: string; id: string; title: string }> {
+  return apiFetch(`/deals`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateDeal(
+  id: string,
+  data: Record<string, any>
+): Promise<{ status: string; id: string; updated_fields: string[] }> {
+  return apiFetch(`/deals/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function startDealDevelopment(
+  id: string
+): Promise<{ status: string; deal_id: string; thread_id: string; message: string }> {
+  return apiFetch(`/deals/${id}/start-development`, {
+    method: "POST",
+  });
+}
+
 // --- Pipeline Progress ---
 
 export async function fetchPipelineProgress(jobId: string): Promise<PipelineProgress> {
   return apiFetch<PipelineProgress>(`/jobs/${jobId}/pipeline-progress`);
 }
+
+// --- Bids ---
+
+export async function fetchBids(params?: {
+  status?: string;
+  platform?: string;
+  job_id?: string;
+  search?: string;
+  sort?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<BidListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.platform) searchParams.set("platform", params.platform);
+  if (params?.job_id) searchParams.set("job_id", params.job_id);
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.sort) searchParams.set("sort", params.sort);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+
+  const query = searchParams.toString();
+  return apiFetch<BidListResponse>(`/bids${query ? `?${query}` : ""}`);
+}
+
+export async function fetchBidStats(): Promise<BidStats> {
+  return apiFetch<BidStats>("/bids/stats");
+}
+
+export async function updateBidStatus(
+  bidId: string,
+  status: string
+): Promise<{ id: string; status: string }> {
+  return apiFetch<{ id: string; status: string }>(`/bids/${bidId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function fetchBid(id: string): Promise<BidDetail> {
+  return apiFetch<BidDetail>(`/bids/${id}`);
+}
+
+export async function fetchNegotiation(bidId: string): Promise<NegotiationDetail> {
+  return apiFetch<NegotiationDetail>(`/negotiations/${bidId}`);
+}
+
+export async function fetchNegotiationMessages(bidId: string): Promise<{ messages: NegotiationMessage[] }> {
+  return apiFetch<{ messages: NegotiationMessage[] }>(`/negotiations/${bidId}/messages`);
+}
+
+export async function sendNegotiationMessage(
+  bidId: string,
+  content: string
+): Promise<NegotiationMessage> {
+  return apiFetch<NegotiationMessage>(`/negotiations/${bidId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function takeOverNegotiation(
+  bidId: string
+): Promise<{ status: string; message: string }> {
+  return apiFetch<{ status: string; message: string }>(`/negotiations/${bidId}/takeover`, {
+    method: "POST",
+  });
+}
+
+export async function releaseNegotiation(
+  bidId: string
+): Promise<{ status: string; message: string }> {
+  return apiFetch<{ status: string; message: string }>(`/negotiations/${bidId}/release`, {
+    method: "POST",
+  });
+}
+
+// --- Projects ---
+
+export async function fetchProjects(params?: {
+  status?: string;
+  pipeline?: string;
+  search?: string;
+  sort?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ProjectListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.pipeline) searchParams.set("pipeline", params.pipeline);
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.sort) searchParams.set("sort", params.sort);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+
+  const query = searchParams.toString();
+  return apiFetch<ProjectListResponse>(`/projects${query ? `?${query}` : ""}`);
+}
+
+export async function fetchProject(id: string): Promise<ProjectDetail> {
+  return apiFetch<ProjectDetail>(`/projects/${id}`);
+}
+
+// --- Portfolio ---
+
+export async function fetchPortfolio(params?: {
+  category?: string;
+  visible?: boolean;
+  status?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<PortfolioListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.category) searchParams.set("category", params.category);
+  if (params?.visible != null) searchParams.set("visible", String(params.visible));
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+
+  const query = searchParams.toString();
+  return apiFetch<PortfolioListResponse>(`/portfolio${query ? `?${query}` : ""}`);
+}
+
+export async function createPortfolioProject(data: {
+  title: string;
+  description?: string;
+  category?: string;
+  tags?: string[];
+  tech_stack?: string[];
+  platform?: string;
+  image_url?: string;
+  demo_url?: string;
+  source_url?: string;
+  url?: string;
+  client_name?: string;
+  budget?: number;
+  completed_at?: string;
+  visible?: boolean;
+}): Promise<PortfolioProject> {
+  return apiFetch<PortfolioProject>("/portfolio", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updatePortfolioProject(
+  id: string,
+  data: Record<string, any>,
+): Promise<{ id: string; updated_fields: string[] }> {
+  return apiFetch<{ id: string; updated_fields: string[] }>(`/portfolio/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deletePortfolioProject(
+  id: string,
+): Promise<void> {
+  await apiFetch<void>(`/portfolio/${id}`, {
+    method: "DELETE",
+  });
+}
+
+// --- Analytics ---
+
+export async function fetchAnalytics(params?: {
+  days?: number;
+}): Promise<AnalyticsData> {
+  const searchParams = new URLSearchParams();
+  if (params?.days) searchParams.set("days", String(params.days));
+  const query = searchParams.toString();
+  return apiFetch<AnalyticsData>(`/analytics/overview${query ? `?${query}` : ""}`);
+}
+
+// --- Health Metrics (real system data) ---
+
+export async function fetchHealthMetrics(): Promise<HealthMetrics> {
+  const report = await apiFetch<HealthReport>("/orchestrator/health");
+  return {
+    cpu_percent: report.cpu_percent ?? 0,
+    memory_percent: report.memory_percent ?? 0,
+    db_connections: report.db_connections ?? 0,
+    db_max_connections: report.db_max_connections ?? 50,
+    valkey_latency_ms: report.valkey_latency_ms ?? 0,
+  };
+}
+
+// --- Agent Performance (derived from logs + status) ---
+
+export async function fetchAgentPerformance(
+  name: string,
+): Promise<AgentPerformance> {
+  const [statusList, logs] = await Promise.all([
+    apiFetch<AgentStatusList>("/agents/"),
+    apiFetch<AgentLogList>(`/agents/${name}/logs?limit=500`),
+  ]);
+  const status = statusList.agents?.find(
+    (a) => a.name === name || a.display_name === name,
+  );
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const weekMap = new Map<string, number>();
+  for (const log of logs.logs ?? []) {
+    const d = new Date(log.timestamp);
+    const day = days[d.getDay()];
+    weekMap.set(day, (weekMap.get(day) ?? 0) + 1);
+  }
+  return {
+    agent_name: name,
+    weekly_tasks: days.map((d) => ({ day: d, tasks: weekMap.get(d) ?? 0 })),
+    uptime_percent:
+      status?.uptime_seconds != null
+        ? Math.min(99.9, (status.uptime_seconds / (7 * 86400)) * 100)
+        : 0,
+    llm_tokens_used: status?.llm_tokens_used ?? 0,
+    avg_task_duration_seconds: status?.avg_task_duration ?? 0,
+    success_rate: status?.success_rate ?? 0,
+  };
+}
+

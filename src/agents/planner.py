@@ -9,7 +9,7 @@ The Planner Agent:
 5. Logs all planning decisions to the ``agent_logs`` table.
 
 Role constraints: can PLAN tasks, CANNOT execute code, CANNOT submit proposals.
-LLM: Claude Opus 4.6 (fallback Claude Sonnet 4.5).
+LLM: Claude Opus 4.6 (Tier 1: Reasoning, fallback Claude Sonnet 4.6).
 """
 
 from __future__ import annotations
@@ -269,6 +269,22 @@ class PlannerAgent(ConstrainedAgent):
 
         # Build agent sequence from plan (fallback to default pipeline).
         agent_sequence = self._build_agent_sequence(plan)
+
+        # RAG-aware: skip agents that already have artifacts (L4).
+        existing_agents = self._check_existing_artifacts(state)
+        if existing_agents:
+            original_len = len(agent_sequence)
+            agent_sequence = self._filter_sequence_by_existing(
+                agent_sequence,
+                existing_agents,
+            )
+            self._log.info(
+                "rag_aware_sequence_filtered",
+                project_id=project_id,
+                skipped_agents=sorted(existing_agents),
+                original_length=original_len,
+                filtered_length=len(agent_sequence),
+            )
 
         # Extract real_hours for execution cloaking.
         real_hours = float(plan.get("total_estimated_hours", 0) or 0)
@@ -548,6 +564,53 @@ class PlannerAgent(ConstrainedAgent):
         return seen if seen else ["dev", "content", "design"]
 
     # ------------------------------------------------------------------
+    # RAG-aware: check existing artifacts to skip completed agents
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _check_existing_artifacts(state: dict[str, Any]) -> set[str]:
+        """Check which execution agents already have artifacts.
+
+        Scans the ``artifacts`` dict for non-empty entries belonging to
+        execution agents (dev, content, design).  Internal keys (prefixed
+        with ``_``) and non-execution agent keys are ignored.
+
+        Returns:
+            Set of agent names that already have produced artifacts.
+        """
+        artifacts = state.get("artifacts") or {}
+        execution_agents = {"dev", "content", "design"}
+        existing: set[str] = set()
+
+        for agent_name, agent_artifacts in artifacts.items():
+            if agent_name.startswith("_"):
+                continue
+            if agent_name not in execution_agents:
+                continue
+            if isinstance(agent_artifacts, list) and len(agent_artifacts) > 0:
+                existing.add(agent_name)
+
+        return existing
+
+    @staticmethod
+    def _filter_sequence_by_existing(
+        sequence: list[str],
+        existing_agents: set[str],
+    ) -> list[str]:
+        """Remove agents with existing artifacts from the execution sequence.
+
+        Preserves order of the original sequence.
+
+        Args:
+            sequence: The planned agent execution order.
+            existing_agents: Set of agent names that already have artifacts.
+
+        Returns:
+            Filtered sequence with completed agents removed.
+        """
+        return [agent for agent in sequence if agent not in existing_agents]
+
+    # ------------------------------------------------------------------
     # Helper: artifact context for re-plan awareness
     # ------------------------------------------------------------------
 
@@ -710,7 +773,7 @@ class PlannerAgent(ConstrainedAgent):
 # ======================================================================
 
 
-async def planner_node(state: AgentState) -> AgentState:
+async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
     """LangGraph node function that creates and invokes the Planner Agent.
 
     This is the entry-point wired into the ``StateGraph``.

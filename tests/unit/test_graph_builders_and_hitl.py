@@ -5,6 +5,7 @@ build_scout_bid_graph, create_graph_with_persistence,
 run_full_pipeline, run_scout_bid_pipeline,
 _apply_bid_approval, _apply_final_review, resume_from_hitl.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -29,8 +30,12 @@ pytestmark = pytest.mark.asyncio
 
 def _state(**overrides: Any) -> AgentState:
     project = {
-        "project_id": "p1", "job_id": "j1", "platform": "freelancer",
-        "client": {"name": "T"}, "requirements": "page", "budget": 500.0,
+        "project_id": "p1",
+        "job_id": "j1",
+        "platform": "freelancer",
+        "client": {"name": "T"},
+        "requirements": "page",
+        "budget": 500.0,
         "deadline": datetime(2026, 3, 15, tzinfo=UTC),
     }
     s = create_initial_state(project=project, first_agent="scout", thread_id="t-graph")
@@ -39,6 +44,7 @@ def _state(**overrides: Any) -> AgentState:
 
 
 # ===== HITL node tests =======================================================
+
 
 async def test_hitl_bid_node_sets_paused():
     s = _state(status="active")
@@ -81,7 +87,51 @@ async def test_hitl_node_legacy_already_paused():
     assert result is s
 
 
+# ===== Design HITL node tests ================================================
+
+
+async def test_hitl_design_review_node_sets_paused():
+    """hitl_design_review_node pauses for operator review."""
+    from src.core.graph import hitl_design_review_node
+
+    s = _state(status="active")
+    result = await hitl_design_review_node(s)
+    assert result["status"] == "paused"
+    assert result["requires_hitl"] is True
+    assert result["current_agent"] == "hitl_design_review"
+
+
+async def test_hitl_design_review_node_already_paused():
+    """hitl_design_review_node returns unchanged when already paused."""
+    from src.core.graph import hitl_design_review_node
+
+    s = _state(status="paused")
+    result = await hitl_design_review_node(s)
+    assert result is s
+
+
+async def test_hitl_design_approval_node_sets_paused():
+    """hitl_design_approval_node pauses for client approval."""
+    from src.core.graph import hitl_design_approval_node
+
+    s = _state(status="active")
+    result = await hitl_design_approval_node(s)
+    assert result["status"] == "paused"
+    assert result["requires_hitl"] is True
+    assert result["current_agent"] == "hitl_design_approval"
+
+
+async def test_hitl_design_approval_node_already_paused():
+    """hitl_design_approval_node returns unchanged when already paused."""
+    from src.core.graph import hitl_design_approval_node
+
+    s = _state(status="paused")
+    result = await hitl_design_approval_node(s)
+    assert result is s
+
+
 # ===== Graph builders ========================================================
+
 
 def test_build_scout_bid_graph_compiles():
     graph = build_scout_bid_graph()
@@ -107,6 +157,7 @@ def test_build_full_pipeline_graph_compiles():
 @patch("src.core.graph.HybridCheckpointSaver")
 def test_create_graph_with_persistence_full(mock_saver, mock_build):
     from src.core.graph import create_graph_with_persistence
+
     valkey = MagicMock()
     db_pool = MagicMock()
     graph = create_graph_with_persistence(valkey, db_pool, full_pipeline=True)
@@ -119,6 +170,7 @@ def test_create_graph_with_persistence_full(mock_saver, mock_build):
 @patch("src.core.graph.HybridCheckpointSaver")
 def test_create_graph_with_persistence_legacy(mock_saver, mock_build):
     from src.core.graph import create_graph_with_persistence
+
     v, p = MagicMock(), MagicMock()
     graph = create_graph_with_persistence(v, p, full_pipeline=False)
     mock_saver.assert_called_once_with(valkey=v, db_pool=p)
@@ -127,6 +179,7 @@ def test_create_graph_with_persistence_legacy(mock_saver, mock_build):
 
 
 # ===== Convenience runners ===================================================
+
 
 @patch("src.core.graph.build_full_pipeline_graph")
 async def test_run_full_pipeline(mock_build):
@@ -138,8 +191,12 @@ async def test_run_full_pipeline(mock_build):
     mock_build.return_value = mock_graph
 
     project = {
-        "project_id": "p1", "job_id": "j1", "platform": "freelancer",
-        "client": {"name": "T"}, "requirements": "page", "budget": 500.0,
+        "project_id": "p1",
+        "job_id": "j1",
+        "platform": "freelancer",
+        "client": {"name": "T"},
+        "requirements": "page",
+        "budget": 500.0,
         "deadline": datetime(2026, 3, 15, tzinfo=UTC),
     }
     result = await run_full_pipeline(project, thread_id="tid-1")
@@ -156,8 +213,12 @@ async def test_run_full_pipeline_auto_thread(mock_build):
     mock_build.return_value = mock_graph
 
     project = {
-        "project_id": "p1", "job_id": "j1", "platform": "freelancer",
-        "client": {"name": "T"}, "requirements": "page", "budget": 500.0,
+        "project_id": "p1",
+        "job_id": "j1",
+        "platform": "freelancer",
+        "client": {"name": "T"},
+        "requirements": "page",
+        "budget": 500.0,
         "deadline": datetime(2026, 3, 15, tzinfo=UTC),
     }
     result = await run_full_pipeline(project)
@@ -173,8 +234,12 @@ async def test_run_scout_bid_pipeline(mock_build):
     mock_build.return_value = mock_graph
 
     project = {
-        "project_id": "p1", "job_id": "j1", "platform": "freelancer",
-        "client": {"name": "T"}, "requirements": "page", "budget": 500.0,
+        "project_id": "p1",
+        "job_id": "j1",
+        "platform": "freelancer",
+        "client": {"name": "T"},
+        "requirements": "page",
+        "budget": 500.0,
         "deadline": datetime(2026, 3, 15, tzinfo=UTC),
     }
     result = await run_scout_bid_pipeline(project, thread_id="tid-2")
@@ -190,8 +255,12 @@ async def test_run_scout_bid_pipeline_auto_thread(mock_build):
     mock_build.return_value = mock_graph
 
     project = {
-        "project_id": "p1", "job_id": "j1", "platform": "freelancer",
-        "client": {"name": "T"}, "requirements": "page", "budget": 500.0,
+        "project_id": "p1",
+        "job_id": "j1",
+        "platform": "freelancer",
+        "client": {"name": "T"},
+        "requirements": "page",
+        "budget": 500.0,
         "deadline": datetime(2026, 3, 15, tzinfo=UTC),
     }
     result = await run_scout_bid_pipeline(project)
@@ -199,6 +268,7 @@ async def test_run_scout_bid_pipeline_auto_thread(mock_build):
 
 
 # ===== _apply_bid_approval ===================================================
+
 
 def test_apply_bid_approval_approve():
     s = _state(status="paused", requires_hitl=True, current_agent="hitl_bid")
@@ -241,6 +311,7 @@ def test_apply_bid_approval_unknown_action():
 
 # ===== _apply_final_review ===================================================
 
+
 def test_apply_final_review_approve():
     s = _state(status="paused", requires_hitl=True)
     result = _apply_final_review(s, "approve", {}, "t1")
@@ -277,6 +348,7 @@ def test_apply_final_review_unknown_action():
 
 
 # ===== resume_from_hitl ======================================================
+
 
 @patch("src.core.graph.build_full_pipeline_graph")
 @patch("src.core.graph.HybridCheckpointSaver")
@@ -454,8 +526,11 @@ async def test_resume_with_provided_pool(mock_settings, mock_pg, mock_saver_cls)
     mock_saver_cls.return_value = mock_cp
 
     result = await resume_from_hitl(
-        "t1", {"action": "approve"}, hitl_type="final_review",
-        valkey=valkey, db_pool=ext_pool,
+        "t1",
+        {"action": "approve"},
+        hitl_type="final_review",
+        valkey=valkey,
+        db_pool=ext_pool,
     )
     assert result["status"] == "completed"
     # Should NOT have created a new pool
@@ -482,7 +557,9 @@ async def test_resume_final_review_edit(mock_settings, mock_pg, mock_saver_cls):
     mock_saver_cls.return_value = mock_cp
 
     result = await resume_from_hitl(
-        "t1", {"action": "edit", "edits": {"color": "blue"}}, hitl_type="final_review",
+        "t1",
+        {"action": "edit", "edits": {"color": "blue"}},
+        hitl_type="final_review",
     )
     assert result["status"] == "completed"
     assert "hitl_edits" in result["artifacts"]

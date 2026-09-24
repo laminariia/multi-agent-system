@@ -11,7 +11,7 @@ The Scout Agent:
 6. Logs every decision to the ``agent_logs`` table.
 
 Role constraints: can READ jobs, CANNOT submit bids, CANNOT modify projects.
-LLM: Gemini 3 Flash (fallback Claude Haiku).
+LLM: Gemini 2.5 Flash (Tier 5: Extraction).
 """
 
 from __future__ import annotations
@@ -97,6 +97,11 @@ class ScoutAgent(ConstrainedAgent):
         """Run the full scout pipeline: fetch -> deduplicate -> score -> route."""
         self._log.info("scout_execute_start", thread_id=state["thread_id"])
 
+        # 0. Load custom rules from Scout config (Dashboard Settings).
+        custom_rules = await self._load_custom_rules()
+        if custom_rules:
+            self._log.info("scout_custom_rules_loaded", count=len(custom_rules))
+
         # 1. Fetch jobs from all platforms in parallel.
         raw_jobs = await self._fetch_all_platforms()
         if not raw_jobs:
@@ -109,6 +114,27 @@ class ScoutAgent(ConstrainedAgent):
         if not new_jobs:
             return update_state(state, current_agent="scout", next_agent=None, status="active")
 
+        # 2b. Category pre-filter: reduce LLM token cost by filtering
+        # jobs that don't match selected categories from Settings.
+        scout_config = await self._load_scout_config()
+        if scout_config:
+            pre_filter_count = len(new_jobs)
+            new_jobs = self._filter_by_categories(new_jobs, scout_config)
+            filtered_out = pre_filter_count - len(new_jobs)
+            if filtered_out > 0:
+                self._log.info(
+                    "category_pre_filter",
+                    before=pre_filter_count,
+                    after=len(new_jobs),
+                    filtered_out=filtered_out,
+                )
+            if not new_jobs:
+                self._log.info("all_jobs_filtered_by_category")
+                return update_state(state, current_agent="scout", next_agent=None, status="active")
+
+        # 2c. RAG: retrieve historical success context from ExperienceStore.
+        rag_context = await self._fetch_rag_context(new_jobs)
+
         # 3. Score and classify each new job via LLM.
         qualified_jobs: list[dict[str, Any]] = []
         review_jobs: list[dict[str, Any]] = []
@@ -117,7 +143,7 @@ class ScoutAgent(ConstrainedAgent):
         for batch_start in range(0, len(new_jobs), _MAX_JOBS_PER_BATCH):
             batch = new_jobs[batch_start : batch_start + _MAX_JOBS_PER_BATCH]
             try:
-                scored = await self._score_jobs(batch)
+                scored = await self._score_jobs(batch, custom_rules=custom_rules, rag_context=rag_context)
             except (LLMException, KeyError, ValueError):
                 logger.exception("Failed to score batch of %d jobs, marking as review", len(batch))
                 for job in batch:
@@ -166,6 +192,147 @@ class ScoutAgent(ConstrainedAgent):
             artifacts=artifacts,
             status="active",
         )
+
+    # ------------------------------------------------------------------
+    # Custom rules loading
+    # ------------------------------------------------------------------
+
+    async def _load_custom_rules(self) -> list[str] | None:
+        """Load custom rules from Scout config (Dashboard Settings).
+
+        Returns a list of rule strings, or ``None`` if no rules are configured.
+        Errors are swallowed -- missing rules must never block scanning.
+        """
+        try:
+            async with get_db_session() as session:
+                config = await load_scout_config(session)
+            rules = config.get("custom_rules", [])
+            if rules and isinstance(rules, list):
+                # Filter out empty strings and limit to 50 rules.
+                filtered = [r.strip() for r in rules if isinstance(r, str) and r.strip()]
+                return filtered[:50] if filtered else None
+            return None
+        except Exception:  # noqa: BLE001
+            self._log.debug("scout_custom_rules_load_failed", exc_info=True)
+            return None
+
+    # ------------------------------------------------------------------
+    # Scout config loading (for category pre-filter)
+    # ------------------------------------------------------------------
+
+    async def _load_scout_config(self) -> dict[str, Any] | None:
+        """Load full scout configuration from DB for category filtering.
+
+        Returns the config dict, or ``None`` if unavailable.
+        Errors are swallowed -- missing config must never block scanning.
+        """
+        try:
+            async with get_db_session() as session:
+                config = await load_scout_config(session)
+            return config
+        except Exception:  # noqa: BLE001
+            self._log.debug("scout_config_load_failed", exc_info=True)
+            return None
+
+    # ------------------------------------------------------------------
+    # Category pre-filter (reduces LLM token cost)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _filter_by_categories(
+        jobs: list[dict[str, Any]],
+        config: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Filter jobs by selected categories from Scout config.
+
+        Jobs whose ``category`` field matches either ``categories_auto``
+        or ``categories_suggest`` in the config are kept.  Jobs without
+        a ``category`` field always pass through (cannot be filtered).
+
+        When no categories are configured (empty or missing lists),
+        all jobs pass through unfiltered.
+
+        Args:
+            jobs: Raw job dicts from platform adapters.
+            config: Scout configuration dict (from Dashboard Settings).
+
+        Returns:
+            Filtered list of jobs matching the configured categories.
+        """
+        if not jobs:
+            return []
+
+        auto = config.get("categories_auto", [])
+        suggest = config.get("categories_suggest", [])
+
+        # If no categories configured, pass all through
+        if not auto and not suggest:
+            return jobs
+
+        # Build a lowercase set of allowed categories
+        allowed: set[str] = set()
+        for cat in auto:
+            if isinstance(cat, str):
+                allowed.add(cat.lower())
+        for cat in suggest:
+            if isinstance(cat, str):
+                allowed.add(cat.lower())
+
+        filtered: list[dict[str, Any]] = []
+        for job in jobs:
+            category = job.get("category")
+            if category is None:
+                # Jobs without category always pass through
+                filtered.append(job)
+                continue
+            if isinstance(category, str) and category.lower() in allowed:
+                filtered.append(job)
+
+        return filtered
+
+    # ------------------------------------------------------------------
+    # RAG: experience store context
+    # ------------------------------------------------------------------
+
+    async def _fetch_rag_context(self, jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Retrieve historical estimation experiences from ExperienceStore.
+
+        Uses the first few job titles/descriptions to build a composite
+        query.  Returns an empty list on any failure -- RAG must never
+        block agent execution.
+        """
+        try:
+            from src.core.database import get_asyncpg_pool  # noqa: PLC0415
+            from src.knowledge.embedding_service import EmbeddingService  # noqa: PLC0415
+            from src.knowledge.experience_store import ExperienceStore  # noqa: PLC0415
+
+            pool = await get_asyncpg_pool()
+            if pool is None:
+                return []
+            store = ExperienceStore(
+                embedding_service=EmbeddingService(),
+                db_pool=pool,
+            )
+
+            # Build a composite query from the first 3 jobs.
+            query_parts: list[str] = []
+            for job in jobs[:3]:
+                if job.get("title"):
+                    query_parts.append(job["title"])
+                if job.get("description"):
+                    query_parts.append(job["description"][:200])
+            query_text = " ".join(query_parts)
+            if not query_text.strip():
+                return []
+
+            return await store.retrieve_context(
+                query=query_text,
+                category="estimation",
+                top_k=3,
+            )
+        except Exception:  # noqa: BLE001
+            self._log.debug("rag_retrieval_skipped", reason="store_unavailable")
+            return []
 
     # ------------------------------------------------------------------
     # Platform fetching
@@ -236,17 +403,53 @@ class ScoutAgent(ConstrainedAgent):
     # LLM scoring
     # ------------------------------------------------------------------
 
-    async def _score_jobs(self, jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Send a batch of jobs to the LLM for scoring and classification."""
+    async def _score_jobs(
+        self,
+        jobs: list[dict[str, Any]],
+        custom_rules: list[str] | None = None,
+        rag_context: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Send a batch of jobs to the LLM for scoring and classification.
+
+        Parameters
+        ----------
+        jobs:
+            List of raw job dicts to evaluate.
+        custom_rules:
+            Optional free-text rules from Dashboard Settings that the
+            operator defined.  Each rule is injected into the prompt so
+            the LLM applies them during scoring.
+        rag_context:
+            Optional historical estimation experiences from the
+            ExperienceStore (RAG).  Injected into the prompt to help
+            the LLM make more informed scoring decisions.
+        """
         jobs_text = json.dumps(jobs, indent=2, default=str, ensure_ascii=False)
+
+        # Build the user prompt, optionally enriched with custom rules.
+        prompt_parts: list[str] = [
+            "Evaluate the following jobs and return a JSON array of scored objects.",
+        ]
+
+        if custom_rules:
+            prompt_parts.append("\n# Custom Rules (from operator)")
+            prompt_parts.append("Apply the following additional rules when scoring:")
+            for idx, rule in enumerate(custom_rules, 1):
+                prompt_parts.append(f"  {idx}. {rule}")
+
+        if rag_context:
+            prompt_parts.append("\n# Historical Context (from past projects)")
+            prompt_parts.append("Use these past project outcomes to inform your scoring:")
+            for idx, r in enumerate(rag_context, 1):
+                sr = r.get("success_rate")
+                sr_text = f" (success rate: {sr:.0%})" if sr is not None else ""
+                prompt_parts.append(f"  {idx}. {r.get('title', 'Past project')}{sr_text}: {r.get('content', '')[:300]}")
+
+        prompt_parts.append(f"\nJobs:\n{jobs_text}")
 
         messages = [
             SystemMessage(content=SCOUT_SYSTEM_PROMPT),
-            HumanMessage(
-                content=(
-                    f"Evaluate the following jobs and return a JSON array of scored objects.\n\nJobs:\n{jobs_text}"
-                )
-            ),
+            HumanMessage(content="\n".join(prompt_parts)),
         ]
 
         response_msg, _metrics = await self._call_llm(messages, temperature=0.2)
@@ -452,7 +655,7 @@ def apply_category_modifier(category: str, config: dict[str, Any]) -> float:
 # ======================================================================
 
 
-async def scout_node(state: AgentState) -> AgentState:
+async def scout_node(state: dict[str, Any]) -> dict[str, Any]:
     """LangGraph node function that creates and invokes the Scout Agent.
 
     This is the entry-point wired into the ``StateGraph``.  It pulls

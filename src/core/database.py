@@ -10,6 +10,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
+import structlog
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -18,6 +19,8 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from src.core.config import get_settings
+
+_db_logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Async SQLAlchemy engine
@@ -83,3 +86,50 @@ def get_valkey() -> aioredis.Redis:
     ``ConnectionPool.from_url()`` is synchronous and performs no I/O.
     """
     return aioredis.Redis(connection_pool=_valkey_pool)
+
+
+# ---------------------------------------------------------------------------
+# Raw asyncpg pool (for pgvector / knowledge base queries)
+# ---------------------------------------------------------------------------
+
+_asyncpg_pool: object | None = None  # asyncpg.Pool | None
+_asyncpg_lock: object | None = None  # asyncio.Lock (created lazily)
+
+
+async def get_asyncpg_pool() -> object | None:
+    """Return a shared ``asyncpg.Pool`` for direct SQL queries.
+
+    Creates the pool lazily on first call.  Returns ``None`` when the
+    DATABASE_URL is not configured or the pool cannot be created.
+
+    This pool is used by the knowledge base, experience store, and
+    semantic cache -- modules that need raw asyncpg access for pgvector
+    operations rather than SQLAlchemy ORM sessions.
+    """
+    import asyncio  # noqa: PLC0415
+
+    import asyncpg as _asyncpg  # noqa: PLC0415
+
+    global _asyncpg_pool, _asyncpg_lock  # noqa: PLW0603
+
+    if _asyncpg_lock is None:
+        _asyncpg_lock = asyncio.Lock()
+
+    if _asyncpg_pool is not None:
+        return _asyncpg_pool
+
+    async with _asyncpg_lock:
+        if _asyncpg_pool is not None:
+            return _asyncpg_pool
+        try:
+            settings = get_settings()
+            _asyncpg_pool = await _asyncpg.create_pool(
+                dsn=settings.DATABASE_URL,
+                min_size=1,
+                max_size=5,
+            )
+            _db_logger.info("asyncpg_pool_created")
+            return _asyncpg_pool
+        except Exception:  # noqa: BLE001
+            _db_logger.warning("asyncpg_pool_creation_failed", exc_info=True)
+            return None

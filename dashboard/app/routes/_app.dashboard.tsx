@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "@remix-run/react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 export { RouteErrorBoundary as ErrorBoundary } from "~/components/route-error-boundary";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
+import { Badge } from "~/components/ui/badge";
 import { MetricCard } from "~/components/metric-card";
 import { AgentCard } from "~/components/agent-card";
 import { PipelineFlow } from "~/components/pipeline-flow";
@@ -11,8 +12,9 @@ import { ActivityFeed, type ActivityEvent } from "~/components/activity-feed";
 import { JobsByPlatformChart, HITLByTypeChart, AgentStatusChart, HITLTrendsChart } from "~/components/charts";
 import { SkeletonCard, SkeletonGrid } from "~/components/skeleton-card";
 import { EmptyState } from "~/components/empty-state";
-import { fetchAgentStatus, fetchHITLStats, fetchJobs, fetchJobStats, fetchHITLTrends, fetchPipelineBStats, fetchCredentials } from "~/lib/api";
+import { fetchAgentStatus, fetchHITLStats, fetchJobs, fetchJobStats, fetchHITLTrends, fetchPipelineBStats, fetchCredentials, fetchHITLPending, resolveHITL, fetchAnalytics } from "~/lib/api";
 import { OrchStatusWidget } from "~/components/orch-status-widget";
+import { toast } from "~/hooks/use-toast";
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -66,8 +68,26 @@ export default function DashboardPage() {
     staleTime: 60_000,
   });
 
+  const { data: hitlPendingData } = useQuery({
+    queryKey: ["hitl-pending", undefined, undefined, 0],
+    queryFn: () => fetchHITLPending({ limit: 5 }),
+    staleTime: 10_000,
+    refetchInterval: 30_000,
+  });
+
+  const { data: analyticsData } = useQuery({
+    queryKey: ["analytics-overview"],
+    queryFn: () => fetchAnalytics({ days: 30 }),
+    staleTime: 300_000,
+  });
+
   const agents = agentData?.agents ?? [];
   const workingAgents = agents.filter((a) => a.status === "working" || a.status === "idle").length;
+  const pendingApprovals = hitlPendingData?.items ?? [];
+  const activeOrders = useMemo(() => {
+    const byStatus = jobStats?.by_status ?? {};
+    return (byStatus["in_progress"] ?? 0);
+  }, [jobStats]);
   const activeJobs = useMemo(() => {
     const byStatus = jobStats?.by_status ?? {};
     return (byStatus["in_progress"] ?? 0) + (byStatus["qualified"] ?? 0) + (byStatus["bid_sent"] ?? 0);
@@ -126,6 +146,17 @@ export default function DashboardPage() {
     });
     return events.slice(0, 20);
   }, [agents]);
+
+  const upcomingItems = useMemo(() => {
+    const items = [...pendingApprovals];
+    items.sort((a, b) => {
+      if (!a.expires_at && !b.expires_at) return 0;
+      if (!a.expires_at) return 1;
+      if (!b.expires_at) return -1;
+      return new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime();
+    });
+    return items.slice(0, 3);
+  }, [pendingApprovals]);
 
   const hasError = !!agentError;
 
@@ -259,10 +290,10 @@ export default function DashboardPage() {
       )}
 
       {/* Metric cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
         {agentsLoading && !agentData ? (
           <>
-            {Array.from({ length: 5 }).map((_, i) => (
+            {Array.from({ length: 6 }).map((_, i) => (
               <SkeletonCard key={i} variant="metric" />
             ))}
           </>
@@ -309,6 +340,17 @@ export default function DashboardPage() {
               }
               label="Resolved Today"
               value={hitlStats?.today?.resolved ?? 0}
+            />
+            <MetricCard
+              index={4}
+              icon={
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="1" x2="12" y2="23" />
+                  <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
+                </svg>
+              }
+              label="Revenue"
+              value={analyticsData ? `$${(analyticsData.overview.revenue_total ?? 0).toLocaleString()}` : "--"}
             />
             <OrchStatusWidget />
           </>
@@ -374,6 +416,116 @@ export default function DashboardPage() {
         </Card>
       )}
 
+      {/* Agent Fleet row — 10 agent circles */}
+      <Card className="border-border/50">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-medium">Agent Fleet</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-3">
+            {agents.length > 0 ? agents.map((agent) => {
+              const statusColor =
+                agent.status === "working" ? "bg-emerald-500" :
+                agent.status === "idle" ? "bg-blue-500" :
+                agent.status === "error" ? "bg-rose-500" :
+                agent.status === "dead" ? "bg-zinc-600" :
+                "bg-amber-500";
+              const initials = (agent.display_name ?? agent.name)
+                .split(/[\s_]/).map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
+              return (
+                <button
+                  key={agent.name}
+                  type="button"
+                  title={`${agent.display_name ?? agent.name} — ${agent.status}`}
+                  onClick={() => navigate(`/agents/${agent.name}`)}
+                  className="flex flex-col items-center gap-1.5 group"
+                >
+                  <div className={`relative h-10 w-10 rounded-full flex items-center justify-center text-xs font-semibold text-white ${statusColor} ring-2 ring-offset-2 ring-offset-background ring-transparent group-hover:ring-primary/50 transition-all`}>
+                    {initials}
+                    <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background ${statusColor}`} />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground truncate max-w-[48px]">
+                    {(agent.display_name ?? agent.name).split(/[\s_]/)[0]}
+                  </span>
+                </button>
+              );
+            }) : (
+              <p className="text-sm text-muted-foreground">No agents online</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Pending Approvals widget */}
+      {pendingApprovals.length > 0 && (
+        <Card className="border-border/50">
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
+            <CardTitle className="text-base font-medium">Pending Approvals</CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => navigate("/hitl")}>
+              View all
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {pendingApprovals.map((item) => (
+              <div key={item.id} className="flex items-center justify-between rounded-lg border border-border/50 p-3 gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`h-2 w-2 rounded-full flex-shrink-0 ${item.priority === "urgent" ? "bg-rose-500" : item.priority === "normal" ? "bg-amber-500" : "bg-blue-500"}`} />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{item.title}</p>
+                    <p className="text-xs text-muted-foreground capitalize">{item.type.replace(/_/g, " ")}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {item.available_actions.slice(0, 2).map((action) => (
+                    <Button
+                      key={action}
+                      variant={action === "approve" ? "default" : action === "reject" ? "destructive" : "outline"}
+                      size="sm"
+                      className="h-7 text-xs capitalize"
+                      onClick={async () => {
+                        try {
+                          await resolveHITL(item.id, action);
+                          toast({ title: `${action} done`, variant: "success" });
+                          queryClient.invalidateQueries({ queryKey: ["hitl-pending"] });
+                          queryClient.invalidateQueries({ queryKey: ["hitl-stats"] });
+                        } catch {
+                          toast({ title: "Action failed", variant: "destructive" });
+                        }
+                      }}
+                    >
+                      {action}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Active Orders widget */}
+      {activeOrders > 0 && (
+        <Card className="border-border/50">
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
+            <CardTitle className="text-base font-medium">Active Orders</CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => navigate("/jobs")}>
+              View all
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-full flex items-center justify-center bg-orange-500/10 text-orange-500 font-bold text-xl">
+                {activeOrders}
+              </div>
+              <div>
+                <p className="text-sm font-medium">Jobs in progress</p>
+                <p className="text-xs text-muted-foreground">Pipeline A running</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Two-column layout: Agent Grid + Activity */}
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Agent Status Grid */}
@@ -410,6 +562,29 @@ export default function DashboardPage() {
           </Card>
         </div>
       </div>
+
+      {/* Upcoming Actions */}
+      <Card className="border-border/50 bg-zinc-900">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-medium">Upcoming Actions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {upcomingItems.length === 0 ? (
+            <p className="text-sm text-zinc-500">No pending deadlines</p>
+          ) : (
+            <ul className="space-y-2">
+              {upcomingItems.map((item) => (
+                <li key={item.id} className="flex items-center justify-between text-sm">
+                  <span className="text-zinc-300 truncate">{item.type.replace(/_/g, " ")}: {item.payload?.title ?? item.title ?? item.id}</span>
+                  <span className="text-xs text-orange-400 font-mono shrink-0 ml-2">
+                    {item.expires_at ? new Date(item.expires_at).toLocaleDateString() : "no deadline"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

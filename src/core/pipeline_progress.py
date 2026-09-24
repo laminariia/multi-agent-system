@@ -150,6 +150,42 @@ class PipelineProgressTracker:
             return None
         return json.loads(raw)
 
+    def calculate_progress_pct(self, progress: dict[str, Any]) -> int:
+        """Calculate the completion percentage from a progress dict.
+
+        Args:
+            progress: Progress data with ``completed_agents`` and ``total_agents``.
+
+        Returns:
+            Integer percentage (0-100).
+        """
+        total = progress.get("total_agents", 0)
+        if total <= 0:
+            return 0
+        completed = len(progress.get("completed_agents", []))
+        return int(completed / total * 100)
+
+    def build_ws_event(self, progress: dict[str, Any]) -> dict[str, Any]:
+        """Build a WebSocket event payload for the dashboard progress bar.
+
+        The event type is ``pipeline:progress`` and contains all fields
+        the dashboard needs to render a real-time progress indicator.
+
+        Args:
+            progress: Progress data from Valkey.
+
+        Returns:
+            Dict suitable for ``publish_event(channels, "pipeline:progress", event)``.
+        """
+        return {
+            "type": "pipeline:progress",
+            "thread_id": progress.get("thread_id", ""),
+            "current_agent": progress.get("current_agent"),
+            "completed_agents": progress.get("completed_agents", []),
+            "total_agents": progress.get("total_agents", 0),
+            "progress_pct": self.calculate_progress_pct(progress),
+        }
+
 
 def get_progress_tracker() -> PipelineProgressTracker | None:
     """Get a PipelineProgressTracker using the global Valkey connection.

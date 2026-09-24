@@ -287,7 +287,9 @@ async def test_send_approved_emails_success():
     mock_session = AsyncMock()
     mock_result = MagicMock()
     mock_result.all.return_value = [(mock_cl, mock_lead)]
-    mock_session.execute = AsyncMock(return_value=mock_result)
+    # Note: warmup select(WarmupRecord) raises ArgumentError (dataclass, not ORM)
+    # so the warmup execute() is never called. Side-effect starts from main query.
+    mock_session.execute = AsyncMock(side_effect=[mock_result, MagicMock(), MagicMock()])
     mock_session.commit = AsyncMock()
 
     sender_instance = _make_sender()
@@ -295,7 +297,9 @@ async def test_send_approved_emails_success():
     with (
         patch("src.enrichment.email_sender.EmailSender", return_value=sender_instance),
         patch("aiosmtplib.send", new_callable=AsyncMock),
+        patch("src.enrichment.suppression.SuppressionList") as mock_sl_cls,
     ):
+        mock_sl_cls.return_value.is_suppressed = AsyncMock(return_value=False)
         stats = await send_approved_emails(campaign_id, mock_session)
 
     assert stats["sent"] == 1
@@ -310,7 +314,7 @@ async def test_send_approved_emails_smtp_not_configured():
     with patch("src.enrichment.email_sender.EmailSender", return_value=sender):
         stats = await send_approved_emails(uuid.uuid4(), AsyncMock())
 
-    assert stats == {"sent": 0, "failed": 0, "rate_limited": 0, "bounced": 0}
+    assert stats == {"sent": 0, "failed": 0, "rate_limited": 0, "bounced": 0, "suppressed": 0}
 
 
 @pytest.mark.asyncio
@@ -330,11 +334,16 @@ async def test_send_approved_emails_lead_without_email():
     mock_session = AsyncMock()
     mock_result = MagicMock()
     mock_result.all.return_value = [(mock_cl, mock_lead)]
-    mock_session.execute = AsyncMock(return_value=mock_result)
+    # Warmup select(WarmupRecord) raises before execute (dataclass), skip in side_effect.
+    mock_session.execute = AsyncMock(side_effect=[mock_result, MagicMock()])
     mock_session.commit = AsyncMock()
 
     sender = _make_sender()
-    with patch("src.enrichment.email_sender.EmailSender", return_value=sender):
+    with (
+        patch("src.enrichment.email_sender.EmailSender", return_value=sender),
+        patch("src.enrichment.suppression.SuppressionList") as mock_sl_cls,
+    ):
+        mock_sl_cls.return_value.is_suppressed = AsyncMock(return_value=False)
         stats = await send_approved_emails(campaign_id, mock_session)
 
     assert stats["failed"] == 1
@@ -349,14 +358,20 @@ async def test_send_approved_emails_empty_campaign():
     mock_session = AsyncMock()
     mock_result = MagicMock()
     mock_result.all.return_value = []  # No approved leads
-    mock_session.execute = AsyncMock(return_value=mock_result)
+    mock_warmup_result = MagicMock()
+    mock_warmup_result.scalar_one_or_none.return_value = None
+    mock_session.execute = AsyncMock(side_effect=[mock_warmup_result, mock_result, MagicMock()])
     mock_session.commit = AsyncMock()
 
     sender = _make_sender()
-    with patch("src.enrichment.email_sender.EmailSender", return_value=sender):
+    with (
+        patch("src.enrichment.email_sender.EmailSender", return_value=sender),
+        patch("src.enrichment.suppression.SuppressionList") as mock_sl_cls,
+    ):
+        mock_sl_cls.return_value.is_suppressed = AsyncMock(return_value=False)
         stats = await send_approved_emails(campaign_id, mock_session)
 
-    assert stats == {"sent": 0, "failed": 0, "rate_limited": 0, "bounced": 0}
+    assert stats == {"sent": 0, "failed": 0, "rate_limited": 0, "bounced": 0, "suppressed": 0}
 
 
 # ============================================================================

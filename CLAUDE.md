@@ -37,14 +37,14 @@ Work ONLY on `auto/{date}/{slug}` branches. Never touch `main`/`master`. Tag bef
 | Cache | **Valkey 8.1** (Redis-compatible, BSD-3) |
 | Browser | Playwright + Stealth |
 | Frontend | Remix + shadcn/ui |
-| Embeddings | OpenAI text-embedding-3-large (3072 dim) |
+| Embeddings | Qwen3-Embedding-8B (3072 dim Matryoshka, via OpenRouter) |
 | Deploy | Railway (Docker) |
 
 Full stack details: `TECH_STACK.md`
 
 ## LLM Strategy (OpenRouter)
 
-All LLM calls via **OpenRouter** (`OPENROUTER_API_KEY`). Embeddings via OpenAI direct.
+All LLM calls via **OpenRouter** (`OPENROUTER_API_KEY`). Embeddings also via OpenRouter (qwen/qwen3-embedding-8b).
 
 **6-Tier System** (canonical source: `MASTER-VISION.md` Section 4):
 - **Tier 1 (Reasoning):** Claude Opus 4.6 → Planner, Dev (complex), SalesAgent [PLANNED]
@@ -91,14 +91,15 @@ docker/         — Dockerfile, docker-compose.yml
 - Upwork auto-submit is **FORBIDDEN** (ToS violation)
 - Email warm-up 6 weeks before production outreach
 
-## Current Status (Feb 2026)
+## Current Status (Mar 2026)
 
-- **2435+ tests** passing, grade A+ (99)
-- **Pipeline A**: fully implemented — Scout, Bid, HITL, Planner, Dev, Content, Design, Critic, HITL, Packager
+- **2490+ tests** passing, grade A+ (99)
+- **Pipeline A**: fully implemented — Scout, Bid, HITL (dev_launch), Planner, Dev, Content, Design, Critic, HITL (final_review), Packager
 - **Pipeline B**: fully implemented — GeoScout, Outreach, HITL, Email
+- **3 HITL gates**: bid_approval, dev_launch (safety gate), final_review
 - **Dashboard**: Remix + shadcn/ui, all CRUD pages, WebSocket real-time, Settings with encrypted credentials
 - **Deploy**: Railway (API + Dashboard as separate services)
-- **Last major change**: code quality reflex loop — SQL injection prevention, exception narrowing, structured logging
+- **Last major change**: hitl_dev_launch safety gate + LLM model registry sync with 6-tier system
 
 ## Documentation Index
 

@@ -32,7 +32,7 @@ def _mock_embedding(dim: int = EMBEDDING_DIM) -> np.ndarray:
 @pytest.fixture()
 def cache(mock_valkey: AsyncMock, mock_db_pool: AsyncMock, monkeypatch: pytest.MonkeyPatch) -> SemanticCache:
     """SemanticCache wired to mock infrastructure with patched embeddings."""
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key-for-unit-tests")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-for-unit-tests")
     with patch("src.core.semantic_cache.OpenAIEmbeddings"):
         c = SemanticCache(mock_valkey, mock_db_pool, similarity_threshold=0.92)
     # Replace the internal embeddings model with an async mock that returns a vector.

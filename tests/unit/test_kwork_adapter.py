@@ -2,6 +2,7 @@
 
 All Playwright interactions are mocked — no real browser is launched.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -19,6 +20,7 @@ from src.core.exceptions import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_element(inner_text: str = "", href: str = "") -> AsyncMock:
     """Create a mock Playwright element handle."""
@@ -68,6 +70,7 @@ def _mock_page(
 
 def _card_qs(data: dict[str, Any]):
     """Return a side_effect for card.query_selector."""
+
     async def _qs(selector: str) -> AsyncMock | None:
         if "title" in selector.lower() or "h3" in selector:
             return _mock_element(data.get("title", "Тестовая работа"), data.get("href", "/projects/12345"))
@@ -78,6 +81,7 @@ def _card_qs(data: dict[str, Any]):
         if "price" in selector.lower() or "budget" in selector.lower():
             return _mock_element(data.get("budget", "5 000 руб"))
         return None
+
     return _qs
 
 
@@ -93,6 +97,7 @@ def _mock_pool(page: AsyncMock) -> AsyncMock:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestKworkFetchJobs:
     """Test job fetching and parsing."""
 
@@ -100,8 +105,10 @@ class TestKworkFetchJobs:
     async def test_fetch_jobs_returns_normalised_jobs(self) -> None:
         cards = [
             {
-                "title": "Разработка сайта", "href": "/projects/12345",
-                "description": "Нужен сайт", "budget": "10 000 руб",
+                "title": "Разработка сайта",
+                "href": "/projects/12345",
+                "description": "Нужен сайт",
+                "budget": "10 000 руб",
             },
             {"title": "Логотип компании", "href": "/projects/67890", "description": "Дизайн", "budget": "3 000 руб"},
         ]
@@ -109,7 +116,7 @@ class TestKworkFetchJobs:
         pool = _mock_pool(page)
         client = KworkClient(browser_pool=pool)
 
-        jobs = await client.fetch_jobs()
+        jobs = await client.fetch_jobs(max_pages=1)
 
         assert len(jobs) == 2
         assert jobs[0]["platform"] == "kwork"
@@ -131,7 +138,7 @@ class TestKworkFetchJobs:
         pool = _mock_pool(page)
         client = KworkClient(browser_pool=pool)
 
-        await client.fetch_jobs()
+        await client.fetch_jobs(max_pages=1)
 
         pool.acquire.assert_awaited_once_with("kwork")
         pool.release.assert_awaited_once_with("kwork", page)

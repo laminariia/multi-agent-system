@@ -1,0 +1,28 @@
+# Loki Datasource for Grafana
+# Complements the existing Prometheus datasource (prometheus.yml)
+# Used for log queries, log-based alerts, and correlation with metrics
+
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    editable: false
+    uid: loki
+    jsonData:
+      maxLines: 1000
+      timeout: 60
+      derivedFields:
+        # Link request_id from logs to Prometheus metrics
+        - datasourceUid: prometheus
+          matcherRegex: '"request_id":"([a-f0-9-]+)"'
+          name: RequestID
+          url: ""
+        # Link agent names to agent dashboard
+        - datasourceUid: prometheus
+          matcherRegex: '"agent":"(\w+)"'
+          name: Agent
+          url: ""

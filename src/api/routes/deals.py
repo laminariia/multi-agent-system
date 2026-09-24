@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.guards import require_role
 from src.api.routes import _escape_like
-from src.api.schemas import DealCreateSchema, DealUpdateSchema
+from src.api.schemas import DealCreateSchema, DealMessageCreateSchema, DealUpdateSchema
 from src.core.models import Deal, Lead, User
 
 logger = structlog.get_logger(__name__)
@@ -306,4 +306,104 @@ class DealController(Controller):
             "thread_id": thread_id,
             "has_design_versions": deal.design_versions is not None and len(deal.design_versions) > 0,
             "message": f"Pipeline A started for deal {deal.id}. Thread ID: {thread_id}.",
+        }
+
+    # ------------------------------------------------------------------
+    # Deal messages (conversation history)
+    # ------------------------------------------------------------------
+
+    @get("/{deal_id:str}/messages")
+    async def get_deal_messages(
+        self,
+        deal_id: str,
+        db_session: AsyncSession,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Get messages related to this deal (from conversation_history JSONB)."""
+        try:
+            deal_uuid = uuid.UUID(deal_id)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid deal ID format: {deal_id}",
+            ) from exc
+
+        result = await db_session.execute(select(Deal).where(Deal.id == deal_uuid))
+        deal = result.scalar_one_or_none()
+
+        if deal is None:
+            raise NotFoundException(detail="Deal not found")
+
+        history: list[dict[str, Any]] = deal.conversation_history or []
+        total = len(history)
+        # Apply pagination to the JSONB array
+        paginated = history[offset : offset + limit]
+
+        return {
+            "deal_id": str(deal.id),
+            "total": total,
+            "messages": paginated,
+        }
+
+    @post(
+        "/{deal_id:str}/messages",
+        guards=[require_role("owner", "co_owner")],
+    )
+    async def send_deal_message(
+        self,
+        deal_id: str,
+        data: DealMessageCreateSchema,
+        db_session: AsyncSession,
+        request: Request[User, Token, Any],
+    ) -> dict[str, Any]:
+        """Operator sends a message in deal context.
+
+        Appends to the deal's conversation_history JSONB array.
+        Guard: owner / co_owner only.
+        """
+        from datetime import UTC, datetime  # noqa: PLC0415
+
+        try:
+            deal_uuid = uuid.UUID(deal_id)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid deal ID format: {deal_id}",
+            ) from exc
+
+        result = await db_session.execute(select(Deal).where(Deal.id == deal_uuid).with_for_update())
+        deal = result.scalar_one_or_none()
+
+        if deal is None:
+            raise NotFoundException(detail="Deal not found")
+
+        # Build message record
+        message_record: dict[str, Any] = {
+            "id": uuid.uuid4().hex,
+            "sender": "operator",
+            "sender_id": str(request.user.id),
+            "sender_name": request.user.name or request.user.email,
+            "content": data.content,
+            "channel": data.channel,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+        # Append to conversation_history
+        history: list[dict[str, Any]] = list(deal.conversation_history or [])
+        history.append(message_record)
+        deal.conversation_history = history
+        await db_session.flush()
+
+        logger.info(
+            "deal.message_sent",
+            deal_id=deal_id,
+            channel=data.channel,
+            by=str(request.user.id),
+        )
+
+        return {
+            "status": "sent",
+            "deal_id": str(deal.id),
+            "message": message_record,
         }

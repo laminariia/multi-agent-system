@@ -184,6 +184,30 @@ class BrowserPool:
             await page.page.close()
             self._log.debug("page_released", platform=platform)
 
+    async def release_platform(self, platform: str) -> None:
+        """Release and close the entire browser slot for *platform*.
+
+        Used by ban recovery to tear down the browser, context, and all pages
+        for a platform that has been banned or blocked, freeing the slot for a
+        fresh browser instance on next :meth:`acquire`.
+        """
+        async with self._lock:
+            sm = self._get_session_manager()
+
+            slot = self._slots.get(platform)
+            if slot is None:
+                self._log.warning("release_platform_not_found", platform=platform)
+                return
+
+            # Attempt to save cookies before teardown (best-effort).
+            try:
+                await sm.save_session(platform, slot.context)
+            except Exception:  # noqa: BLE001
+                self._log.debug("save_session_before_release_failed", platform=platform)
+
+            await self._close_slot(platform)
+            self._log.info("platform_released", platform=platform)
+
     async def shutdown(self) -> None:
         """Close all browser instances and clear the pool."""
         platforms = list(self._slots.keys())
