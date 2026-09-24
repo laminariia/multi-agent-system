@@ -14,7 +14,7 @@ import {
 } from "~/components/ui/dropdown-menu";
 import { SidebarNav } from "~/components/sidebar-nav";
 import { NotificationCenter } from "~/components/notification-center";
-import { useAuthStore } from "~/stores/auth-store";
+import { useAuthStore, useAuthHydrated } from "~/stores/auth-store";
 import { useThemeStore } from "~/stores/theme-store";
 import { useNotificationStore } from "~/stores/notification-store";
 import { fetchHITLPending, fetchUsers } from "~/lib/api";
@@ -58,6 +58,7 @@ export default function AppLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
 
+  const hydrated = useAuthHydrated();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -99,12 +100,12 @@ export default function AppLayout() {
     enabled: isAuthenticated && (user?.role === "owner" || user?.role === "co_owner"),
   });
 
-  // Auth guard
+  // Auth guard (only after persisted auth state is loaded)
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (hydrated && !isAuthenticated) {
       navigate("/login", { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [hydrated, isAuthenticated, navigate]);
 
   const addNotification = useNotificationStore((s) => s.addNotification);
 
@@ -327,8 +328,13 @@ export default function AppLayout() {
     navigate("/login", { replace: true });
   };
 
-  if (!isAuthenticated) {
-    return null;
+  if (!hydrated || !isAuthenticated) {
+    return (
+      <div role="status" className="flex h-screen items-center justify-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
+        <span className="sr-only">Loading</span>
+      </div>
+    );
   }
 
   // Breadcrumb from location

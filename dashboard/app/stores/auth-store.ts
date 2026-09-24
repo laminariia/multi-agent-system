@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { User, LoginResponse } from "~/lib/types";
@@ -47,3 +48,15 @@ export const useAuthStore = create<AuthState>()(
     }
   )
 );
+
+// During SSR and the hydration render useAuthStore returns its initial logged-out state,
+// so auth guards must wait for this. `persist` is undefined on the server (no localStorage);
+// React calls these two callbacks only on the client.
+const subscribeHydration = (onChange: () => void) => useAuthStore.persist.onFinishHydration(onChange);
+const getHydrated = () => useAuthStore.persist.hasHydrated();
+const getServerHydrated = () => false;
+
+/** True once persisted auth state is loaded; false on the server and during hydration. */
+export function useAuthHydrated(): boolean {
+  return useSyncExternalStore(subscribeHydration, getHydrated, getServerHydrated);
+}
