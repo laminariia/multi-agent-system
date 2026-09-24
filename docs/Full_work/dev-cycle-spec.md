@@ -529,7 +529,7 @@ Scout проверяет при скоринге: если категория в
 | `src/api/routes/jobs.py` | Jobs API | + pipeline progress endpoint |
 | `src/prompts/planner.py` | Промпт | + agent_sequence + delivery_type в output schema |
 | `src/prompts/critic.py` | Промпт | + revision_target + revision_severity в output schema |
-| `dashboard/app/routes/_app.jobs.$id.tsx` | Job Detail | + pipeline progress bar, task list |
+| `dashboard/app/routes/_app.jobs_.$id.tsx` | Job Detail | + pipeline progress bar, task list |
 | `dashboard/app/routes/_app.tsx` | Dashboard Home | + active orders widget, agent status |
 | `dashboard/app/routes/_app.settings.tsx` | Settings | + Scout категории (2 столбца) |
 
