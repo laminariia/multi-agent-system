@@ -133,8 +133,10 @@ class TestTelegramPromptShortFormat:
 
     def test_no_subject_field(self):
         """Telegram output format must not include a subject field."""
-        assert "No \"subject\" field" in TELEGRAM_OUTREACH_PROMPT or \
-               "subject" not in TELEGRAM_OUTREACH_PROMPT.split("Output Format")[1].split('"channel"')[0]
+        assert (
+            'No "subject" field' in TELEGRAM_OUTREACH_PROMPT
+            or "subject" not in TELEGRAM_OUTREACH_PROMPT.split("Output Format")[1].split('"channel"')[0]
+        )
 
 
 # ===========================================================================

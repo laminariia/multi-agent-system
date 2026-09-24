@@ -20,28 +20,32 @@ class TestDatabaseUrl:
 
     def test_custom_database_url(self) -> None:
         s = Settings(
-            _env_file=None, DEBUG=True,
+            _env_file=None,
+            DEBUG=True,
             DATABASE_URL="postgresql://u:p@db:5432/mydb",
         )
         assert s.DATABASE_URL == "postgresql://u:p@db:5432/mydb"
 
     def test_async_database_url_conversion(self) -> None:
         s = Settings(
-            _env_file=None, DEBUG=True,
+            _env_file=None,
+            DEBUG=True,
             DATABASE_URL="postgresql://u:p@localhost:5432/db",
         )
         assert s.async_database_url.startswith("postgresql+asyncpg://")
 
     def test_async_database_url_already_async(self) -> None:
         s = Settings(
-            _env_file=None, DEBUG=True,
+            _env_file=None,
+            DEBUG=True,
             DATABASE_URL="postgresql+asyncpg://u:p@localhost:5432/db",
         )
         assert s.async_database_url == "postgresql+asyncpg://u:p@localhost:5432/db"
 
     def test_invalid_database_url_scheme_raises(self) -> None:
         s = Settings(
-            _env_file=None, DEBUG=True,
+            _env_file=None,
+            DEBUG=True,
             DATABASE_URL="mysql://u:p@localhost:3306/db",
         )
         with pytest.raises(ValueError, match="Unsupported DATABASE_URL scheme"):
@@ -53,14 +57,16 @@ class TestAPIKeyFormats:
 
     def test_anthropic_key_accepted(self) -> None:
         s = Settings(
-            _env_file=None, DEBUG=True,
+            _env_file=None,
+            DEBUG=True,
             ANTHROPIC_API_KEY="sk-ant-test-key-12345",
         )
         assert s.ANTHROPIC_API_KEY == "sk-ant-test-key-12345"
 
     def test_openai_key_accepted(self) -> None:
         s = Settings(
-            _env_file=None, DEBUG=True,
+            _env_file=None,
+            DEBUG=True,
             OPENAI_API_KEY="sk-test-key-67890",
         )
         assert s.OPENAI_API_KEY == "sk-test-key-67890"
@@ -114,14 +120,16 @@ class TestValkeyUrlDefaults:
 
     def test_valkey_redis_url_conversion(self) -> None:
         s = Settings(
-            _env_file=None, DEBUG=True,
+            _env_file=None,
+            DEBUG=True,
             VALKEY_URL="valkey://myhost:6380",
         )
         assert s.valkey_redis_url == "redis://myhost:6380"
 
     def test_valkey_redis_url_passthrough(self) -> None:
         s = Settings(
-            _env_file=None, DEBUG=True,
+            _env_file=None,
+            DEBUG=True,
             VALKEY_URL="redis://myhost:6380",
         )
         assert s.valkey_redis_url == "redis://myhost:6380"
@@ -138,14 +146,16 @@ class TestCORSSettings:
 
     def test_custom_json_origins(self) -> None:
         s = Settings(
-            _env_file=None, DEBUG=True,
+            _env_file=None,
+            DEBUG=True,
             CORS_ALLOWED_ORIGINS='["https://app.example.com"]',
         )
         assert s.cors_origins == ["https://app.example.com"]
 
     def test_comma_separated_fallback(self) -> None:
         s = Settings(
-            _env_file=None, DEBUG=True,
+            _env_file=None,
+            DEBUG=True,
             CORS_ALLOWED_ORIGINS="https://a.com,https://b.com",
         )
         assert "https://a.com" in s.cors_origins

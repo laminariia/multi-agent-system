@@ -6,6 +6,7 @@ Tests the ``JobController`` endpoints at ``/api/v1/jobs``:
 
 We test route handlers directly via ``.fn()`` to avoid needing a full app instance.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -125,6 +126,7 @@ class TestStartScan:
     ) -> None:
         """Schema should reject an invalid platform value via regex pattern."""
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError):
             JobScanRequestSchema(platform="invalid_platform")
 
@@ -394,11 +396,13 @@ class TestRunPipeline:
         )
 
         # Verify the coroutine was created with the right payload
-        mock_run_pipeline.assert_called_once_with({
-            "project_id": str(job_id),
-            "job_id": str(job_id),
-            "platform": "upwork",
-            "requirements": "Build an API",
-            "budget": 1000.0,
-            "user_id": str(request.user.id),
-        })
+        mock_run_pipeline.assert_called_once_with(
+            {
+                "project_id": str(job_id),
+                "job_id": str(job_id),
+                "platform": "upwork",
+                "requirements": "Build an API",
+                "budget": 1000.0,
+                "user_id": str(request.user.id),
+            }
+        )

@@ -12,6 +12,7 @@ The script connects to the database specified by ``DATABASE_URL``, hashes the
 password with bcrypt, inserts a new row into the ``users`` table, and prints
 a confirmation message.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -40,9 +41,7 @@ async def _create_user(
     """
     async with async_session_factory() as session:
         # Check for duplicate email
-        existing = await session.execute(
-            select(User).where(User.email == email)
-        )
+        existing = await session.execute(select(User).where(User.email == email))
         if existing.scalar_one_or_none() is not None:
             print(f"ERROR: A user with email '{email}' already exists.", file=sys.stderr)
             raise SystemExit(1)
@@ -101,12 +100,14 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    asyncio.run(_create_user(
-        email=args.email,
-        password=args.password,
-        role=args.role,
-        name=args.name,
-    ))
+    asyncio.run(
+        _create_user(
+            email=args.email,
+            password=args.password,
+            role=args.role,
+            name=args.name,
+        )
+    )
 
 
 if __name__ == "__main__":

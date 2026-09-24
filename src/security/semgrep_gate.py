@@ -55,6 +55,7 @@ _SEMGREP_TIMEOUT_SECONDS = 60
 # Data classes
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class SemgrepFinding:
     """A single finding reported by Semgrep."""
@@ -80,6 +81,7 @@ class ScanResult:
 # ---------------------------------------------------------------------------
 # SemgrepGate
 # ---------------------------------------------------------------------------
+
 
 class SemgrepGate:
     """Wrapper over the Semgrep CLI for static code analysis.

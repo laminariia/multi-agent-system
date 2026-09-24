@@ -16,19 +16,21 @@ CASES: list[GoldenCase] = [
             "city": "Moscow",
             "contact_name": "Alexei",
         },
-        expected_output=json.dumps({
-            "subject": "A website for Trattoria Bella -- free consultation",
-            "body": (
-                "Hi Alexei,\n\n"
-                "I noticed that Trattoria Bella in Moscow doesn't have a website yet. "
-                "As a restaurant, having an online presence helps customers find your menu "
-                "and hours.\n\n"
-                "We specialize in simple, effective websites for local businesses. "
-                "I'd love to offer a free 15-minute consultation.\n\n"
-                "Would you be open to a quick chat this week?\n\n"
-                "Best regards,\nMAS Team"
-            ),
-        }),
+        expected_output=json.dumps(
+            {
+                "subject": "A website for Trattoria Bella -- free consultation",
+                "body": (
+                    "Hi Alexei,\n\n"
+                    "I noticed that Trattoria Bella in Moscow doesn't have a website yet. "
+                    "As a restaurant, having an online presence helps customers find your menu "
+                    "and hours.\n\n"
+                    "We specialize in simple, effective websites for local businesses. "
+                    "I'd love to offer a free 15-minute consultation.\n\n"
+                    "Would you be open to a quick chat this week?\n\n"
+                    "Best regards,\nMAS Team"
+                ),
+            }
+        ),
         validators=[
             ValidationRule("has_keys", {"keys": ["subject", "body"]}),
             ValidationRule("must_mention", {"keywords": ["Trattoria Bella"]}),
@@ -47,17 +49,22 @@ CASES: list[GoldenCase] = [
             "contact_name": "Maria",
             "has_social_media": True,
         },
-        expected_output='```json\n' + json.dumps({
-            "subject": "Take Green Thumb Garden Center online",
-            "body": (
-                "Hi Maria,\n\n"
-                "I see Green Thumb Garden Center has a social media presence but no website. "
-                "A dedicated site can showcase your products 24/7 and capture search traffic.\n\n"
-                "We build affordable websites for retail businesses. "
-                "Happy to chat about options.\n\n"
-                "Best,\nMAS Team"
-            ),
-        }, indent=2) + '\n```',
+        expected_output="```json\n"
+        + json.dumps(
+            {
+                "subject": "Take Green Thumb Garden Center online",
+                "body": (
+                    "Hi Maria,\n\n"
+                    "I see Green Thumb Garden Center has a social media presence but no website. "
+                    "A dedicated site can showcase your products 24/7 and capture search traffic.\n\n"
+                    "We build affordable websites for retail businesses. "
+                    "Happy to chat about options.\n\n"
+                    "Best,\nMAS Team"
+                ),
+            },
+            indent=2,
+        )
+        + "\n```",
         validators=[
             ValidationRule("has_keys", {"keys": ["subject", "body"]}),
             ValidationRule("must_mention", {"keywords": ["Green Thumb"]}),
@@ -75,17 +82,19 @@ CASES: list[GoldenCase] = [
             "city": "Kazan",
             "contact_name": "Dr. Petrov",
         },
-        expected_output=json.dumps({
-            "subject": "Online presence for Dr. Petrov Dental",
-            "body": (
-                "Dear Dr. Petrov,\n\n"
-                "Patients increasingly search online for dental services. "
-                "A professional website for Dr. Petrov Dental in Kazan can help new patients "
-                "find and trust your practice.\n\n"
-                "We'd be happy to offer a free consultation.\n\n"
-                "Kind regards,\nMAS Team"
-            ),
-        }),
+        expected_output=json.dumps(
+            {
+                "subject": "Online presence for Dr. Petrov Dental",
+                "body": (
+                    "Dear Dr. Petrov,\n\n"
+                    "Patients increasingly search online for dental services. "
+                    "A professional website for Dr. Petrov Dental in Kazan can help new patients "
+                    "find and trust your practice.\n\n"
+                    "We'd be happy to offer a free consultation.\n\n"
+                    "Kind regards,\nMAS Team"
+                ),
+            }
+        ),
         validators=[
             ValidationRule("has_keys", {"keys": ["subject", "body"]}),
             ValidationRule("must_mention", {"keywords": ["Petrov"]}),

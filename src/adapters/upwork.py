@@ -7,6 +7,7 @@ CRITICAL: Upwork PROHIBITS automated bid submission.  Any attempt to add
 a ``submit_bid`` method to this class is a ToS violation that will result
 in account suspension.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -244,17 +245,13 @@ class UpworkClient:
     async def _parse_single_card(self, card: Any) -> dict[str, Any] | None:
         """Parse a single job card element into a normalised dict."""
         # Title.
-        title_el = await card.query_selector(
-            'a[data-test="job-tile-title-link"] h2, a[data-test="UpLink"] h2, h2'
-        )
+        title_el = await card.query_selector('a[data-test="job-tile-title-link"] h2, a[data-test="UpLink"] h2, h2')
         title = (await title_el.inner_text()).strip() if title_el else ""
         if not title:
             return None
 
         # Link / external ID.
-        link_el = await card.query_selector(
-            'a[data-test="job-tile-title-link"], a[data-test="UpLink"], a'
-        )
+        link_el = await card.query_selector('a[data-test="job-tile-title-link"], a[data-test="UpLink"], a')
         href = await link_el.get_attribute("href") if link_el else ""
         url = f"https://www.upwork.com{href}" if href and not href.startswith("http") else (href or "")
 
@@ -266,22 +263,16 @@ class UpworkClient:
             external_id = re.sub(r"[^\w]", "", title[:40])
 
         # Description (snippet).
-        desc_el = await card.query_selector(
-            '[data-test="JobDescription"], [data-test="job-description-text"], p'
-        )
+        desc_el = await card.query_selector('[data-test="JobDescription"], [data-test="job-description-text"], p')
         description = (await desc_el.inner_text()).strip() if desc_el else ""
 
         # Budget.
-        budget_el = await card.query_selector(
-            '[data-test="budget"], [data-test="is-fixed-price"]'
-        )
+        budget_el = await card.query_selector('[data-test="budget"], [data-test="is-fixed-price"]')
         budget_text = (await budget_el.inner_text()).strip() if budget_el else ""
         budget = self._parse_budget_text(budget_text)
 
         # Skills.
-        skill_elements = await card.query_selector_all(
-            '[data-test="token"], [data-test="Skill"]'
-        )
+        skill_elements = await card.query_selector_all('[data-test="token"], [data-test="Skill"]')
         skills: list[str] = []
         for se in skill_elements:
             text = (await se.inner_text()).strip()

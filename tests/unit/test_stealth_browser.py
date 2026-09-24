@@ -2,6 +2,7 @@
 
 All Playwright internals are mocked — no real browser is launched.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -17,6 +18,7 @@ pytestmark = pytest.mark.filterwarnings("ignore::RuntimeWarning")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_playwright() -> tuple[AsyncMock, AsyncMock, AsyncMock]:
     """Create mock Playwright, Browser, and BrowserContext."""
@@ -49,6 +51,7 @@ def _mock_playwright() -> tuple[AsyncMock, AsyncMock, AsyncMock]:
 # Tests: StealthConfig
 # ---------------------------------------------------------------------------
 
+
 class TestStealthConfig:
     """Test default configuration values."""
 
@@ -71,6 +74,7 @@ class TestStealthConfig:
 # ---------------------------------------------------------------------------
 # Tests: StealthBrowser
 # ---------------------------------------------------------------------------
+
 
 class TestStealthBrowser:
     """Test browser launch with anti-detection settings."""
@@ -95,10 +99,12 @@ class TestStealthBrowser:
     def test_no_cdp_connection(self) -> None:
         """Verify StealthBrowser.launch() does NOT call connect_over_cdp."""
         import inspect
+
         source = inspect.getsource(StealthBrowser.launch)
         # Filter out comments and docstrings — only check executable lines.
         code_lines = [
-            line for line in source.split("\n")
+            line
+            for line in source.split("\n")
             if line.strip() and not line.strip().startswith(("#", '"""', "'''", "MUST NOT", "CRITICAL"))
         ]
         code_body = "\n".join(code_lines)
@@ -108,6 +114,7 @@ class TestStealthBrowser:
     def test_anti_detection_args_in_source(self) -> None:
         """Verify anti-detection Chromium args are in the source."""
         import inspect
+
         source = inspect.getsource(StealthBrowser)
         assert "--disable-blink-features=AutomationControlled" in source
 
@@ -115,6 +122,7 @@ class TestStealthBrowser:
 # ---------------------------------------------------------------------------
 # Tests: StealthPage
 # ---------------------------------------------------------------------------
+
 
 class TestStealthPage:
     """Test human-like interaction methods."""
@@ -187,6 +195,7 @@ class TestStealthPage:
 # ---------------------------------------------------------------------------
 # Tests: StealthContext
 # ---------------------------------------------------------------------------
+
 
 class TestStealthContext:
     """Test context wrapper."""

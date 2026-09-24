@@ -1,4 +1,5 @@
 """Unit tests for AdaptiveRateLimiter and retry_on_transient decorator."""
+
 from __future__ import annotations
 
 import time

@@ -9,6 +9,7 @@ Key functions:
 - ``generate_hexagons`` -- tile a bounding box with H3 hexagons.
 - ``hex_to_bbox`` -- convert a single hex to its bounding box.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

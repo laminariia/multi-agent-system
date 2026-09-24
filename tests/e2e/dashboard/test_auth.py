@@ -71,9 +71,11 @@ class TestLogin:
 
     async def test_login_button_shows_loading(self, page: Page, mock_api):
         """Sign-in button shows loading state during submission."""
+
         # Use a delayed response to catch the loading state
         async def slow_handler(route):
             import asyncio
+
             await asyncio.sleep(1)
             await route.fulfill(
                 status=200,

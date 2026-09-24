@@ -56,11 +56,13 @@ def _make_initial_state(thread_id: str | None = None) -> dict[str, Any]:
         budget=800.0,
         deadline=datetime(2026, 5, 1, tzinfo=UTC),
     )
-    return dict(create_initial_state(
-        project=project,
-        first_agent="scout",
-        thread_id=thread_id or f"thread-prod-{uuid.uuid4().hex[:8]}",
-    ))
+    return dict(
+        create_initial_state(
+            project=project,
+            first_agent="scout",
+            thread_id=thread_id or f"thread-prod-{uuid.uuid4().hex[:8]}",
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -70,26 +72,39 @@ def _make_initial_state(thread_id: str | None = None) -> dict[str, Any]:
 # next_agent, current_agent) to avoid inheriting stale values from {**state}.
 # ---------------------------------------------------------------------------
 
+
 async def _scout_finds_jobs(state: dict[str, Any]) -> dict[str, Any]:
     artifacts = dict(state.get("artifacts") or {})
     artifacts["scout"] = ["job-001", "job-002"]
     return {
-        **state, "next_agent": "bid", "current_agent": "scout",
-        "status": "active", "requires_hitl": False, "artifacts": artifacts,
+        **state,
+        "next_agent": "bid",
+        "current_agent": "scout",
+        "status": "active",
+        "requires_hitl": False,
+        "artifacts": artifacts,
     }
 
 
 async def _scout_no_jobs(state: dict[str, Any]) -> dict[str, Any]:
     return {
-        **state, "next_agent": None, "current_agent": "scout",
-        "status": "active", "requires_hitl": False, "artifacts": state.get("artifacts", {}),
+        **state,
+        "next_agent": None,
+        "current_agent": "scout",
+        "status": "active",
+        "requires_hitl": False,
+        "artifacts": state.get("artifacts", {}),
     }
 
 
 async def _scout_fails(state: dict[str, Any]) -> dict[str, Any]:
     return {
-        **state, "status": "failed", "current_agent": "scout",
-        "next_agent": None, "requires_hitl": False, "errors": ["All adapters failed"],
+        **state,
+        "status": "failed",
+        "current_agent": "scout",
+        "next_agent": None,
+        "requires_hitl": False,
+        "errors": ["All adapters failed"],
     }
 
 
@@ -98,8 +113,13 @@ async def _bid_paused(state: dict[str, Any]) -> dict[str, Any]:
     artifacts = dict(state.get("artifacts") or {})
     artifacts["bid"] = [json.dumps({"proposal": "We can build your landing page..."})]
     return {
-        **state, "requires_hitl": True, "hitl_request_id": "hitl-bid-001",
-        "status": "paused", "current_agent": "bid", "next_agent": None, "artifacts": artifacts,
+        **state,
+        "requires_hitl": True,
+        "hitl_request_id": "hitl-bid-001",
+        "status": "paused",
+        "current_agent": "bid",
+        "next_agent": None,
+        "artifacts": artifacts,
     }
 
 
@@ -107,8 +127,12 @@ async def _planner_simple(state: dict[str, Any]) -> dict[str, Any]:
     artifacts = dict(state.get("artifacts") or {})
     artifacts["planner"] = [json.dumps({"tasks": [{"id": "t1", "title": "Create landing page", "estimated_hours": 3}]})]
     return {
-        **state, "next_agent": "dev", "current_agent": "planner",
-        "status": "active", "requires_hitl": False, "artifacts": artifacts,
+        **state,
+        "next_agent": "dev",
+        "current_agent": "planner",
+        "status": "active",
+        "requires_hitl": False,
+        "artifacts": artifacts,
     }
 
 
@@ -116,8 +140,12 @@ async def _planner_complex_hitl(state: dict[str, Any]) -> dict[str, Any]:
     artifacts = dict(state.get("artifacts") or {})
     artifacts["planner"] = [json.dumps({"tasks": [], "total_estimated_hours": 30})]
     return {
-        **state, "next_agent": "dev", "current_agent": "planner",
-        "status": "paused", "requires_hitl": True, "hitl_request_id": "hitl-plan-001",
+        **state,
+        "next_agent": "dev",
+        "current_agent": "planner",
+        "status": "paused",
+        "requires_hitl": True,
+        "hitl_request_id": "hitl-plan-001",
         "artifacts": artifacts,
     }
 
@@ -126,8 +154,12 @@ async def _dev_generates(state: dict[str, Any]) -> dict[str, Any]:
     artifacts = dict(state.get("artifacts") or {})
     artifacts["dev"] = [json.dumps({"files": [{"path": "index.html", "content": "<h1>Hello</h1>"}]})]
     return {
-        **state, "next_agent": "content", "current_agent": "dev",
-        "status": "active", "requires_hitl": False, "artifacts": artifacts,
+        **state,
+        "next_agent": "content",
+        "current_agent": "dev",
+        "status": "active",
+        "requires_hitl": False,
+        "artifacts": artifacts,
     }
 
 
@@ -135,8 +167,12 @@ async def _content_generates(state: dict[str, Any]) -> dict[str, Any]:
     artifacts = dict(state.get("artifacts") or {})
     artifacts["content"] = [json.dumps({"deliverables": [{"type": "heading", "content": "Welcome"}]})]
     return {
-        **state, "next_agent": "design", "current_agent": "content",
-        "status": "active", "requires_hitl": False, "artifacts": artifacts,
+        **state,
+        "next_agent": "design",
+        "current_agent": "content",
+        "status": "active",
+        "requires_hitl": False,
+        "artifacts": artifacts,
     }
 
 
@@ -144,8 +180,12 @@ async def _design_generates(state: dict[str, Any]) -> dict[str, Any]:
     artifacts = dict(state.get("artifacts") or {})
     artifacts["design"] = [json.dumps({"specs": [{"component": "hero", "colors": {"primary": "#3B82F6"}}]})]
     return {
-        **state, "next_agent": "critic", "current_agent": "design",
-        "status": "active", "requires_hitl": False, "artifacts": artifacts,
+        **state,
+        "next_agent": "critic",
+        "current_agent": "design",
+        "status": "active",
+        "requires_hitl": False,
+        "artifacts": artifacts,
     }
 
 
@@ -153,21 +193,35 @@ async def _critic_approves(state: dict[str, Any]) -> dict[str, Any]:
     artifacts = dict(state.get("artifacts") or {})
     artifacts["critic"] = [json.dumps({"verdict": "APPROVE", "score": 0.92})]
     return {
-        **state, "next_agent": "packager", "current_agent": "critic",
-        "status": "active", "requires_hitl": False, "artifacts": artifacts,
+        **state,
+        "next_agent": "packager",
+        "current_agent": "critic",
+        "status": "active",
+        "requires_hitl": False,
+        "artifacts": artifacts,
     }
 
 
 async def _critic_scope_creep(state: dict[str, Any]) -> dict[str, Any]:
     artifacts = dict(state.get("artifacts") or {})
-    artifacts["critic"] = [json.dumps({
-        "verdict": "REVISE", "score": 0.60, "revision_type": "scope_creep",
-        "issues": [{"desc": "Client wants admin panel — not in spec"}],
-    })]
+    artifacts["critic"] = [
+        json.dumps(
+            {
+                "verdict": "REVISE",
+                "score": 0.60,
+                "revision_type": "scope_creep",
+                "issues": [{"desc": "Client wants admin panel — not in spec"}],
+            }
+        )
+    ]
     return {
-        **state, "next_agent": None, "current_agent": "critic",
-        "status": "paused", "requires_hitl": True,
-        "hitl_request_id": "hitl-scope-001", "artifacts": artifacts,
+        **state,
+        "next_agent": None,
+        "current_agent": "critic",
+        "status": "paused",
+        "requires_hitl": True,
+        "hitl_request_id": "hitl-scope-001",
+        "artifacts": artifacts,
     }
 
 
@@ -175,8 +229,13 @@ async def _packager_delivers(state: dict[str, Any]) -> dict[str, Any]:
     artifacts = dict(state.get("artifacts") or {})
     artifacts["packager"] = [json.dumps({"archive_url": "https://storage.example.com/delivery.zip"})]
     return {
-        **state, "requires_hitl": True, "hitl_request_id": "hitl-review-final",
-        "status": "paused", "current_agent": "packager", "next_agent": None, "artifacts": artifacts,
+        **state,
+        "requires_hitl": True,
+        "hitl_request_id": "hitl-review-final",
+        "status": "paused",
+        "current_agent": "packager",
+        "next_agent": None,
+        "artifacts": artifacts,
     }
 
 
@@ -215,21 +274,28 @@ async def test_production_graph_bid_hitl_pause():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["bid"] = [json.dumps({"proposal": "We can build your landing page..."})]
         return {
-            **state, "requires_hitl": True, "hitl_request_id": "hitl-bid-001",
-            "status": "active", "current_agent": "bid", "next_agent": None,
+            **state,
+            "requires_hitl": True,
+            "hitl_request_id": "hitl-bid-001",
+            "status": "active",
+            "current_agent": "bid",
+            "next_agent": None,
             "artifacts": artifacts,
         }
 
     patches = _make_patches(bid_node=bid_active_hitl)
-    with patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]), \
-         patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]), \
-         patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]), \
-         patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]), \
-         patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]), \
-         patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]), \
-         patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]), \
-         patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]):
+    with (
+        patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]),
+        patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]),
+        patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]),
+        patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]),
+        patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]),
+        patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]),
+        patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]),
+        patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]),
+    ):
         from src.core.graph import build_full_pipeline_graph
+
         graph = build_full_pipeline_graph()
         result = await _run_graph(graph, _make_initial_state())
 
@@ -252,15 +318,18 @@ async def test_production_graph_full_happy_path():
     overwritten by hitl_review_node passthrough).
     """
     patches = _make_patches()
-    with patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]), \
-         patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]), \
-         patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]), \
-         patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]), \
-         patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]), \
-         patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]), \
-         patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]), \
-         patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]):
+    with (
+        patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]),
+        patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]),
+        patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]),
+        patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]),
+        patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]),
+        patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]),
+        patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]),
+        patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]),
+    ):
         from src.core.graph import build_full_pipeline_graph
+
         graph = build_full_pipeline_graph()
         result = await _run_graph(graph, _make_initial_state())
 
@@ -285,15 +354,18 @@ async def test_production_graph_scout_no_jobs():
         return await _bid_paused(state)
 
     patches = _make_patches(scout_node=_scout_no_jobs, bid_node=tracking_bid)
-    with patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]), \
-         patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]), \
-         patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]), \
-         patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]), \
-         patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]), \
-         patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]), \
-         patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]), \
-         patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]):
+    with (
+        patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]),
+        patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]),
+        patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]),
+        patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]),
+        patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]),
+        patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]),
+        patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]),
+        patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]),
+    ):
         from src.core.graph import build_full_pipeline_graph
+
         graph = build_full_pipeline_graph()
         result = await _run_graph(graph, _make_initial_state())
 
@@ -312,15 +384,18 @@ async def test_production_graph_scout_failure():
         return state
 
     patches = _make_patches(scout_node=_scout_fails, bid_node=tracking_bid)
-    with patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]), \
-         patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]), \
-         patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]), \
-         patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]), \
-         patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]), \
-         patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]), \
-         patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]), \
-         patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]):
+    with (
+        patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]),
+        patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]),
+        patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]),
+        patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]),
+        patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]),
+        patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]),
+        patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]),
+        patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]),
+    ):
         from src.core.graph import build_full_pipeline_graph
+
         graph = build_full_pipeline_graph()
         result = await _run_graph(graph, _make_initial_state())
 
@@ -356,29 +431,42 @@ async def test_production_graph_critic_minor_revision_loop():
             # First pass: minor revision → route to dev
             artifacts["critic"] = [json.dumps({"verdict": "REVISE", "score": 0.68, "revision_type": "minor"})]
             return {
-                **state, "next_agent": "dev", "current_agent": "critic",
-                "status": "active", "requires_hitl": False, "artifacts": artifacts,
+                **state,
+                "next_agent": "dev",
+                "current_agent": "critic",
+                "status": "active",
+                "requires_hitl": False,
+                "artifacts": artifacts,
             }
         # Second pass: approve
         artifacts["critic"] = [json.dumps({"verdict": "APPROVE", "score": 0.91})]
         return {
-            **state, "next_agent": "packager", "current_agent": "critic",
-            "status": "active", "requires_hitl": False, "artifacts": artifacts,
+            **state,
+            "next_agent": "packager",
+            "current_agent": "critic",
+            "status": "active",
+            "requires_hitl": False,
+            "artifacts": artifacts,
         }
 
     patches = _make_patches(
-        dev_node=counting_dev, content_node=counting_content,
-        design_node=counting_design, critic_node=revise_then_approve,
+        dev_node=counting_dev,
+        content_node=counting_content,
+        design_node=counting_design,
+        critic_node=revise_then_approve,
     )
-    with patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]), \
-         patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]), \
-         patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]), \
-         patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]), \
-         patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]), \
-         patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]), \
-         patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]), \
-         patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]):
+    with (
+        patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]),
+        patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]),
+        patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]),
+        patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]),
+        patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]),
+        patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]),
+        patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]),
+        patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]),
+    ):
         from src.core.graph import build_full_pipeline_graph
+
         graph = build_full_pipeline_graph()
         result = await _run_graph(graph, _make_initial_state())
 
@@ -410,28 +498,40 @@ async def test_production_graph_critic_major_revision_to_planner():
         if call_counts["critic"] == 1:
             artifacts["critic"] = [json.dumps({"verdict": "REVISE", "score": 0.55, "revision_type": "major"})]
             return {
-                **state, "next_agent": "planner", "current_agent": "critic",
-                "status": "active", "requires_hitl": False, "artifacts": artifacts,
+                **state,
+                "next_agent": "planner",
+                "current_agent": "critic",
+                "status": "active",
+                "requires_hitl": False,
+                "artifacts": artifacts,
             }
         artifacts["critic"] = [json.dumps({"verdict": "APPROVE", "score": 0.90})]
         return {
-            **state, "next_agent": "packager", "current_agent": "critic",
-            "status": "active", "requires_hitl": False, "artifacts": artifacts,
+            **state,
+            "next_agent": "packager",
+            "current_agent": "critic",
+            "status": "active",
+            "requires_hitl": False,
+            "artifacts": artifacts,
         }
 
     patches = _make_patches(
-        planner_node=counting_planner, dev_node=counting_dev,
+        planner_node=counting_planner,
+        dev_node=counting_dev,
         critic_node=major_then_approve,
     )
-    with patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]), \
-         patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]), \
-         patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]), \
-         patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]), \
-         patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]), \
-         patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]), \
-         patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]), \
-         patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]):
+    with (
+        patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]),
+        patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]),
+        patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]),
+        patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]),
+        patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]),
+        patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]),
+        patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]),
+        patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]),
+    ):
         from src.core.graph import build_full_pipeline_graph
+
         graph = build_full_pipeline_graph()
         result = await _run_graph(graph, _make_initial_state())
 
@@ -451,15 +551,18 @@ async def test_production_graph_scope_creep_hitl():
         return state
 
     patches = _make_patches(critic_node=_critic_scope_creep, packager_node=tracking_packager)
-    with patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]), \
-         patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]), \
-         patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]), \
-         patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]), \
-         patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]), \
-         patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]), \
-         patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]), \
-         patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]):
+    with (
+        patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]),
+        patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]),
+        patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]),
+        patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]),
+        patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]),
+        patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]),
+        patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]),
+        patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]),
+    ):
         from src.core.graph import build_full_pipeline_graph
+
         graph = build_full_pipeline_graph()
         result = await _run_graph(graph, _make_initial_state())
 
@@ -478,15 +581,18 @@ async def test_production_graph_planner_hitl_review():
         return state
 
     patches = _make_patches(planner_node=_planner_complex_hitl, dev_node=tracking_dev)
-    with patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]), \
-         patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]), \
-         patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]), \
-         patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]), \
-         patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]), \
-         patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]), \
-         patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]), \
-         patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]):
+    with (
+        patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]),
+        patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]),
+        patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]),
+        patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]),
+        patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]),
+        patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]),
+        patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]),
+        patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]),
+    ):
         from src.core.graph import build_full_pipeline_graph
+
         graph = build_full_pipeline_graph()
         result = await _run_graph(graph, _make_initial_state())
 
@@ -497,15 +603,18 @@ async def test_production_graph_planner_hitl_review():
 async def test_production_graph_artifacts_accumulate():
     """Production graph: Artifacts from all agents are preserved through the pipeline."""
     patches = _make_patches()
-    with patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]), \
-         patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]), \
-         patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]), \
-         patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]), \
-         patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]), \
-         patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]), \
-         patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]), \
-         patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]):
+    with (
+        patch("src.core.graph.scout_node", side_effect=patches["src.core.graph.scout_node"]),
+        patch("src.core.graph.bid_node", side_effect=patches["src.core.graph.bid_node"]),
+        patch("src.core.graph.planner_node", side_effect=patches["src.core.graph.planner_node"]),
+        patch("src.core.graph.dev_node", side_effect=patches["src.core.graph.dev_node"]),
+        patch("src.core.graph.content_node", side_effect=patches["src.core.graph.content_node"]),
+        patch("src.core.graph.design_node", side_effect=patches["src.core.graph.design_node"]),
+        patch("src.core.graph.critic_node", side_effect=patches["src.core.graph.critic_node"]),
+        patch("src.core.graph.packager_node", side_effect=patches["src.core.graph.packager_node"]),
+    ):
         from src.core.graph import build_full_pipeline_graph
+
         graph = build_full_pipeline_graph()
         result = await _run_graph(graph, _make_initial_state())
 

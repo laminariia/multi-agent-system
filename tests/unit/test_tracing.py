@@ -54,9 +54,7 @@ class TestCreateLangsmithHandler:
         assert handler is None
 
     @patch("src.core.tracing.langsmith_enabled", return_value=True)
-    def test_returns_handler_when_key_set(
-        self, mock_enabled: MagicMock, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_returns_handler_when_key_set(self, mock_enabled: MagicMock, monkeypatch: pytest.MonkeyPatch):
         """When LangSmith is enabled and imports succeed, a handler is returned."""
         mock_tracer = MagicMock()
         mock_tracer_cls = MagicMock(return_value=mock_tracer)
@@ -78,9 +76,7 @@ class TestCreateLangsmithHandler:
         }
 
     @patch("src.core.tracing.langsmith_enabled", return_value=True)
-    def test_handler_includes_extra_metadata(
-        self, mock_enabled: MagicMock, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_handler_includes_extra_metadata(self, mock_enabled: MagicMock, monkeypatch: pytest.MonkeyPatch):
         mock_tracer = MagicMock()
         mock_tracer_cls = MagicMock(return_value=mock_tracer)
         mock_client_cls = MagicMock()
@@ -103,9 +99,7 @@ class TestCreateLangsmithHandler:
         }
 
     @patch("src.core.tracing.langsmith_enabled", return_value=True)
-    def test_returns_none_on_import_error(
-        self, mock_enabled: MagicMock, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_returns_none_on_import_error(self, mock_enabled: MagicMock, monkeypatch: pytest.MonkeyPatch):
         """If langsmith or langchain_core cannot be imported, return None gracefully."""
         with patch.dict("sys.modules", {"langsmith": None}):
             handler = _create_langsmith_handler(
@@ -135,9 +129,7 @@ class TestBuildLangsmithConfig:
         assert "metadata" not in config
 
     @patch("src.core.tracing._create_langsmith_handler")
-    def test_config_includes_callbacks_when_enabled(
-        self, mock_create: MagicMock
-    ):
+    def test_config_includes_callbacks_when_enabled(self, mock_create: MagicMock):
         """When handler is created, config contains callbacks and metadata."""
         mock_handler = MagicMock()
         mock_create.return_value = mock_handler

@@ -71,10 +71,12 @@ async def test_bid_generates_proposal_requires_hitl(
     job = JobFactory.create()
     proposal = ProposalFactory.create()
 
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=json.dumps(proposal, default=str)),
-        CallMetrics(agent_name="bid", model_id="gemini-3-flash", provider="google"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=json.dumps(proposal, default=str)),
+            CallMetrics(agent_name="bid", model_id="gemini-3-flash", provider="google"),
+        )
+    )
 
     agent = BidAgent(
         llm_client=mock_llm_client,
@@ -108,10 +110,12 @@ async def test_bid_always_sets_requires_hitl_true(
     # LLM returns requires_hitl=False -- the agent MUST override this.
     proposal = ProposalFactory.create(requires_hitl=False)
 
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=json.dumps(proposal, default=str)),
-        CallMetrics(agent_name="bid", model_id="gemini-3-flash", provider="google"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=json.dumps(proposal, default=str)),
+            CallMetrics(agent_name="bid", model_id="gemini-3-flash", provider="google"),
+        )
+    )
 
     agent = BidAgent(
         llm_client=mock_llm_client,
@@ -142,10 +146,12 @@ async def test_bid_stores_bid_in_db(
     job = JobFactory.create()
     proposal = ProposalFactory.create()
 
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=json.dumps(proposal, default=str)),
-        CallMetrics(agent_name="bid", model_id="gemini-3-flash", provider="google"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=json.dumps(proposal, default=str)),
+            CallMetrics(agent_name="bid", model_id="gemini-3-flash", provider="google"),
+        )
+    )
 
     agent = BidAgent(
         llm_client=mock_llm_client,
@@ -179,10 +185,12 @@ async def test_bid_creates_hitl_entry(
     job = JobFactory.create()
     proposal = ProposalFactory.create()
 
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=json.dumps(proposal, default=str)),
-        CallMetrics(agent_name="bid", model_id="gemini-3-flash", provider="google"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=json.dumps(proposal, default=str)),
+            CallMetrics(agent_name="bid", model_id="gemini-3-flash", provider="google"),
+        )
+    )
 
     agent = BidAgent(
         llm_client=mock_llm_client,
@@ -220,17 +228,19 @@ def test_bid_parse_proposal_valid(
         loop_detector=mock_loop_detector,
     )
 
-    raw = json.dumps({
-        "proposal_text": "I can build this for you.",
-        "bid_amount": 250,
-        "delivery_days": 7,
-        "confidence_score": 0.8,
-        "milestones": [
-            {"description": "Phase 1", "amount": 125, "days": 3},
-            {"description": "Phase 2", "amount": 125, "days": 4},
-        ],
-        "requires_hitl": True,
-    })
+    raw = json.dumps(
+        {
+            "proposal_text": "I can build this for you.",
+            "bid_amount": 250,
+            "delivery_days": 7,
+            "confidence_score": 0.8,
+            "milestones": [
+                {"description": "Phase 1", "amount": 125, "days": 3},
+                {"description": "Phase 2", "amount": 125, "days": 4},
+            ],
+            "requires_hitl": True,
+        }
+    )
 
     result = agent._parse_proposal_response(raw)
 
@@ -256,9 +266,11 @@ def test_bid_parse_proposal_missing_field_returns_none(
     )
 
     # Missing 'bid_amount' and 'delivery_days'.
-    raw = json.dumps({
-        "proposal_text": "I can build this for you.",
-    })
+    raw = json.dumps(
+        {
+            "proposal_text": "I can build this for you.",
+        }
+    )
 
     result = agent._parse_proposal_response(raw)
     assert result is None

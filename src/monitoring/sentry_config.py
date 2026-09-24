@@ -9,6 +9,7 @@ Also provides :func:`start_agent_transaction` for wrapping agent execution
 in a Sentry transaction with ``op="agent"`` so each agent run appears as a
 distinct trace in Sentry Performance.
 """
+
 from __future__ import annotations
 
 from collections.abc import Generator

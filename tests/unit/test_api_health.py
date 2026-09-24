@@ -4,6 +4,7 @@ Tests the ``GET /health`` route handler (``src.api.routes.health.health_check``)
 with mocked database and Valkey dependencies. We test the handler function
 directly rather than using TestClient to avoid needing a full app instance.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

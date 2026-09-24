@@ -3,6 +3,7 @@
 Covers: _load_jobs, _fetch_similar_bids, _generate_proposal, _store_bid,
 _create_hitl_entry, _log_bid_generated, _infer_category, _execute full flow.
 """
+
 from __future__ import annotations
 
 import json
@@ -23,8 +24,12 @@ pytestmark = pytest.mark.asyncio
 
 def _state(**overrides: Any) -> AgentState:
     project = {
-        "project_id": "p1", "job_id": "j1", "platform": "freelancer",
-        "client": {"name": "T"}, "requirements": "page", "budget": 500.0,
+        "project_id": "p1",
+        "job_id": "j1",
+        "platform": "freelancer",
+        "client": {"name": "T"},
+        "requirements": "page",
+        "budget": 500.0,
         "deadline": datetime(2026, 3, 15, tzinfo=UTC),
     }
     s = create_initial_state(project=project, first_agent="bid", thread_id="t-bid-ext")
@@ -38,10 +43,17 @@ def _agent(llm, hb, ld):
 
 def _job(**kw: Any) -> dict[str, Any]:
     defaults = {
-        "id": str(uuid.uuid4()), "platform": "freelancer", "external_id": "ext-1",
-        "title": "Build landing page", "description": "React page",
-        "budget_min": 200.0, "budget_max": 500.0, "currency": "USD",
-        "skills_required": ["react"], "client_info": {}, "url": "https://x.com/1",
+        "id": str(uuid.uuid4()),
+        "platform": "freelancer",
+        "external_id": "ext-1",
+        "title": "Build landing page",
+        "description": "React page",
+        "budget_min": 200.0,
+        "budget_max": 500.0,
+        "currency": "USD",
+        "skills_required": ["react"],
+        "client_info": {},
+        "url": "https://x.com/1",
         "score": 0.85,
     }
     defaults.update(kw)
@@ -50,8 +62,11 @@ def _job(**kw: Any) -> dict[str, Any]:
 
 def _proposal(**kw: Any) -> dict[str, Any]:
     defaults = {
-        "proposal_text": "I can build this.", "bid_amount": 350.0,
-        "delivery_days": 7, "confidence_score": 0.8, "milestones": [],
+        "proposal_text": "I can build this.",
+        "bid_amount": 350.0,
+        "delivery_days": 7,
+        "confidence_score": 0.8,
+        "milestones": [],
         "requires_hitl": True,
     }
     defaults.update(kw)
@@ -59,32 +74,38 @@ def _proposal(**kw: Any) -> dict[str, Any]:
 
 
 def _llm_response(content: str):
-    return (AIMessage(content=content),
-            CallMetrics(agent_name="bid", model_id="gemini-3-flash", provider="google"))
+    return (AIMessage(content=content), CallMetrics(agent_name="bid", model_id="gemini-3-flash", provider="google"))
 
 
 # ===== _infer_category =======================================================
 
+
 def test_infer_category_web():
     assert BidAgent._infer_category({"skills_required": ["react"], "title": ""}) == "web_development"
+
 
 def test_infer_category_wordpress():
     assert BidAgent._infer_category({"skills_required": ["wordpress"], "title": ""}) == "wordpress"
 
+
 def test_infer_category_design():
     assert BidAgent._infer_category({"skills_required": ["figma"], "title": ""}) == "design"
+
 
 def test_infer_category_copywriting():
     assert BidAgent._infer_category({"skills_required": ["copywriting"], "title": ""}) == "copywriting"
 
+
 def test_infer_category_landing():
     assert BidAgent._infer_category({"skills_required": [], "title": "landing page creation"}) == "landing_pages"
+
 
 def test_infer_category_default():
     assert BidAgent._infer_category({"skills_required": [], "title": "misc task"}) == "web_development"
 
 
 # ===== _load_jobs =============================================================
+
 
 @patch("src.agents.bid.get_db_session")
 async def test_load_jobs_valid(mock_db, mock_llm_client, mock_heartbeat, mock_loop_detector):
@@ -142,6 +163,7 @@ async def test_load_jobs_not_found(mock_db, mock_llm_client, mock_heartbeat, moc
 
 
 # ===== _fetch_similar_bids ====================================================
+
 
 @patch("src.agents.bid.get_db_session")
 async def test_fetch_similar_bids_with_retriever(mock_db, mock_llm_client, mock_heartbeat, mock_loop_detector):
@@ -211,6 +233,7 @@ async def test_fetch_similar_bids_sql_fallback(mock_db, mock_llm_client, mock_he
 
 # ===== _generate_proposal =====================================================
 
+
 @patch("src.agents.bid.get_db_session")
 async def test_generate_proposal_success(mock_db, mock_llm_client, mock_heartbeat, mock_loop_detector):
     proposal_json = json.dumps(_proposal())
@@ -234,6 +257,7 @@ async def test_generate_proposal_garbage(mock_db, mock_llm_client, mock_heartbea
 
 # ===== _store_bid =============================================================
 
+
 @patch("src.agents.bid.get_db_session")
 async def test_store_bid(mock_db, mock_llm_client, mock_heartbeat, mock_loop_detector):
     mock_session = AsyncMock()
@@ -248,6 +272,7 @@ async def test_store_bid(mock_db, mock_llm_client, mock_heartbeat, mock_loop_det
 
 
 # ===== _create_hitl_entry =====================================================
+
 
 @patch("src.agents.bid.get_db_session")
 async def test_create_hitl_entry(mock_db, mock_llm_client, mock_heartbeat, mock_loop_detector):
@@ -264,6 +289,7 @@ async def test_create_hitl_entry(mock_db, mock_llm_client, mock_heartbeat, mock_
 
 # ===== _log_bid_generated =====================================================
 
+
 @patch("src.agents.bid.get_db_session")
 async def test_log_bid_generated(mock_db, mock_llm_client, mock_heartbeat, mock_loop_detector):
     mock_session = AsyncMock()
@@ -276,6 +302,7 @@ async def test_log_bid_generated(mock_db, mock_llm_client, mock_heartbeat, mock_
 
 
 # ===== _execute full flow =====================================================
+
 
 @patch("src.agents.bid.get_db_session")
 async def test_execute_no_scout_artifacts(mock_db, mock_llm_client, mock_heartbeat, mock_loop_detector):
@@ -350,6 +377,7 @@ async def test_execute_full_success(mock_db, mock_llm_client, mock_heartbeat, mo
 
 
 # ===== configure_retriever ====================================================
+
 
 def test_configure_retriever():
     r = MagicMock()

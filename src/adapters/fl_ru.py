@@ -6,6 +6,7 @@ monotonic-clock sliding window).
 
 FL.ru is a primary platform for the MAS system.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -106,9 +107,7 @@ class FlRuClient:
         """
         now = time.monotonic()
         # Prune timestamps older than the window.
-        self._request_timestamps = [
-            ts for ts in self._request_timestamps if (now - ts) < _WINDOW_SECONDS
-        ]
+        self._request_timestamps = [ts for ts in self._request_timestamps if (now - ts) < _WINDOW_SECONDS]
         if len(self._request_timestamps) >= _MAX_REQUESTS_PER_HOUR:
             oldest = self._request_timestamps[0]
             retry_after = _WINDOW_SECONDS - (now - oldest)

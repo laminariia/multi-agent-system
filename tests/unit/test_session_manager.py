@@ -2,6 +2,7 @@
 
 Valkey interactions are mocked.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,6 +19,7 @@ pytestmark = pytest.mark.filterwarnings("ignore::RuntimeWarning")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_valkey(**overrides: object) -> AsyncMock:
     """Create a mock Valkey (redis.asyncio) client."""
@@ -41,6 +43,7 @@ def _mock_context(cookies: list[dict] | None = None) -> AsyncMock:
 # ---------------------------------------------------------------------------
 # Tests: save_session
 # ---------------------------------------------------------------------------
+
 
 class TestSaveSession:
     """Test cookie saving to Valkey."""
@@ -77,6 +80,7 @@ class TestSaveSession:
 # ---------------------------------------------------------------------------
 # Tests: restore_session
 # ---------------------------------------------------------------------------
+
 
 class TestRestoreSession:
     """Test cookie restoration from Valkey."""
@@ -122,6 +126,7 @@ class TestRestoreSession:
 # Tests: clear_session
 # ---------------------------------------------------------------------------
 
+
 class TestClearSession:
     """Test session clearing."""
 
@@ -139,6 +144,7 @@ class TestClearSession:
 # ---------------------------------------------------------------------------
 # Tests: TTL
 # ---------------------------------------------------------------------------
+
 
 class TestTTL:
     """Test that TTL is applied correctly."""
@@ -169,6 +175,7 @@ class TestTTL:
 # ---------------------------------------------------------------------------
 # Tests: get_session_meta
 # ---------------------------------------------------------------------------
+
 
 class TestSessionMeta:
     """Test metadata retrieval."""

@@ -108,8 +108,11 @@ class TestSendDmSuccess:
     @pytest.mark.asyncio
     async def test_send_dm_success(self):
         sender = _make_sender(
-            api_id=123, api_hash="abc", session_string="s",
-            max_dms_per_hour=10, min_interval_seconds=0,
+            api_id=123,
+            api_hash="abc",
+            session_string="s",
+            max_dms_per_hour=10,
+            min_interval_seconds=0,
         )
         mock_client = AsyncMock()
         mock_client.send_message = AsyncMock(return_value=MagicMock())
@@ -119,13 +122,16 @@ class TestSendDmSuccess:
         mock_flood = type("FloodWaitError", (Exception,), {"seconds": 30})
         mock_privacy = type("UserPrivacyRestrictedError", (Exception,), {})
 
-        with patch.dict("sys.modules", {
-            "telethon": MagicMock(),
-            "telethon.errors": MagicMock(
-                FloodWaitError=mock_flood,
-                UserPrivacyRestrictedError=mock_privacy,
-            ),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "telethon": MagicMock(),
+                "telethon.errors": MagicMock(
+                    FloodWaitError=mock_flood,
+                    UserPrivacyRestrictedError=mock_privacy,
+                ),
+            },
+        ):
             result = await sender.send_dm("testuser", "Hello!")
 
         assert result is True
@@ -144,8 +150,11 @@ class TestSendDmFloodWait:
     async def test_send_dm_flood_wait_retry_success(self):
         """On FloodWaitError, sender waits then retries. If retry succeeds, returns True."""
         sender = _make_sender(
-            api_id=123, api_hash="abc", session_string="s",
-            max_dms_per_hour=10, min_interval_seconds=0,
+            api_id=123,
+            api_hash="abc",
+            session_string="s",
+            max_dms_per_hour=10,
+            min_interval_seconds=0,
         )
 
         # Create exception types that match what `from telethon.errors import` returns
@@ -166,10 +175,16 @@ class TestSendDmFloodWait:
         mock_errors_module.FloodWaitError = FloodWaitError
         mock_errors_module.UserPrivacyRestrictedError = UserPrivacyRestrictedError
 
-        with patch.dict("sys.modules", {
-            "telethon": MagicMock(),
-            "telethon.errors": mock_errors_module,
-        }), patch("src.enrichment.telegram_sender.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "telethon": MagicMock(),
+                    "telethon.errors": mock_errors_module,
+                },
+            ),
+            patch("src.enrichment.telegram_sender.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        ):
             result = await sender.send_dm("testuser", "Hello!")
 
         assert result is True
@@ -181,8 +196,11 @@ class TestSendDmFloodWait:
     async def test_send_dm_flood_wait_retry_fails(self):
         """On FloodWaitError, if retry also fails, returns 'flood_wait'."""
         sender = _make_sender(
-            api_id=123, api_hash="abc", session_string="s",
-            max_dms_per_hour=10, min_interval_seconds=0,
+            api_id=123,
+            api_hash="abc",
+            session_string="s",
+            max_dms_per_hour=10,
+            min_interval_seconds=0,
         )
 
         FloodWaitError = type("FloodWaitError", (Exception,), {})
@@ -202,10 +220,16 @@ class TestSendDmFloodWait:
         mock_errors_module.FloodWaitError = FloodWaitError
         mock_errors_module.UserPrivacyRestrictedError = UserPrivacyRestrictedError
 
-        with patch.dict("sys.modules", {
-            "telethon": MagicMock(),
-            "telethon.errors": mock_errors_module,
-        }), patch("src.enrichment.telegram_sender.asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "telethon": MagicMock(),
+                    "telethon.errors": mock_errors_module,
+                },
+            ),
+            patch("src.enrichment.telegram_sender.asyncio.sleep", new_callable=AsyncMock),
+        ):
             result = await sender.send_dm("testuser", "Hello!")
 
         assert result == "flood_wait"
@@ -222,8 +246,11 @@ class TestSendDmPrivacyRestricted:
     @pytest.mark.asyncio
     async def test_send_dm_privacy_restricted(self):
         sender = _make_sender(
-            api_id=123, api_hash="abc", session_string="s",
-            max_dms_per_hour=10, min_interval_seconds=0,
+            api_id=123,
+            api_hash="abc",
+            session_string="s",
+            max_dms_per_hour=10,
+            min_interval_seconds=0,
         )
 
         # Create proper exception types
@@ -241,10 +268,13 @@ class TestSendDmPrivacyRestricted:
         mock_errors_module.FloodWaitError = FloodWaitError
         mock_errors_module.UserPrivacyRestrictedError = UserPrivacyRestrictedError
 
-        with patch.dict("sys.modules", {
-            "telethon": MagicMock(),
-            "telethon.errors": mock_errors_module,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "telethon": MagicMock(),
+                "telethon.errors": mock_errors_module,
+            },
+        ):
             result = await sender.send_dm("private_user", "Hello!")
 
         assert result == "privacy_restricted"

@@ -20,9 +20,7 @@ class TestInitSentry:
         with patch("src.monitoring.sentry_config.logger") as mock_logger:
             init_sentry(None)
 
-            mock_logger.info.assert_called_once_with(
-                "sentry_disabled", reason="no DSN configured"
-            )
+            mock_logger.info.assert_called_once_with("sentry_disabled", reason="no DSN configured")
 
     def test_empty_dsn_returns_without_init(self):
         """init_sentry with empty string DSN returns without init."""
@@ -31,9 +29,7 @@ class TestInitSentry:
         with patch("src.monitoring.sentry_config.logger") as mock_logger:
             init_sentry("")
 
-            mock_logger.info.assert_called_once_with(
-                "sentry_disabled", reason="no DSN configured"
-            )
+            mock_logger.info.assert_called_once_with("sentry_disabled", reason="no DSN configured")
 
     def test_valid_dsn_calls_sentry_init(self):
         """init_sentry with valid DSN calls sentry_sdk.init."""
@@ -341,15 +337,18 @@ class TestInitSentry:
         mock_sqlalchemy_mod = MagicMock()
         mock_sqlalchemy_mod.SqlalchemyIntegration = mock_sqlalchemy_integration
 
-        with patch.dict(
-            sys.modules,
-            {
-                "sentry_sdk": mock_sdk,
-                "sentry_sdk.integrations": MagicMock(),
-                "sentry_sdk.integrations.asyncio": mock_asyncio_mod,
-                "sentry_sdk.integrations.sqlalchemy": mock_sqlalchemy_mod,
-            },
-        ), patch("src.monitoring.sentry_config.logger") as mock_logger:
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "sentry_sdk": mock_sdk,
+                    "sentry_sdk.integrations": MagicMock(),
+                    "sentry_sdk.integrations.asyncio": mock_asyncio_mod,
+                    "sentry_sdk.integrations.sqlalchemy": mock_sqlalchemy_mod,
+                },
+            ),
+            patch("src.monitoring.sentry_config.logger") as mock_logger,
+        ):
             from src.monitoring.sentry_config import init_sentry
 
             init_sentry("https://example@sentry.io/123", environment="test")

@@ -23,14 +23,16 @@ class TestHITLResolvePublish:
     @pytest.mark.anyio()
     async def test_publish_payload_format(self) -> None:
         """The publish payload contains all required fields."""
-        payload = json.dumps({
-            "hitl_id": "11111111-1111-1111-1111-111111111111",
-            "type": "bid_approval",
-            "title": "Review bid for project X",
-            "action": "approve",
-            "next_action": "bid_will_be_submitted",
-            "resolved_by": "owner@example.com",
-        })
+        payload = json.dumps(
+            {
+                "hitl_id": "11111111-1111-1111-1111-111111111111",
+                "type": "bid_approval",
+                "title": "Review bid for project X",
+                "action": "approve",
+                "next_action": "bid_will_be_submitted",
+                "resolved_by": "owner@example.com",
+            }
+        )
         parsed = json.loads(payload)
 
         assert parsed["hitl_id"] == "11111111-1111-1111-1111-111111111111"
@@ -98,6 +100,7 @@ class TestDashboardSyncListener:
             mock_settings.return_value = MagicMock(TELEGRAM_BOT_TOKEN="test-token-123")
 
             from src.bot.handler import create_bot_application
+
             app = create_bot_application()
 
         assert app.post_init is not None
@@ -111,6 +114,7 @@ class TestDashboardSyncListener:
             mock_settings.return_value = MagicMock(TELEGRAM_BOT_TOKEN="test-token-abc")
 
             from src.bot.handler import create_bot_application
+
             app = create_bot_application()
 
         # 15 CommandHandlers + 2 CallbackQueryHandlers = 17
@@ -123,6 +127,7 @@ class TestDashboardSyncListener:
             mock_settings.return_value = MagicMock(TELEGRAM_BOT_TOKEN="test-token-def")
 
             from src.bot.handler import create_bot_application
+
             app = create_bot_application()
 
         # Simulate a running sync task
@@ -187,11 +192,7 @@ class TestNotificationFormatting:
         """Missing data fields default to '?'."""
         data: dict = {}
 
-        text = (
-            f"Type: {data.get('type', '?')}\n"
-            f"Title: {data.get('title', '?')}\n"
-            f"Action: {data.get('action', '?')}"
-        )
+        text = f"Type: {data.get('type', '?')}\nTitle: {data.get('title', '?')}\nAction: {data.get('action', '?')}"
 
         assert "Type: ?" in text
         assert "Title: ?" in text

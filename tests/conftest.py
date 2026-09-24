@@ -35,6 +35,7 @@ def _restore_langgraph_compile():
     yield
     StateGraph.compile = _original_compile
 
+
 # ---------------------------------------------------------------------------
 # Infrastructure mocks
 # ---------------------------------------------------------------------------
@@ -209,14 +210,16 @@ def dev_state(sample_project: ProjectContext) -> AgentState:
         first_agent="dev",
         thread_id="thread-dev-test",
     )
-    plan = json.dumps({
-        "tasks": [
-            {"id": "t1", "title": "Create landing page", "type": "code", "estimated_hours": 2},
-            {"id": "t2", "title": "Write CSS styles", "type": "code", "estimated_hours": 1},
-        ],
-        "total_estimated_hours": 3,
-        "phases": [{"name": "Build", "tasks": ["t1", "t2"]}],
-    })
+    plan = json.dumps(
+        {
+            "tasks": [
+                {"id": "t1", "title": "Create landing page", "type": "code", "estimated_hours": 2},
+                {"id": "t2", "title": "Write CSS styles", "type": "code", "estimated_hours": 1},
+            ],
+            "total_estimated_hours": 3,
+            "phases": [{"name": "Build", "tasks": ["t1", "t2"]}],
+        }
+    )
     state["artifacts"] = {  # type: ignore[typeddict-item]
         "scout": ["job-id-1"],
         "bid": ["bid-id-1"],
@@ -238,9 +241,11 @@ def _mock_semgrep_gate():
     clean_result = ScanResult(findings=[], critical_count=0, warning_count=0, blocked=False)
     sandbox_result = ExecutionResult(stdout="OK", stderr="", exit_code=0, duration_ms=50.0)
 
-    with patch("src.agents.critic.SemgrepGate") as mock_critic_gate, \
-         patch("src.agents.dev.SemgrepGate") as mock_dev_gate, \
-         patch("src.agents.dev.SandboxManager") as mock_sandbox_mgr:
+    with (
+        patch("src.agents.critic.SemgrepGate") as mock_critic_gate,
+        patch("src.agents.dev.SemgrepGate") as mock_dev_gate,
+        patch("src.agents.dev.SandboxManager") as mock_sandbox_mgr,
+    ):
         mock_critic_instance = AsyncMock()
         mock_critic_instance.scan_files = AsyncMock(return_value=clean_result)
         mock_critic_gate.return_value = mock_critic_instance

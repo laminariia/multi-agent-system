@@ -89,15 +89,18 @@ async def test_geoscout_finds_leads_and_updates_state():
     leads = _make_leads(10)
     db_ctx, db_session = _mock_db_session()
 
-    with patch("src.agents.geo_scout.geocode_city", new_callable=AsyncMock, return_value=bbox), \
-         patch("src.agents.geo_scout.generate_hexagons", return_value=["hex1", "hex2", "hex3"]), \
-         patch("src.agents.geo_scout.hex_to_bbox", return_value=bbox), \
-         patch("src.agents.geo_scout.get_db_session", return_value=db_ctx):
+    with (
+        patch("src.agents.geo_scout.geocode_city", new_callable=AsyncMock, return_value=bbox),
+        patch("src.agents.geo_scout.generate_hexagons", return_value=["hex1", "hex2", "hex3"]),
+        patch("src.agents.geo_scout.hex_to_bbox", return_value=bbox),
+        patch("src.agents.geo_scout.get_db_session", return_value=db_ctx),
+    ):
         overpass_mock = AsyncMock()
         overpass_mock.query_businesses = AsyncMock(side_effect=[leads[:4], leads[4:7], leads[7:]])
         overpass_mock.close = AsyncMock()
 
         from src.agents.geo_scout import GeoScoutAgent
+
         agent = GeoScoutAgent(
             llm_client=AsyncMock(),
             heartbeat=AsyncMock(),
@@ -117,28 +120,33 @@ async def test_geoscout_stores_correct_lead_fields():
     """GeoScout: Lead records are created with correct fields from GeoLead."""
     state = _make_geoscout_state("Berlin")
     bbox = BoundingBox(min_lat=52.34, min_lon=13.09, max_lat=52.68, max_lon=13.76)
-    leads = [GeoLead(
-        osm_id=999999,
-        name="Test Restaurant",
-        category="restaurant",
-        lat=52.52,
-        lon=13.405,
-        address="Main St 1",
-        city="Berlin",
-        phone="+49301234567",
-        h3_index="882a10001ff",
-    )]
+    leads = [
+        GeoLead(
+            osm_id=999999,
+            name="Test Restaurant",
+            category="restaurant",
+            lat=52.52,
+            lon=13.405,
+            address="Main St 1",
+            city="Berlin",
+            phone="+49301234567",
+            h3_index="882a10001ff",
+        )
+    ]
     db_ctx, db_session = _mock_db_session()
 
-    with patch("src.agents.geo_scout.geocode_city", new_callable=AsyncMock, return_value=bbox), \
-         patch("src.agents.geo_scout.generate_hexagons", return_value=["hex1"]), \
-         patch("src.agents.geo_scout.hex_to_bbox", return_value=bbox), \
-         patch("src.agents.geo_scout.get_db_session", return_value=db_ctx):
+    with (
+        patch("src.agents.geo_scout.geocode_city", new_callable=AsyncMock, return_value=bbox),
+        patch("src.agents.geo_scout.generate_hexagons", return_value=["hex1"]),
+        patch("src.agents.geo_scout.hex_to_bbox", return_value=bbox),
+        patch("src.agents.geo_scout.get_db_session", return_value=db_ctx),
+    ):
         overpass_mock = AsyncMock()
         overpass_mock.query_businesses = AsyncMock(return_value=leads)
         overpass_mock.close = AsyncMock()
 
         from src.agents.geo_scout import GeoScoutAgent
+
         agent = GeoScoutAgent(
             llm_client=AsyncMock(),
             heartbeat=AsyncMock(),
@@ -180,15 +188,18 @@ async def test_geoscout_deduplicates_by_osm_id():
     )
     db_ctx, db_session = _mock_db_session()
 
-    with patch("src.agents.geo_scout.geocode_city", new_callable=AsyncMock, return_value=bbox), \
-         patch("src.agents.geo_scout.generate_hexagons", return_value=["hex1", "hex2"]), \
-         patch("src.agents.geo_scout.hex_to_bbox", return_value=bbox), \
-         patch("src.agents.geo_scout.get_db_session", return_value=db_ctx):
+    with (
+        patch("src.agents.geo_scout.geocode_city", new_callable=AsyncMock, return_value=bbox),
+        patch("src.agents.geo_scout.generate_hexagons", return_value=["hex1", "hex2"]),
+        patch("src.agents.geo_scout.hex_to_bbox", return_value=bbox),
+        patch("src.agents.geo_scout.get_db_session", return_value=db_ctx),
+    ):
         overpass_mock = AsyncMock()
         overpass_mock.query_businesses = AsyncMock(return_value=[lead])
         overpass_mock.close = AsyncMock()
 
         from src.agents.geo_scout import GeoScoutAgent
+
         agent = GeoScoutAgent(
             llm_client=AsyncMock(),
             heartbeat=AsyncMock(),
@@ -223,15 +234,18 @@ async def test_geoscout_db_dedup_skips_existing():
     ctx.__aenter__ = AsyncMock(return_value=session)
     ctx.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("src.agents.geo_scout.geocode_city", new_callable=AsyncMock, return_value=bbox), \
-         patch("src.agents.geo_scout.generate_hexagons", return_value=["hex1"]), \
-         patch("src.agents.geo_scout.hex_to_bbox", return_value=bbox), \
-         patch("src.agents.geo_scout.get_db_session", return_value=ctx):
+    with (
+        patch("src.agents.geo_scout.geocode_city", new_callable=AsyncMock, return_value=bbox),
+        patch("src.agents.geo_scout.generate_hexagons", return_value=["hex1"]),
+        patch("src.agents.geo_scout.hex_to_bbox", return_value=bbox),
+        patch("src.agents.geo_scout.get_db_session", return_value=ctx),
+    ):
         overpass_mock = AsyncMock()
         overpass_mock.query_businesses = AsyncMock(return_value=leads)
         overpass_mock.close = AsyncMock()
 
         from src.agents.geo_scout import GeoScoutAgent
+
         agent = GeoScoutAgent(
             llm_client=AsyncMock(),
             heartbeat=AsyncMock(),
@@ -256,15 +270,18 @@ async def test_geoscout_empty_results_goes_to_outreach():
     bbox = BoundingBox(min_lat=52.34, min_lon=13.09, max_lat=52.68, max_lon=13.76)
     db_ctx, db_session = _mock_db_session()
 
-    with patch("src.agents.geo_scout.geocode_city", new_callable=AsyncMock, return_value=bbox), \
-         patch("src.agents.geo_scout.generate_hexagons", return_value=["hex1"]), \
-         patch("src.agents.geo_scout.hex_to_bbox", return_value=bbox), \
-         patch("src.agents.geo_scout.get_db_session", return_value=db_ctx):
+    with (
+        patch("src.agents.geo_scout.geocode_city", new_callable=AsyncMock, return_value=bbox),
+        patch("src.agents.geo_scout.generate_hexagons", return_value=["hex1"]),
+        patch("src.agents.geo_scout.hex_to_bbox", return_value=bbox),
+        patch("src.agents.geo_scout.get_db_session", return_value=db_ctx),
+    ):
         overpass_mock = AsyncMock()
         overpass_mock.query_businesses = AsyncMock(return_value=[])
         overpass_mock.close = AsyncMock()
 
         from src.agents.geo_scout import GeoScoutAgent
+
         agent = GeoScoutAgent(
             llm_client=AsyncMock(),
             heartbeat=AsyncMock(),
@@ -296,6 +313,7 @@ async def test_geoscout_no_city_fails():
     state["artifacts"] = {}
 
     from src.agents.geo_scout import GeoScoutAgent
+
     agent = GeoScoutAgent(
         llm_client=AsyncMock(),
         heartbeat=AsyncMock(),
@@ -320,15 +338,18 @@ async def test_geoscout_truncates_hexagons_at_50():
     hexagons = [f"hex_{i}" for i in range(80)]
     db_ctx, db_session = _mock_db_session()
 
-    with patch("src.agents.geo_scout.geocode_city", new_callable=AsyncMock, return_value=bbox), \
-         patch("src.agents.geo_scout.generate_hexagons", return_value=hexagons), \
-         patch("src.agents.geo_scout.hex_to_bbox", return_value=bbox), \
-         patch("src.agents.geo_scout.get_db_session", return_value=db_ctx):
+    with (
+        patch("src.agents.geo_scout.geocode_city", new_callable=AsyncMock, return_value=bbox),
+        patch("src.agents.geo_scout.generate_hexagons", return_value=hexagons),
+        patch("src.agents.geo_scout.hex_to_bbox", return_value=bbox),
+        patch("src.agents.geo_scout.get_db_session", return_value=db_ctx),
+    ):
         overpass_mock = AsyncMock()
         overpass_mock.query_businesses = AsyncMock(return_value=[])
         overpass_mock.close = AsyncMock()
 
         from src.agents.geo_scout import GeoScoutAgent
+
         agent = GeoScoutAgent(
             llm_client=AsyncMock(),
             heartbeat=AsyncMock(),
@@ -355,6 +376,7 @@ async def test_geoscout_geocoding_error_fails():
 
     with patch("src.agents.geo_scout.geocode_city", new_callable=AsyncMock, side_effect=ValueError("City not found")):
         from src.agents.geo_scout import GeoScoutAgent
+
         agent = GeoScoutAgent(
             llm_client=AsyncMock(),
             heartbeat=AsyncMock(),
@@ -371,14 +393,17 @@ async def test_geoscout_overpass_error_fails():
     state = _make_geoscout_state("Berlin")
     bbox = BoundingBox(min_lat=52.34, min_lon=13.09, max_lat=52.68, max_lon=13.76)
 
-    with patch("src.agents.geo_scout.geocode_city", new_callable=AsyncMock, return_value=bbox), \
-         patch("src.agents.geo_scout.generate_hexagons", return_value=["hex1"]), \
-         patch("src.agents.geo_scout.hex_to_bbox", return_value=bbox):
+    with (
+        patch("src.agents.geo_scout.geocode_city", new_callable=AsyncMock, return_value=bbox),
+        patch("src.agents.geo_scout.generate_hexagons", return_value=["hex1"]),
+        patch("src.agents.geo_scout.hex_to_bbox", return_value=bbox),
+    ):
         overpass_mock = AsyncMock()
         overpass_mock.query_businesses = AsyncMock(side_effect=RuntimeError("Overpass 429"))
         overpass_mock.close = AsyncMock()
 
         from src.agents.geo_scout import GeoScoutAgent
+
         agent = GeoScoutAgent(
             llm_client=AsyncMock(),
             heartbeat=AsyncMock(),

@@ -10,6 +10,7 @@ Each ``_apply_*`` helper is a pure function that transforms saved state
 into the next state based on the human's action.  ``resume_from_hitl``
 integrates checkpoint loading + graph re-invocation.
 """
+
 from __future__ import annotations
 
 import json
@@ -51,11 +52,13 @@ def _make_paused_bid_state() -> dict[str, Any]:
     reducer keeps it as a list, but the HITL helpers are called on a
     *checkpoint snapshot* where bid is already unwrapped.
     """
-    state = dict(create_initial_state(
-        project=_make_project(),
-        first_agent="scout",
-        thread_id=f"thread-hitl-{uuid.uuid4().hex[:8]}",
-    ))
+    state = dict(
+        create_initial_state(
+            project=_make_project(),
+            first_agent="scout",
+            thread_id=f"thread-hitl-{uuid.uuid4().hex[:8]}",
+        )
+    )
     state["current_agent"] = "hitl_bid"
     state["status"] = "paused"
     state["requires_hitl"] = True
@@ -73,11 +76,13 @@ def _make_paused_bid_state() -> dict[str, Any]:
 
 def _make_paused_plan_state() -> dict[str, Any]:
     """State paused after Planner for plan review HITL."""
-    state = dict(create_initial_state(
-        project=_make_project(),
-        first_agent="scout",
-        thread_id=f"thread-hitl-{uuid.uuid4().hex[:8]}",
-    ))
+    state = dict(
+        create_initial_state(
+            project=_make_project(),
+            first_agent="scout",
+            thread_id=f"thread-hitl-{uuid.uuid4().hex[:8]}",
+        )
+    )
     state["current_agent"] = "hitl_review"
     state["status"] = "paused"
     state["requires_hitl"] = True
@@ -85,21 +90,27 @@ def _make_paused_plan_state() -> dict[str, Any]:
     state["artifacts"] = {
         "scout": [json.dumps({"job_id": "j1", "score": 0.92})],
         "bid": [json.dumps({"proposal": "I can build this.", "amount": 450})],
-        "planner": [json.dumps({
-            "phases": [{"name": "Setup", "tasks": [{"id": "t1"}]}],
-            "total_estimated_hours": 3.5,
-        })],
+        "planner": [
+            json.dumps(
+                {
+                    "phases": [{"name": "Setup", "tasks": [{"id": "t1"}]}],
+                    "total_estimated_hours": 3.5,
+                }
+            )
+        ],
     }
     return state
 
 
 def _make_paused_final_state() -> dict[str, Any]:
     """State paused after Packager for final delivery review."""
-    state = dict(create_initial_state(
-        project=_make_project(),
-        first_agent="scout",
-        thread_id=f"thread-hitl-{uuid.uuid4().hex[:8]}",
-    ))
+    state = dict(
+        create_initial_state(
+            project=_make_project(),
+            first_agent="scout",
+            thread_id=f"thread-hitl-{uuid.uuid4().hex[:8]}",
+        )
+    )
     state["current_agent"] = "packager"
     state["status"] = "paused"
     state["requires_hitl"] = True
@@ -112,9 +123,13 @@ def _make_paused_final_state() -> dict[str, Any]:
         "content": [json.dumps({"deliverables": [{"type": "heading"}]})],
         "design": [json.dumps({"specs": []})],
         "critic": [json.dumps({"verdict": "approve", "score": 0.91})],
-        "packager": [json.dumps({
-            "archive_url": "https://storage.example.com/d.zip",
-        })],
+        "packager": [
+            json.dumps(
+                {
+                    "archive_url": "https://storage.example.com/d.zip",
+                }
+            )
+        ],
     }
     return state
 
@@ -128,7 +143,10 @@ def test_bid_approval_approve_routes_to_planner() -> None:
     """Approving a bid should set next_agent=planner and status=active."""
     state = _make_paused_bid_state()
     result = _apply_bid_approval(
-        state, "approve", {"action": "approve"}, state["thread_id"],
+        state,
+        "approve",
+        {"action": "approve"},
+        state["thread_id"],
     )
     assert result["status"] == "active"
     assert result["next_agent"] == "planner"
@@ -141,7 +159,10 @@ def test_bid_approval_reject_fails_state() -> None:
     """Rejecting a bid should set status=failed and append error."""
     state = _make_paused_bid_state()
     result = _apply_bid_approval(
-        state, "reject", {"action": "reject"}, state["thread_id"],
+        state,
+        "reject",
+        {"action": "reject"},
+        state["thread_id"],
     )
     assert result["status"] == "failed"
     assert result["next_agent"] is None
@@ -154,7 +175,10 @@ def test_bid_approval_edit_preserves_edits_and_continues() -> None:
     state = _make_paused_bid_state()
     edits = {"amount": 400, "delivery_days": 5}
     result = _apply_bid_approval(
-        state, "edit", {"action": "edit", "edits": edits}, state["thread_id"],
+        state,
+        "edit",
+        {"action": "edit", "edits": edits},
+        state["thread_id"],
     )
     assert result["status"] == "active"
     assert result["next_agent"] == "planner"
@@ -170,7 +194,10 @@ def test_plan_review_approve_routes_to_dev() -> None:
     """Approving a plan should set next_agent=dev."""
     state = _make_paused_plan_state()
     result = _apply_plan_review(
-        state, "approve", {"action": "approve"}, state["thread_id"],
+        state,
+        "approve",
+        {"action": "approve"},
+        state["thread_id"],
     )
     assert result["status"] == "active"
     assert result["next_agent"] == "dev"
@@ -182,7 +209,10 @@ def test_plan_review_reject_fails_with_error() -> None:
     """Rejecting a plan should set status=failed."""
     state = _make_paused_plan_state()
     result = _apply_plan_review(
-        state, "reject", {"action": "reject"}, state["thread_id"],
+        state,
+        "reject",
+        {"action": "reject"},
+        state["thread_id"],
     )
     assert result["status"] == "failed"
     assert result["next_agent"] is None
@@ -194,7 +224,10 @@ def test_plan_review_edit_stores_edits_and_continues() -> None:
     state = _make_paused_plan_state()
     edits = {"phases": [{"name": "Revised Setup", "tasks": []}]}
     result = _apply_plan_review(
-        state, "edit", {"action": "edit", "edits": edits}, state["thread_id"],
+        state,
+        "edit",
+        {"action": "edit", "edits": edits},
+        state["thread_id"],
     )
     assert result["status"] == "active"
     assert result["next_agent"] == "dev"
@@ -211,7 +244,10 @@ def test_final_review_approve_completes_project() -> None:
     """Approving final review should set status=completed."""
     state = _make_paused_final_state()
     result = _apply_final_review(
-        state, "approve", {"action": "approve"}, state["thread_id"],
+        state,
+        "approve",
+        {"action": "approve"},
+        state["thread_id"],
     )
     assert result["status"] == "completed"
     assert result["next_agent"] is None
@@ -222,7 +258,10 @@ def test_final_review_reject_fails_state() -> None:
     """Rejecting final review should fail the project."""
     state = _make_paused_final_state()
     result = _apply_final_review(
-        state, "reject", {"action": "reject"}, state["thread_id"],
+        state,
+        "reject",
+        {"action": "reject"},
+        state["thread_id"],
     )
     assert result["status"] == "failed"
     assert result["next_agent"] is None
@@ -234,7 +273,10 @@ def test_final_review_edit_stores_edits_and_completes() -> None:
     state = _make_paused_final_state()
     edits = {"note": "Looks good, just update the footer text."}
     result = _apply_final_review(
-        state, "edit", {"action": "edit", "edits": edits}, state["thread_id"],
+        state,
+        "edit",
+        {"action": "edit", "edits": edits},
+        state["thread_id"],
     )
     assert result["status"] == "completed"
     assert result["artifacts"]["hitl_edits"] == [edits]

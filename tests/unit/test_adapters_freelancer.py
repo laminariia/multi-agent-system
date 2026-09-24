@@ -140,9 +140,7 @@ class TestSetAccessToken:
         assert client._access_token == "new-token"  # noqa: S105, SLF001
 
     @pytest.mark.asyncio
-    async def test_updates_http_client_header_if_exists(
-        self, client: FreelancerClient, mock_http: AsyncMock
-    ) -> None:
+    async def test_updates_http_client_header_if_exists(self, client: FreelancerClient, mock_http: AsyncMock) -> None:
         """Updates http client header if client exists."""
         # Set up client with mock http
         with patch.object(client, "_get_http", return_value=mock_http):
@@ -275,9 +273,7 @@ class TestFetchJobs:
     """Test fetch_jobs method."""
 
     @pytest.mark.asyncio
-    async def test_calls_get_with_correct_params(
-        self, client: FreelancerClient, mock_http: AsyncMock
-    ) -> None:
+    async def test_calls_get_with_correct_params(self, client: FreelancerClient, mock_http: AsyncMock) -> None:
         """Calls GET with correct params (category, min_budget, limit)."""
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -371,9 +367,7 @@ class TestFetchJobs:
         assert jobs[0]["currency"] == "EUR"
 
     @pytest.mark.asyncio
-    async def test_extracts_client_info_from_owner_object(
-        self, client: FreelancerClient, mock_http: AsyncMock
-    ) -> None:
+    async def test_extracts_client_info_from_owner_object(self, client: FreelancerClient, mock_http: AsyncMock) -> None:
         """Extracts client_info from owner object."""
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -408,9 +402,7 @@ class TestFetchJobs:
         assert client_info["country"] == "Canada"
 
     @pytest.mark.asyncio
-    async def test_returns_empty_list_for_no_results(
-        self, client: FreelancerClient, mock_http: AsyncMock
-    ) -> None:
+    async def test_returns_empty_list_for_no_results(self, client: FreelancerClient, mock_http: AsyncMock) -> None:
         """Returns empty list for no results."""
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -423,9 +415,7 @@ class TestFetchJobs:
         assert jobs == []
 
     @pytest.mark.asyncio
-    async def test_respects_max_results_cap_at_100(
-        self, client: FreelancerClient, mock_http: AsyncMock
-    ) -> None:
+    async def test_respects_max_results_cap_at_100(self, client: FreelancerClient, mock_http: AsyncMock) -> None:
         """Respects max_results cap at 100."""
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -441,9 +431,7 @@ class TestFetchJobs:
         assert params["limit"] == 100
 
     @pytest.mark.asyncio
-    async def test_uses_preview_description_fallback(
-        self, client: FreelancerClient, mock_http: AsyncMock
-    ) -> None:
+    async def test_uses_preview_description_fallback(self, client: FreelancerClient, mock_http: AsyncMock) -> None:
         """Uses preview_description if description is missing."""
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -479,15 +467,11 @@ class TestSubmitBid:
     """Test submit_bid method."""
 
     @pytest.mark.asyncio
-    async def test_calls_post_with_correct_payload(
-        self, client: FreelancerClient, mock_http: AsyncMock
-    ) -> None:
+    async def test_calls_post_with_correct_payload(self, client: FreelancerClient, mock_http: AsyncMock) -> None:
         """Calls POST with correct payload."""
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "result": {"id": 54321, "status": "active"}
-        }
+        mock_response.json.return_value = {"result": {"id": 54321, "status": "active"}}
         mock_http.post = AsyncMock(return_value=mock_response)
 
         with patch.object(client, "_get_http", return_value=mock_http):
@@ -512,15 +496,11 @@ class TestSubmitBid:
         assert payload["milestone_percentage"] == 50
 
     @pytest.mark.asyncio
-    async def test_returns_api_response_data(
-        self, client: FreelancerClient, mock_http: AsyncMock
-    ) -> None:
+    async def test_returns_api_response_data(self, client: FreelancerClient, mock_http: AsyncMock) -> None:
         """Returns API response data."""
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "result": {"id": 99999, "status": "pending"}
-        }
+        mock_response.json.return_value = {"result": {"id": 99999, "status": "pending"}}
         mock_http.post = AsyncMock(return_value=mock_response)
 
         with patch.object(client, "_get_http", return_value=mock_http):
@@ -535,9 +515,7 @@ class TestSubmitBid:
         assert result["result"]["status"] == "pending"
 
     @pytest.mark.asyncio
-    async def test_handles_rate_limit_429(
-        self, client: FreelancerClient, mock_http: AsyncMock
-    ) -> None:
+    async def test_handles_rate_limit_429(self, client: FreelancerClient, mock_http: AsyncMock) -> None:
         """Handles rate limit (429)."""
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 429
@@ -566,9 +544,7 @@ class TestGetClientProfile:
     """Test get_client_profile method."""
 
     @pytest.mark.asyncio
-    async def test_calls_get_with_correct_params(
-        self, client: FreelancerClient, mock_http: AsyncMock
-    ) -> None:
+    async def test_calls_get_with_correct_params(self, client: FreelancerClient, mock_http: AsyncMock) -> None:
         """Calls GET with correct params."""
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -590,9 +566,7 @@ class TestGetClientProfile:
         assert params["portfolio"] is True
 
     @pytest.mark.asyncio
-    async def test_normalizes_profile_data(
-        self, client: FreelancerClient, mock_http: AsyncMock
-    ) -> None:
+    async def test_normalizes_profile_data(self, client: FreelancerClient, mock_http: AsyncMock) -> None:
         """Normalizes profile data."""
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -694,9 +668,7 @@ class TestLifecycle:
         assert client._http is None  # noqa: SLF001
 
     @pytest.mark.asyncio
-    async def test_get_http_creates_new_client_after_close(
-        self, client: FreelancerClient
-    ) -> None:
+    async def test_get_http_creates_new_client_after_close(self, client: FreelancerClient) -> None:
         """_get_http() creates new client after close."""
         # Create and close
         http1 = await client._get_http()  # noqa: SLF001
@@ -709,9 +681,7 @@ class TestLifecycle:
         assert http2 is not http1
 
     @pytest.mark.asyncio
-    async def test_close_handles_already_closed_client(
-        self, client: FreelancerClient
-    ) -> None:
+    async def test_close_handles_already_closed_client(self, client: FreelancerClient) -> None:
         """close() handles already closed client gracefully."""
         # Create http client
         await client._get_http()  # noqa: SLF001
@@ -721,9 +691,7 @@ class TestLifecycle:
         await client.close()
 
     @pytest.mark.asyncio
-    async def test_get_http_returns_existing_client(
-        self, client: FreelancerClient
-    ) -> None:
+    async def test_get_http_returns_existing_client(self, client: FreelancerClient) -> None:
         """_get_http() returns existing client if not closed."""
         http1 = await client._get_http()  # noqa: SLF001
         http2 = await client._get_http()  # noqa: SLF001

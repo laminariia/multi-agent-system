@@ -3,6 +3,7 @@
 Verifies that the Critic Agent blocks dangerous code via SemgrepGate
 before even consulting the LLM for a review verdict.
 """
+
 from __future__ import annotations
 
 import json
@@ -15,6 +16,7 @@ from src.security.semgrep_gate import SemgrepGate
 # ---------------------------------------------------------------------------
 # Test: SemgrepGate blocks os.system()
 # ---------------------------------------------------------------------------
+
 
 class TestSemgrepCriticIntegration:
     """Integration flow: Critic uses SemgrepGate to pre-screen code artifacts."""
@@ -37,22 +39,24 @@ class TestSemgrepCriticIntegration:
         files = [{"path": "main.py", "content": "import os\nos.system('rm -rf /')\n"}]
 
         # If semgrep is not installed, mock the subprocess call.
-        mock_output = json.dumps({
-            "results": [
-                {
-                    "check_id": "mas-dangerous-os-system",
-                    "path": "main.py",
-                    "start": {"line": 2, "col": 1},
-                    "end": {"line": 2, "col": 25},
-                    "extra": {
-                        "message": "os.system() is blocked in MAS sandbox",
-                        "severity": "ERROR",
-                        "lines": "os.system('rm -rf /')",
-                    },
-                }
-            ],
-            "errors": [],
-        })
+        mock_output = json.dumps(
+            {
+                "results": [
+                    {
+                        "check_id": "mas-dangerous-os-system",
+                        "path": "main.py",
+                        "start": {"line": 2, "col": 1},
+                        "end": {"line": 2, "col": 25},
+                        "extra": {
+                            "message": "os.system() is blocked in MAS sandbox",
+                            "severity": "ERROR",
+                            "lines": "os.system('rm -rf /')",
+                        },
+                    }
+                ],
+                "errors": [],
+            }
+        )
 
         with patch("asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
@@ -92,22 +96,24 @@ class TestSemgrepCriticIntegration:
         """SemgrepGate.scan_code should handle a raw code string."""
         gate = SemgrepGate()
 
-        mock_output = json.dumps({
-            "results": [
-                {
-                    "check_id": "mas-dangerous-eval",
-                    "path": "temp.py",
-                    "start": {"line": 1, "col": 1},
-                    "end": {"line": 1, "col": 20},
-                    "extra": {
-                        "message": "eval() is blocked",
-                        "severity": "ERROR",
-                        "lines": "eval(user_input)",
-                    },
-                }
-            ],
-            "errors": [],
-        })
+        mock_output = json.dumps(
+            {
+                "results": [
+                    {
+                        "check_id": "mas-dangerous-eval",
+                        "path": "temp.py",
+                        "start": {"line": 1, "col": 1},
+                        "end": {"line": 1, "col": 20},
+                        "extra": {
+                            "message": "eval() is blocked",
+                            "severity": "ERROR",
+                            "lines": "eval(user_input)",
+                        },
+                    }
+                ],
+                "errors": [],
+            }
+        )
 
         with patch("asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()

@@ -11,6 +11,7 @@ from src.core.json_repair import extract_and_validate, extract_json
 # Pydantic test model
 # ---------------------------------------------------------------------------
 
+
 class SampleModel(BaseModel):
     name: str
     score: float = 0.0
@@ -20,6 +21,7 @@ class SampleModel(BaseModel):
 # ===================================================================
 # Strategy 1: Clean JSON passes through
 # ===================================================================
+
 
 class TestCleanJSON:
     def test_clean_dict(self):
@@ -42,6 +44,7 @@ class TestCleanJSON:
 # ===================================================================
 # Strategy 2: Markdown fences
 # ===================================================================
+
 
 class TestMarkdownFences:
     def test_json_fence(self):
@@ -79,6 +82,7 @@ class TestMarkdownFences:
 # Strategy 3: Extra text before/after JSON
 # ===================================================================
 
+
 class TestExtraText:
     def test_text_before_json(self):
         raw = 'Here is the result:\n\n{"key": "value"}'
@@ -91,11 +95,7 @@ class TestExtraText:
         assert result == {"key": "value"}
 
     def test_text_before_and_after(self):
-        raw = (
-            "Sure! Here is the JSON output:\n\n"
-            '{"name": "test", "score": 0.9}\n\n'
-            "I hope this helps!"
-        )
+        raw = 'Sure! Here is the JSON output:\n\n{"name": "test", "score": 0.9}\n\nI hope this helps!'
         result = extract_json(raw)
         assert result["name"] == "test"
         assert result["score"] == 0.9
@@ -117,6 +117,7 @@ class TestExtraText:
 # Strategy 4: Repair heuristics
 # ===================================================================
 
+
 class TestRepairHeuristics:
     def test_trailing_comma_in_object(self):
         raw = '{"a": 1, "b": 2,}'
@@ -124,7 +125,7 @@ class TestRepairHeuristics:
         assert result == {"a": 1, "b": 2}
 
     def test_trailing_comma_in_array(self):
-        raw = '[1, 2, 3,]'
+        raw = "[1, 2, 3,]"
         result = extract_json(raw, expected_type=list)
         assert result == [1, 2, 3]
 
@@ -144,6 +145,7 @@ class TestRepairHeuristics:
 # ===================================================================
 # Edge cases
 # ===================================================================
+
 
 class TestEdgeCases:
     def test_empty_string_raises(self):
@@ -169,12 +171,7 @@ class TestEdgeCases:
         assert result["outer"]["mid"]["inner"] == "deep"
 
     def test_mixed_markdown_and_broken_json(self):
-        raw = (
-            "Here is the output:\n\n"
-            "```json\n"
-            '{"items": [{"name": "a",}, {"name": "b",}],}\n'
-            "```"
-        )
+        raw = 'Here is the output:\n\n```json\n{"items": [{"name": "a",}, {"name": "b",}],}\n```'
         result = extract_json(raw)
         assert len(result["items"]) == 2
         assert result["items"][0]["name"] == "a"
@@ -183,6 +180,7 @@ class TestEdgeCases:
 # ===================================================================
 # Pydantic validation
 # ===================================================================
+
 
 class TestPydanticValidation:
     def test_valid_model(self):
@@ -225,6 +223,7 @@ class TestPydanticValidation:
 # ===================================================================
 # Real-world LLM response patterns
 # ===================================================================
+
 
 class TestRealWorldPatterns:
     def test_scout_scored_response(self):

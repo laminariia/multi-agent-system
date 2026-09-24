@@ -114,17 +114,20 @@ async def test_outreach_enriches_leads():
 
     waterfall = AsyncMock()
     waterfall.total_cost = Decimal("0.03")
-    waterfall.enrich = AsyncMock(side_effect=[
-        EnrichmentResult(email="a@test.com", source="osint", confidence=0.8),
-        EnrichmentResult(email=None, source="none", confidence=0.0),
-        EnrichmentResult(email="c@test.com", source="hunter", confidence=0.9, raw_data={"cost": 0.01}),
-    ])
+    waterfall.enrich = AsyncMock(
+        side_effect=[
+            EnrichmentResult(email="a@test.com", source="osint", confidence=0.8),
+            EnrichmentResult(email=None, source="none", confidence=0.0),
+            EnrichmentResult(email="c@test.com", source="hunter", confidence=0.9, raw_data={"cost": 0.01}),
+        ]
+    )
 
     # Mock _load_leads to return our test leads
     # Mock _create_campaign to return our campaign
     # Mock _create_hitl_request
     with patch("src.agents.outreach.get_db_session", return_value=db_ctx):
         from src.agents.outreach import OutreachAgent
+
         agent = OutreachAgent(
             llm_client=AsyncMock(),
             heartbeat=AsyncMock(),
@@ -157,13 +160,18 @@ async def test_outreach_tracks_enrichment_cost():
 
     waterfall = AsyncMock()
     waterfall.total_cost = Decimal("0.06")
-    waterfall.enrich = AsyncMock(return_value=EnrichmentResult(
-        email="lead@test.com", source="apollo", confidence=0.9,
-        raw_data={"cost": 0.05},
-    ))
+    waterfall.enrich = AsyncMock(
+        return_value=EnrichmentResult(
+            email="lead@test.com",
+            source="apollo",
+            confidence=0.9,
+            raw_data={"cost": 0.05},
+        )
+    )
 
     with patch("src.agents.outreach.get_db_session", return_value=db_ctx):
         from src.agents.outreach import OutreachAgent
+
         agent = OutreachAgent(
             llm_client=AsyncMock(),
             heartbeat=AsyncMock(),
@@ -193,6 +201,7 @@ async def test_outreach_generates_email_via_llm():
     lead.email = "biz@test.com"
 
     from src.agents.outreach import OutreachAgent
+
     agent = OutreachAgent(
         llm_client=AsyncMock(),
         heartbeat=AsyncMock(),
@@ -215,6 +224,7 @@ async def test_outreach_fallback_template_on_llm_failure():
     lead.email = "cafe@test.com"
 
     from src.agents.outreach import OutreachAgent
+
     agent = OutreachAgent(
         llm_client=AsyncMock(),
         heartbeat=AsyncMock(),
@@ -237,6 +247,7 @@ async def test_outreach_fallback_template_on_empty_body():
     lead.name = "Empty Body Biz"
 
     from src.agents.outreach import OutreachAgent
+
     agent = OutreachAgent(
         llm_client=AsyncMock(),
         heartbeat=AsyncMock(),
@@ -265,6 +276,7 @@ async def test_outreach_creates_campaign():
 
     with patch("src.agents.outreach.get_db_session", return_value=db_ctx):
         from src.agents.outreach import OutreachAgent
+
         agent = OutreachAgent(
             llm_client=AsyncMock(),
             heartbeat=AsyncMock(),
@@ -288,12 +300,17 @@ async def test_outreach_campaign_id_in_artifacts():
 
     waterfall = AsyncMock()
     waterfall.total_cost = Decimal("0.02")
-    waterfall.enrich = AsyncMock(return_value=EnrichmentResult(
-        email="lead@test.com", source="osint", confidence=0.8,
-    ))
+    waterfall.enrich = AsyncMock(
+        return_value=EnrichmentResult(
+            email="lead@test.com",
+            source="osint",
+            confidence=0.8,
+        )
+    )
 
     with patch("src.agents.outreach.get_db_session", return_value=db_ctx):
         from src.agents.outreach import OutreachAgent
+
         agent = OutreachAgent(
             llm_client=AsyncMock(),
             heartbeat=AsyncMock(),
@@ -324,12 +341,17 @@ async def test_outreach_creates_hitl_request():
 
     waterfall = AsyncMock()
     waterfall.total_cost = Decimal("0.02")
-    waterfall.enrich = AsyncMock(return_value=EnrichmentResult(
-        email="lead@test.com", source="osint", confidence=0.8,
-    ))
+    waterfall.enrich = AsyncMock(
+        return_value=EnrichmentResult(
+            email="lead@test.com",
+            source="osint",
+            confidence=0.8,
+        )
+    )
 
     with patch("src.agents.outreach.get_db_session", return_value=db_ctx):
         from src.agents.outreach import OutreachAgent
+
         agent = OutreachAgent(
             llm_client=AsyncMock(),
             heartbeat=AsyncMock(),
@@ -363,6 +385,7 @@ async def test_outreach_no_leads_completes():
 
     with patch("src.agents.outreach.get_db_session", return_value=db_ctx):
         from src.agents.outreach import OutreachAgent
+
         agent = OutreachAgent(
             llm_client=AsyncMock(),
             heartbeat=AsyncMock(),
@@ -396,6 +419,7 @@ async def test_outreach_no_city_fails():
     state["artifacts"] = {}
 
     from src.agents.outreach import OutreachAgent
+
     agent = OutreachAgent(
         llm_client=AsyncMock(),
         heartbeat=AsyncMock(),
@@ -423,6 +447,7 @@ async def test_outreach_enrichment_error_handled():
 
     with patch("src.agents.outreach.get_db_session", return_value=_mock_db_session()[0]):
         from src.agents.outreach import OutreachAgent
+
         agent = OutreachAgent(
             llm_client=AsyncMock(),
             heartbeat=AsyncMock(),

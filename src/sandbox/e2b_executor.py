@@ -94,8 +94,7 @@ class E2BExecutor(SandboxExecutor):
 
                 # Strip traversal segments and absolute prefixes.
                 safe_parts = [
-                    p for p in PurePosixPath(raw_path).parts
-                    if p not in ("..", "/", "\\") and not p.endswith(":")
+                    p for p in PurePosixPath(raw_path).parts if p not in ("..", "/", "\\") and not p.endswith(":")
                 ]
                 safe_path = "/".join(safe_parts) if safe_parts else "main.py"
 

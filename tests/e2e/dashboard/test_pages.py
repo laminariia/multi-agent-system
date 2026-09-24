@@ -20,6 +20,7 @@ from tests.e2e.dashboard.conftest import (
 # Shared fixture: pre-authenticated page with common mocks
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 async def app_page(auth_page: Page, mock_auth_api) -> Page:
     """Authenticated page with all common layout-level mocks."""
@@ -43,15 +44,24 @@ class TestDashboardPage:
     async def test_dashboard_renders(self, app_page: Page, mock_auth_api):
         """Dashboard page loads and shows key sections."""
         # Mock dashboard-specific data
-        await mock_auth_api("/api/v1/jobs/stats", {
-            "total": 10, "active": 3, "completed": 5, "pending": 2,
-        })
+        await mock_auth_api(
+            "/api/v1/jobs/stats",
+            {
+                "total": 10,
+                "active": 3,
+                "completed": 5,
+                "pending": 2,
+            },
+        )
         await mock_auth_api("/api/v1/agents/status", make_agent_status_list())
-        await mock_auth_api("/api/v1/hitl/trends*", {
-            "dates": ["2026-02-10", "2026-02-11", "2026-02-12"],
-            "approved": [5, 8, 3],
-            "rejected": [1, 2, 0],
-        })
+        await mock_auth_api(
+            "/api/v1/hitl/trends*",
+            {
+                "dates": ["2026-02-10", "2026-02-11", "2026-02-12"],
+                "approved": [5, 8, 3],
+                "rejected": [1, 2, 0],
+            },
+        )
 
         await app_page.goto("/dashboard")
         await app_page.wait_for_load_state("networkidle")
@@ -137,9 +147,15 @@ class TestJobsPage:
     async def test_jobs_page_renders(self, app_page: Page, mock_auth_api):
         """Jobs page loads and shows job list."""
         await mock_auth_api("/api/v1/jobs*", make_job_list_response(count=5))
-        await mock_auth_api("/api/v1/jobs/stats", {
-            "total": 10, "active": 3, "completed": 5, "pending": 2,
-        })
+        await mock_auth_api(
+            "/api/v1/jobs/stats",
+            {
+                "total": 10,
+                "active": 3,
+                "completed": 5,
+                "pending": 2,
+            },
+        )
 
         await app_page.goto("/jobs")
         await app_page.wait_for_load_state("networkidle")
@@ -150,9 +166,15 @@ class TestJobsPage:
     async def test_jobs_empty_state(self, app_page: Page, mock_auth_api):
         """Jobs page shows empty state when no jobs."""
         await mock_auth_api("/api/v1/jobs*", {"items": [], "total": 0})
-        await mock_auth_api("/api/v1/jobs/stats", {
-            "total": 0, "active": 0, "completed": 0, "pending": 0,
-        })
+        await mock_auth_api(
+            "/api/v1/jobs/stats",
+            {
+                "total": 0,
+                "active": 0,
+                "completed": 0,
+                "pending": 0,
+            },
+        )
 
         await app_page.goto("/jobs")
         await app_page.wait_for_load_state("networkidle")
@@ -171,9 +193,13 @@ class TestSettingsPage:
 
     async def test_settings_page_renders(self, app_page: Page, mock_auth_api):
         """Settings page loads."""
-        await mock_auth_api("/api/v1/credentials/summary", {
-            "platforms": [], "total": 0,
-        })
+        await mock_auth_api(
+            "/api/v1/credentials/summary",
+            {
+                "platforms": [],
+                "total": 0,
+            },
+        )
 
         await app_page.goto("/settings")
         await app_page.wait_for_load_state("networkidle")
@@ -194,9 +220,13 @@ class TestSettingsPage:
 
     async def test_theme_toggle(self, app_page: Page, mock_auth_api):
         """Theme can be toggled between dark and light."""
-        await mock_auth_api("/api/v1/credentials/summary", {
-            "platforms": [], "total": 0,
-        })
+        await mock_auth_api(
+            "/api/v1/credentials/summary",
+            {
+                "platforms": [],
+                "total": 0,
+            },
+        )
 
         await app_page.goto("/settings")
         await app_page.wait_for_load_state("domcontentloaded")
@@ -223,17 +253,23 @@ class TestOrchestratorPage:
 
     async def test_orchestrator_page_renders(self, app_page: Page, mock_auth_api):
         """Orchestrator page loads."""
-        await mock_auth_api("/api/v1/orchestrator/status", {
-            "runner_status": "idle",
-            "active_goals": 0,
-            "completed_goals": 5,
-            "total_sessions": 10,
-        })
+        await mock_auth_api(
+            "/api/v1/orchestrator/status",
+            {
+                "runner_status": "idle",
+                "active_goals": 0,
+                "completed_goals": 5,
+                "total_sessions": 10,
+            },
+        )
         await mock_auth_api("/api/v1/orchestrator/goals*", {"items": [], "total": 0})
-        await mock_auth_api("/api/v1/orchestrator/health", {
-            "status": "healthy",
-            "dimensions": {},
-        })
+        await mock_auth_api(
+            "/api/v1/orchestrator/health",
+            {
+                "status": "healthy",
+                "dimensions": {},
+            },
+        )
         await mock_auth_api("/api/v1/orchestrator/phases*", [])
         await mock_auth_api("/api/v1/orchestrator/logs*", {"items": [], "total": 0})
 

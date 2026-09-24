@@ -5,6 +5,7 @@ Usage::
     python -m src.cli.migrate_goals           # Dry run (print only)
     python -m src.cli.migrate_goals --apply   # Actually insert into DB
 """
+
 from __future__ import annotations
 
 import argparse
@@ -86,9 +87,7 @@ async def migrate(apply: bool = False) -> None:
         for g in goals:
             goal_id = g.get("id", "")
             # Check if already exists
-            existing = await session.execute(
-                select(OrchestratorGoal).where(OrchestratorGoal.goal_id == goal_id)
-            )
+            existing = await session.execute(select(OrchestratorGoal).where(OrchestratorGoal.goal_id == goal_id))
             if existing.scalar_one_or_none():
                 print(f"  SKIP {goal_id} (already exists)")
                 skipped += 1

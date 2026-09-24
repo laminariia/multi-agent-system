@@ -57,8 +57,8 @@ class AgentHealthInfo:
     """Snapshot of an agent's liveness state."""
 
     agent_name: str
-    status: str                 # "healthy" | "unhealthy" | "dead" | "unknown"
-    last_heartbeat: float       # UNIX epoch
+    status: str  # "healthy" | "unhealthy" | "dead" | "unknown"
+    last_heartbeat: float  # UNIX epoch
     last_task: str | None
     restart_count: int
     timeout_seconds: int
@@ -121,11 +121,13 @@ class HeartbeatMonitor:
         self._last_task[agent_name] = current_task
 
         # Persist to Valkey (fast path)
-        payload = json.dumps({
-            "agent_name": agent_name,
-            "timestamp": now,
-            "task": current_task,
-        })
+        payload = json.dumps(
+            {
+                "agent_name": agent_name,
+                "timestamp": now,
+                "task": current_task,
+            }
+        )
         key = f"{_HEARTBEAT_KEY_PREFIX}{agent_name}"
         await self.valkey.set(key, payload, ex=self.config.timeout_seconds * 2)
 

@@ -5,6 +5,7 @@ Usage::
     python -m src.cli.seed_data          # Create seed data
     python -m src.cli.seed_data --force  # Drop existing seed data first
 """
+
 from __future__ import annotations
 
 import argparse
@@ -289,7 +290,9 @@ SEED_HITL = [
             "security_details": [
                 {"severity": "low", "rule": "S105", "file": "config.py", "message": "Possible hardcoded password"},
                 {
-                    "severity": "low", "rule": "B108", "file": "utils.py",
+                    "severity": "low",
+                    "rule": "B108",
+                    "file": "utils.py",
                     "message": "Probable insecure usage of temp file",
                 },
             ],
@@ -374,9 +377,7 @@ SEED_HEARTBEATS = [
 async def _seed(force: bool = False) -> None:
     async with async_session_factory() as session:
         # Check if seed user already exists
-        existing = await session.execute(
-            select(User).where(User.email == "admin@test.com")
-        )
+        existing = await session.execute(select(User).where(User.email == "admin@test.com"))
         if existing.scalar_one_or_none() is not None:
             if not force:
                 print("Seed data already exists (admin@test.com found).")

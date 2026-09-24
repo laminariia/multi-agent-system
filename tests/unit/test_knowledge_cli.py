@@ -100,13 +100,19 @@ class TestBuildParser:
         from src.knowledge.cli import _build_parser
 
         parser = _build_parser()
-        args = parser.parse_args([
-            "search",
-            "--query", "test",
-            "--type", "proposal_template",
-            "--category", "web_dev",
-            "--top-k", "10",
-        ])
+        args = parser.parse_args(
+            [
+                "search",
+                "--query",
+                "test",
+                "--type",
+                "proposal_template",
+                "--category",
+                "web_dev",
+                "--top-k",
+                "10",
+            ]
+        )
         assert args.type == "proposal_template"
         assert args.category == "web_dev"
         assert args.top_k == 10

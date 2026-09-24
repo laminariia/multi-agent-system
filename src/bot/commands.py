@@ -56,20 +56,22 @@ _COMMANDS_HELP = (
     "/scan &lt;city&gt; — Geo scan for leads\n"
 )
 
-_START_KEYBOARD = InlineKeyboardMarkup([
+_START_KEYBOARD = InlineKeyboardMarkup(
     [
-        InlineKeyboardButton("\U0001f3ae Orchestrator", callback_data="orch:menu"),
-        InlineKeyboardButton("\U0001f4cb Goals", callback_data="orch:goals"),
-    ],
-    [
-        InlineKeyboardButton("\U0001f4e5 Pending HITL", callback_data="start:pending"),
-        InlineKeyboardButton("\U0001f4ca Stats", callback_data="start:stats"),
-    ],
-    [
-        InlineKeyboardButton("\U0001f49a Health", callback_data="orch:health"),
-        InlineKeyboardButton("\U0001f680 Run Session", callback_data="orch:run"),
-    ],
-])
+        [
+            InlineKeyboardButton("\U0001f3ae Orchestrator", callback_data="orch:menu"),
+            InlineKeyboardButton("\U0001f4cb Goals", callback_data="orch:goals"),
+        ],
+        [
+            InlineKeyboardButton("\U0001f4e5 Pending HITL", callback_data="start:pending"),
+            InlineKeyboardButton("\U0001f4ca Stats", callback_data="start:stats"),
+        ],
+        [
+            InlineKeyboardButton("\U0001f49a Health", callback_data="orch:health"),
+            InlineKeyboardButton("\U0001f680 Run Session", callback_data="orch:run"),
+        ],
+    ]
+)
 
 # ---------------------------------------------------------------------------
 # Decorator: require a linked MAS account
@@ -126,8 +128,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if existing_user is not None:
         name = existing_user.name or existing_user.email
         await update.effective_message.reply_text(  # type: ignore[union-attr]
-            f"Welcome back, <b>{_esc(name)}</b>!\n\n"
-            + _COMMANDS_HELP,
+            f"Welcome back, <b>{_esc(name)}</b>!\n\n" + _COMMANDS_HELP,
             parse_mode=ParseMode.HTML,
             reply_markup=_START_KEYBOARD,
         )
@@ -142,8 +143,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
             if owner is None:
                 await update.effective_message.reply_text(  # type: ignore[union-attr]
-                    "No owner account found in the database. "
-                    "Create one via the API first."
+                    "No owner account found in the database. Create one via the API first."
                 )
                 return
 
@@ -152,8 +152,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
         logger.info("telegram.auto_linked", tg_user_id=tg_user_id, user_id=str(owner.id))
         await update.effective_message.reply_text(  # type: ignore[union-attr]
-            f"Auto-linked to account <b>{_esc(owner.name or owner.email)}</b>.\n\n"
-            + _COMMANDS_HELP,
+            f"Auto-linked to account <b>{_esc(owner.name or owner.email)}</b>.\n\n" + _COMMANDS_HELP,
             parse_mode=ParseMode.HTML,
             reply_markup=_START_KEYBOARD,
         )
@@ -170,8 +169,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"Welcome to the <b>Multi-Agent Service</b> bot!\n\n"
         f"Your link code is: <code>{code}</code>\n"
         "Enter this code in <b>Dashboard Settings</b> to link your account.\n"
-        "The code expires in 10 minutes.\n\n"
-        + _COMMANDS_HELP,
+        "The code expires in 10 minutes.\n\n" + _COMMANDS_HELP,
         parse_mode=ParseMode.HTML,
         reply_markup=_START_KEYBOARD,
     )
@@ -195,9 +193,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         heartbeats = result.scalars().all()
 
         # Pending HITL count
-        hitl_stmt = select(func.count()).select_from(
-            select(HITLQueue).where(HITLQueue.status == "pending").subquery()
-        )
+        hitl_stmt = select(func.count()).select_from(select(HITLQueue).where(HITLQueue.status == "pending").subquery())
         pending_count = (await session.execute(hitl_stmt)).scalar_one()
 
     if not heartbeats:
@@ -299,25 +295,19 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
         pending = (
             await session.execute(
-                select(func.count()).select_from(
-                    base.where(HITLQueue.status == "pending").subquery()
-                )
+                select(func.count()).select_from(base.where(HITLQueue.status == "pending").subquery())
             )
         ).scalar_one()
 
         resolved = (
             await session.execute(
-                select(func.count()).select_from(
-                    base.where(HITLQueue.status == "resolved").subquery()
-                )
+                select(func.count()).select_from(base.where(HITLQueue.status == "resolved").subquery())
             )
         ).scalar_one()
 
         expired = (
             await session.execute(
-                select(func.count()).select_from(
-                    base.where(HITLQueue.status == "expired").subquery()
-                )
+                select(func.count()).select_from(base.where(HITLQueue.status == "expired").subquery())
             )
         ).scalar_one()
 
@@ -402,8 +392,7 @@ async def _resolve_command(
 
         if item.status != "pending":
             await update.effective_message.reply_text(  # type: ignore[union-attr]
-                f"Item is already <b>{_esc(item.status)}</b> "
-                f"(resolution: {_esc(item.resolution or 'n/a')}).",
+                f"Item is already <b>{_esc(item.status)}</b> (resolution: {_esc(item.resolution or 'n/a')}).",
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -491,8 +480,4 @@ def _generate_link_code(length: int = 6) -> str:
 
 def _esc(text: str) -> str:
     """Escape special HTML characters for Telegram HTML parse mode."""
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

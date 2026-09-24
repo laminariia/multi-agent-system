@@ -2,6 +2,7 @@
 
 Tests the MetricsController which exposes Prometheus metrics at GET /metrics.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch

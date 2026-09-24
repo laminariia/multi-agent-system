@@ -29,6 +29,7 @@ from typing import Any
 # Data structures
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ValidationRule:
     """A single validation rule to check against an agent output."""
@@ -66,6 +67,7 @@ class EvalResult:
 # Main entry point
 # ---------------------------------------------------------------------------
 
+
 def evaluate_case(case: GoldenCase, parsed_output: dict[str, Any]) -> EvalResult:
     """Run all validators against *parsed_output* and return an ``EvalResult``."""
     details: list[str] = []
@@ -85,6 +87,7 @@ def evaluate_case(case: GoldenCase, parsed_output: dict[str, Any]) -> EvalResult
 # ---------------------------------------------------------------------------
 # Rule dispatcher
 # ---------------------------------------------------------------------------
+
 
 def _run_rule(
     rule: ValidationRule,
@@ -185,6 +188,7 @@ def _run_rule(
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _extract_text(output: dict[str, Any]) -> str:
     """Concatenate the main text content for keyword / length checks."""
     for key in ("proposal_text", "body", "reasoning", "revision_instructions"):
@@ -192,14 +196,8 @@ def _extract_text(output: dict[str, Any]) -> str:
             return str(output[key])
 
     if "deliverables" in output:
-        parts = [
-            str(d["content"])
-            for d in output["deliverables"]
-            if isinstance(d, dict) and "content" in d
-        ]
+        parts = [str(d["content"]) for d in output["deliverables"] if isinstance(d, dict) and "content" in d]
         if parts:
             return " ".join(parts)
 
-    return " ".join(
-        str(v) for v in output.values() if isinstance(v, str) and len(v) > 15
-    )
+    return " ".join(str(v) for v in output.values() if isinstance(v, str) and len(v) > 15)
