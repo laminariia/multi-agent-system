@@ -141,7 +141,7 @@ class TestRegister:
         await expect(error).to_contain_text("Passwords do not match")
 
     async def test_register_short_password(self, page: Page):
-        """Short password shows client-side error."""
+        """Short password is blocked client-side (native minLength=6) and the form is not submitted."""
         await page.goto("/register")
 
         await page.locator("#name").fill("Test")
@@ -150,9 +150,8 @@ class TestRegister:
         await page.locator("#confirmPassword").fill("123")
         await page.get_by_role("button", name="Create Account").click()
 
-        error = page.locator(".text-destructive")
-        await expect(error).to_be_visible()
-        await expect(error).to_contain_text("at least 6 characters")
+        assert await page.locator("#password").evaluate("el => el.validity.tooShort")
+        assert page.url.endswith("/register")
 
     async def test_register_success_auto_login(self, page: Page, mock_api):
         """First user registration returns tokens and auto-redirects to dashboard."""

@@ -122,17 +122,17 @@ class TestAgentsPage:
         await expect(app_page.get_by_text("scout", exact=False).first).to_be_visible(timeout=5000)
 
     async def test_agents_status_indicators(self, app_page: Page, mock_auth_api):
-        """Agent cards show status indicators (running/idle)."""
+        """Agent cards show status indicators (working/idle)."""
         await mock_auth_api("/api/v1/agents/status", make_agent_status_list())
         await mock_auth_api("/api/v1/agents/logs*", {"items": [], "total": 0})
 
         await app_page.goto("/agents")
         await app_page.wait_for_load_state("networkidle")
 
-        # At least one "running" or "idle" text should appear
-        running = app_page.get_by_text("running", exact=False)
+        # At least one "Working" or "Idle" badge should appear
+        working = app_page.get_by_text("working", exact=False)
         idle = app_page.get_by_text("idle", exact=False)
-        total = (await running.count()) + (await idle.count())
+        total = (await working.count()) + (await idle.count())
         assert total > 0, "Should show at least one agent status"
 
 
