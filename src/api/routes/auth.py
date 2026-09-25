@@ -4,6 +4,7 @@ Provides login, token refresh, logout, and current-user endpoints
 at ``/api/v1/auth``.  Rate-limited to 10 requests per minute as
 specified in the API specification.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

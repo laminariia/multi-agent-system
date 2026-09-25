@@ -48,11 +48,13 @@ def _make_pipeline_b_state(city: str = "Berlin", thread_id: str | None = None) -
         budget=0.0,
         deadline=datetime.now(tz=UTC),
     )
-    state = dict(create_initial_state(
-        project=project,
-        first_agent="geoscout",
-        thread_id=thread_id or f"thread-pipb-{uuid.uuid4().hex[:8]}",
-    ))
+    state = dict(
+        create_initial_state(
+            project=project,
+            first_agent="geoscout",
+            thread_id=thread_id or f"thread-pipb-{uuid.uuid4().hex[:8]}",
+        )
+    )
     state["artifacts"] = {"_scan_city": city}
     return state
 
@@ -195,9 +197,12 @@ async def test_pipeline_b_happy_path():
         "src.core.graph.geo_scout_node": _geo_scout_finds_leads,
         "src.core.graph.outreach_node": _outreach_drafts_emails,
     }
-    with patch("src.core.graph.geo_scout_node", side_effect=patches["src.core.graph.geo_scout_node"]), \
-         patch("src.core.graph.outreach_node", side_effect=patches["src.core.graph.outreach_node"]):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=patches["src.core.graph.geo_scout_node"]),
+        patch("src.core.graph.outreach_node", side_effect=patches["src.core.graph.outreach_node"]),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_pipeline_b_state())
 
@@ -228,9 +233,12 @@ async def test_pipeline_b_no_leads_found():
         outreach_called = True
         return state
 
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_no_leads), \
-         patch("src.core.graph.outreach_node", side_effect=tracking_outreach):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_no_leads),
+        patch("src.core.graph.outreach_node", side_effect=tracking_outreach),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_pipeline_b_state())
 
@@ -253,9 +261,12 @@ async def test_pipeline_b_geo_scout_failure():
         outreach_called = True
         return state
 
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_fails), \
-         patch("src.core.graph.outreach_node", side_effect=tracking_outreach):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_fails),
+        patch("src.core.graph.outreach_node", side_effect=tracking_outreach),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_pipeline_b_state())
 
@@ -266,9 +277,12 @@ async def test_pipeline_b_geo_scout_failure():
 
 async def test_pipeline_b_enrichment_failure():
     """Pipeline B: Enrichment waterfall fails for all leads -> outreach completes without HITL."""
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_finds_leads), \
-         patch("src.core.graph.outreach_node", side_effect=_outreach_no_enrichment):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_finds_leads),
+        patch("src.core.graph.outreach_node", side_effect=_outreach_no_enrichment),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_pipeline_b_state())
 
@@ -285,9 +299,12 @@ async def test_pipeline_b_enrichment_failure():
 
 async def test_pipeline_b_fallback_template():
     """Pipeline B: LLM fails but outreach uses fallback template -> HITL still requested."""
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_finds_leads), \
-         patch("src.core.graph.outreach_node", side_effect=_outreach_fallback_template):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_finds_leads),
+        patch("src.core.graph.outreach_node", side_effect=_outreach_fallback_template),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_pipeline_b_state())
 
@@ -310,9 +327,12 @@ async def test_pipeline_b_state_transitions():
         states_seen.append({"node": "outreach", "status": state["status"], "agent": state.get("current_agent")})
         return await _outreach_drafts_emails(state)
 
-    with patch("src.core.graph.geo_scout_node", side_effect=recording_geo_scout), \
-         patch("src.core.graph.outreach_node", side_effect=recording_outreach):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=recording_geo_scout),
+        patch("src.core.graph.outreach_node", side_effect=recording_outreach),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_pipeline_b_state())
 
@@ -333,9 +353,12 @@ async def test_pipeline_b_state_transitions():
 
 async def test_pipeline_b_artifacts_accumulate():
     """Pipeline B: Artifacts from both agents are preserved through the pipeline."""
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_finds_leads), \
-         patch("src.core.graph.outreach_node", side_effect=_outreach_drafts_emails):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_finds_leads),
+        patch("src.core.graph.outreach_node", side_effect=_outreach_drafts_emails),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_pipeline_b_state())
 

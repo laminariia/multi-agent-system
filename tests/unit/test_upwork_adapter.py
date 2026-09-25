@@ -2,6 +2,7 @@
 
 All Playwright interactions are mocked — no real browser is launched.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -19,6 +20,7 @@ from src.core.exceptions import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_element(inner_text: str = "", href: str = "") -> AsyncMock:
     """Create a mock Playwright element handle."""
@@ -75,6 +77,7 @@ def _mock_page(
 
 def _card_query_selector(data: dict[str, Any]):
     """Return a side_effect function for a card's query_selector."""
+
     async def _qs(selector: str) -> AsyncMock | None:
         if "title" in selector.lower() or "h2" in selector or "h3" in selector:
             return _mock_element(data.get("title", "Test Job"), data.get("href", "/jobs/~01abc"))
@@ -87,6 +90,7 @@ def _card_query_selector(data: dict[str, Any]):
         if "token" in selector.lower() or "Skill" in selector.lower():
             return None
         return None
+
     return _qs
 
 
@@ -101,6 +105,7 @@ def _mock_pool(page: AsyncMock) -> AsyncMock:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestUpworkClientGuard:
     """Verify that UpworkClient cannot submit bids."""
@@ -121,8 +126,10 @@ class TestUpworkFetchJobs:
     async def test_fetch_jobs_returns_normalised_jobs(self) -> None:
         cards = [
             {
-                "title": "React Developer Needed", "href": "/jobs/~01abc123",
-                "description": "Build UI", "budget": "$500 - $1,000",
+                "title": "React Developer Needed",
+                "href": "/jobs/~01abc123",
+                "description": "Build UI",
+                "budget": "$500 - $1,000",
             },
             {"title": "Python Backend", "href": "/jobs/~02def456", "description": "API work", "budget": "$2,000"},
         ]

@@ -7,6 +7,7 @@ Tests the JobController endpoints at ``/api/v1/jobs``:
 
 We test route handlers directly via ``.fn()`` to avoid needing a full app instance.
 """
+
 from __future__ import annotations
 
 import uuid

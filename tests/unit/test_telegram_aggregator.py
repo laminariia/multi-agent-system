@@ -371,7 +371,7 @@ class TestAggregateMessages:
             None
         ]
         mock_valkey.rpop = AsyncMock(side_effect=messages)
-        profiles = await aggregator.aggregate_messages()
+        await aggregator.aggregate_messages()
         # Total messages popped should not exceed batch_size
         assert mock_valkey.rpop.call_count <= batch_size + 1  # +1 for the None sentinel
 

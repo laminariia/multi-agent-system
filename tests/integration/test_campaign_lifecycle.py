@@ -50,11 +50,13 @@ def _make_campaign_state(
         budget=0.0,
         deadline=datetime.now(tz=UTC),
     )
-    state = dict(create_initial_state(
-        project=project,
-        first_agent="geoscout",
-        thread_id=f"thread-camp-{uuid.uuid4().hex[:8]}",
-    ))
+    state = dict(
+        create_initial_state(
+            project=project,
+            first_agent="geoscout",
+            thread_id=f"thread-camp-{uuid.uuid4().hex[:8]}",
+        )
+    )
     cid = campaign_id or str(uuid.uuid4())
     state["artifacts"] = {
         "_scan_city": city,
@@ -90,13 +92,19 @@ async def test_campaign_lifecycle_create_to_hitl():
     async def _geo_scout_ok(state: dict[str, Any]) -> dict[str, Any]:
         artifacts = dict(state.get("artifacts") or {})
         artifacts["_geo_scan_results"] = {
-            "city": "Berlin", "hexagons_total": 10, "hexagons_scanned": 10,
-            "leads_found": 5, "leads_stored": 5,
+            "city": "Berlin",
+            "hexagons_total": 10,
+            "hexagons_scanned": 10,
+            "leads_found": 5,
+            "leads_stored": 5,
         }
         return {
-            **state, "artifacts": artifacts,
-            "next_agent": "outreach", "current_agent": "geoscout",
-            "status": "active", "requires_hitl": False,
+            **state,
+            "artifacts": artifacts,
+            "next_agent": "outreach",
+            "current_agent": "geoscout",
+            "status": "active",
+            "requires_hitl": False,
         }
 
     async def _outreach_creates_campaign(state: dict[str, Any]) -> dict[str, Any]:
@@ -104,20 +112,29 @@ async def test_campaign_lifecycle_create_to_hitl():
         cid = str(uuid.uuid4())
         artifacts["campaign_id"] = cid
         artifacts["_outreach_results"] = {
-            "city": "Berlin", "leads_processed": 5, "enriched": 3,
-            "emails_drafted": 3, "enrichment_cost": 0.15,
+            "city": "Berlin",
+            "leads_processed": 5,
+            "enriched": 3,
+            "emails_drafted": 3,
+            "enrichment_cost": 0.15,
         }
         artifacts["_outreach_hitl_id"] = str(uuid.uuid4())
         return {
-            **state, "artifacts": artifacts,
+            **state,
+            "artifacts": artifacts,
             "requires_hitl": True,
             "hitl_request_id": artifacts["_outreach_hitl_id"],
-            "current_agent": "outreach", "status": "paused", "next_agent": None,
+            "current_agent": "outreach",
+            "status": "paused",
+            "next_agent": None,
         }
 
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_ok), \
-         patch("src.core.graph.outreach_node", side_effect=_outreach_creates_campaign):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_ok),
+        patch("src.core.graph.outreach_node", side_effect=_outreach_creates_campaign),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_campaign_state(emails_drafted=0))
 
@@ -133,8 +150,10 @@ async def test_campaign_lifecycle_approve_and_send():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["_geo_scan_results"] = {"city": "Berlin", "leads_found": 5}
         return {
-            **state, "artifacts": artifacts,
-            "next_agent": "outreach", "current_agent": "geoscout",
+            **state,
+            "artifacts": artifacts,
+            "next_agent": "outreach",
+            "current_agent": "geoscout",
             "status": "active",
         }
 
@@ -144,8 +163,10 @@ async def test_campaign_lifecycle_approve_and_send():
         artifacts["_outreach_results"] = {"emails_drafted": 5}
         artifacts["_outreach_hitl_id"] = str(uuid.uuid4())
         return {
-            **state, "artifacts": artifacts,
-            "requires_hitl": True, "current_agent": "outreach",
+            **state,
+            "artifacts": artifacts,
+            "requires_hitl": True,
+            "current_agent": "outreach",
             "status": "paused",
         }
 
@@ -153,8 +174,10 @@ async def test_campaign_lifecycle_approve_and_send():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["emails_approved"] = True
         return {
-            **state, "artifacts": artifacts,
-            "requires_hitl": False, "status": "active",
+            **state,
+            "artifacts": artifacts,
+            "requires_hitl": False,
+            "status": "active",
             "current_agent": "hitl_outreach",
         }
 
@@ -162,16 +185,21 @@ async def test_campaign_lifecycle_approve_and_send():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["email_send_result"] = {"sent": 5, "failed": 0}
         return {
-            **state, "artifacts": artifacts,
+            **state,
+            "artifacts": artifacts,
             "current_agent": "message_dispatch",
-            "status": "completed", "next_agent": None,
+            "status": "completed",
+            "next_agent": None,
         }
 
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_ok), \
-         patch("src.core.graph.outreach_node", side_effect=_outreach_ok), \
-         patch("src.core.graph.hitl_outreach_node", side_effect=_hitl_approves), \
-         patch("src.core.graph.message_dispatch_node", side_effect=_dispatch_sends):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_ok),
+        patch("src.core.graph.outreach_node", side_effect=_outreach_ok),
+        patch("src.core.graph.hitl_outreach_node", side_effect=_hitl_approves),
+        patch("src.core.graph.message_dispatch_node", side_effect=_dispatch_sends),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_campaign_state())
 
@@ -186,8 +214,10 @@ async def test_campaign_lifecycle_reject_ends():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["_geo_scan_results"] = {"city": "Berlin", "leads_found": 5}
         return {
-            **state, "artifacts": artifacts,
-            "next_agent": "outreach", "current_agent": "geoscout",
+            **state,
+            "artifacts": artifacts,
+            "next_agent": "outreach",
+            "current_agent": "geoscout",
             "status": "active",
         }
 
@@ -196,23 +226,29 @@ async def test_campaign_lifecycle_reject_ends():
         artifacts["campaign_id"] = str(uuid.uuid4())
         artifacts["_outreach_results"] = {"emails_drafted": 5}
         return {
-            **state, "artifacts": artifacts,
-            "requires_hitl": True, "current_agent": "outreach",
+            **state,
+            "artifacts": artifacts,
+            "requires_hitl": True,
+            "current_agent": "outreach",
             "status": "paused",
         }
 
     async def _hitl_rejects(state: dict[str, Any]) -> dict[str, Any]:
         return {
             **state,
-            "requires_hitl": False, "status": "failed",
+            "requires_hitl": False,
+            "status": "failed",
             "current_agent": "hitl_outreach",
             "errors": [*state.get("errors", []), "HITL: outreach messages rejected"],
         }
 
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_ok), \
-         patch("src.core.graph.outreach_node", side_effect=_outreach_ok), \
-         patch("src.core.graph.hitl_outreach_node", side_effect=_hitl_rejects):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_ok),
+        patch("src.core.graph.outreach_node", side_effect=_outreach_ok),
+        patch("src.core.graph.hitl_outreach_node", side_effect=_hitl_rejects),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_campaign_state())
 
@@ -231,21 +267,29 @@ async def test_campaign_zero_leads_no_hitl():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["_geo_scan_results"] = {"city": "Berlin", "leads_found": 5}
         return {
-            **state, "artifacts": artifacts,
-            "next_agent": "outreach", "current_agent": "geoscout",
+            **state,
+            "artifacts": artifacts,
+            "next_agent": "outreach",
+            "current_agent": "geoscout",
             "status": "active",
         }
 
     async def _outreach_no_enrichment(state: dict[str, Any]) -> dict[str, Any]:
         artifacts = dict(state.get("artifacts") or {})
         artifacts["_outreach_results"] = {
-            "city": "Berlin", "leads_processed": 5,
-            "enriched": 0, "emails_drafted": 0, "enrichment_cost": 0.25,
+            "city": "Berlin",
+            "leads_processed": 5,
+            "enriched": 0,
+            "emails_drafted": 0,
+            "enrichment_cost": 0.25,
         }
         return {
-            **state, "artifacts": artifacts,
-            "requires_hitl": False, "current_agent": "outreach",
-            "status": "completed", "next_agent": None,
+            **state,
+            "artifacts": artifacts,
+            "requires_hitl": False,
+            "current_agent": "outreach",
+            "status": "completed",
+            "next_agent": None,
         }
 
     hitl_called = False
@@ -255,10 +299,13 @@ async def test_campaign_zero_leads_no_hitl():
         hitl_called = True
         return state
 
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_ok), \
-         patch("src.core.graph.outreach_node", side_effect=_outreach_no_enrichment), \
-         patch("src.core.graph.hitl_outreach_node", side_effect=_tracking_hitl):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_ok),
+        patch("src.core.graph.outreach_node", side_effect=_outreach_no_enrichment),
+        patch("src.core.graph.hitl_outreach_node", side_effect=_tracking_hitl),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_campaign_state(emails_drafted=0))
 
@@ -281,8 +328,10 @@ async def test_campaign_status_draft_to_active_to_completed():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["_geo_scan_results"] = {"city": "Berlin"}
         return {
-            **state, "artifacts": artifacts,
-            "next_agent": "outreach", "current_agent": "geoscout",
+            **state,
+            "artifacts": artifacts,
+            "next_agent": "outreach",
+            "current_agent": "geoscout",
             "status": "active",
         }
 
@@ -292,8 +341,10 @@ async def test_campaign_status_draft_to_active_to_completed():
         artifacts["campaign_id"] = str(uuid.uuid4())
         artifacts["_outreach_results"] = {"emails_drafted": 3}
         return {
-            **state, "artifacts": artifacts,
-            "requires_hitl": True, "current_agent": "outreach",
+            **state,
+            "artifacts": artifacts,
+            "requires_hitl": True,
+            "current_agent": "outreach",
             "status": "paused",
         }
 
@@ -302,8 +353,10 @@ async def test_campaign_status_draft_to_active_to_completed():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["emails_approved"] = True
         return {
-            **state, "artifacts": artifacts,
-            "requires_hitl": False, "status": "active",
+            **state,
+            "artifacts": artifacts,
+            "requires_hitl": False,
+            "status": "active",
             "current_agent": "hitl_outreach",
         }
 
@@ -312,16 +365,20 @@ async def test_campaign_status_draft_to_active_to_completed():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["email_send_result"] = {"sent": 3, "failed": 0}
         return {
-            **state, "artifacts": artifacts,
+            **state,
+            "artifacts": artifacts,
             "current_agent": "message_dispatch",
             "status": "completed",
         }
 
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_ok), \
-         patch("src.core.graph.outreach_node", side_effect=_outreach_ok), \
-         patch("src.core.graph.hitl_outreach_node", side_effect=_hitl_approves), \
-         patch("src.core.graph.message_dispatch_node", side_effect=_dispatch_sends):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_ok),
+        patch("src.core.graph.outreach_node", side_effect=_outreach_ok),
+        patch("src.core.graph.hitl_outreach_node", side_effect=_hitl_approves),
+        patch("src.core.graph.message_dispatch_node", side_effect=_dispatch_sends),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_campaign_state())
 
@@ -346,6 +403,7 @@ async def test_route_after_outreach_end_when_no_emails():
     """_route_after_outreach routes to END when no HITL needed."""
     state = {"status": "completed", "requires_hitl": False}
     from langgraph.graph import END
+
     assert _route_after_outreach(state) == END
 
 
@@ -353,6 +411,7 @@ async def test_route_after_outreach_end_on_failure():
     """_route_after_outreach routes to END on failure."""
     state = {"status": "failed"}
     from langgraph.graph import END
+
     assert _route_after_outreach(state) == END
 
 
@@ -365,6 +424,7 @@ async def test_route_after_hitl_outreach_send_when_approved():
 async def test_route_after_hitl_outreach_end_when_not_approved():
     """_route_after_hitl_outreach routes to END when not approved."""
     from langgraph.graph import END
+
     state = {"status": "active", "artifacts": {}}
     assert _route_after_hitl_outreach(state) == END
 
@@ -372,6 +432,7 @@ async def test_route_after_hitl_outreach_end_when_not_approved():
 async def test_route_after_hitl_outreach_end_on_failure():
     """_route_after_hitl_outreach routes to END on failure."""
     from langgraph.graph import END
+
     state = {"status": "failed"}
     assert _route_after_hitl_outreach(state) == END
 

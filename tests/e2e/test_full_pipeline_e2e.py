@@ -46,11 +46,13 @@ def _make_project() -> ProjectContext:
 
 def _make_initial_state(first_agent: str = "scout", thread_id: str | None = None) -> dict[str, Any]:
     """Build a fresh state dict for E2E tests."""
-    return dict(create_initial_state(
-        project=_make_project(),
-        first_agent=first_agent,
-        thread_id=thread_id or f"thread-e2e-{uuid.uuid4().hex[:8]}",
-    ))
+    return dict(
+        create_initial_state(
+            project=_make_project(),
+            first_agent=first_agent,
+            thread_id=thread_id or f"thread-e2e-{uuid.uuid4().hex[:8]}",
+        )
+    )
 
 
 async def _passthrough(state: dict[str, Any]) -> dict[str, Any]:
@@ -69,9 +71,16 @@ def _build_pipeline_graph(nodes: dict[str, _NodeFn] | None = None) -> CompiledSt
     graph = StateGraph(dict)
 
     for name in (
-        "scout_node", "bid_node", "hitl_bid_node", "planner_node",
-        "dev_node", "content_node", "design_node", "critic_node",
-        "packager_node", "hitl_review_node",
+        "scout_node",
+        "bid_node",
+        "hitl_bid_node",
+        "planner_node",
+        "dev_node",
+        "content_node",
+        "design_node",
+        "critic_node",
+        "packager_node",
+        "hitl_review_node",
     ):
         graph.add_node(name, overrides.get(name, _passthrough))
 
@@ -162,7 +171,9 @@ def _build_pipeline_graph(nodes: dict[str, _NodeFn] | None = None) -> CompiledSt
         {"packager_node": "packager_node", "hitl_review_node": "hitl_review_node", "dev_node": "dev_node", END: END},
     )
     graph.add_conditional_edges(
-        "packager_node", route_after_packager, {"hitl_review_node": "hitl_review_node", END: END},
+        "packager_node",
+        route_after_packager,
+        {"hitl_review_node": "hitl_review_node", END: END},
     )
     graph.add_conditional_edges("hitl_review_node", route_after_hitl_review, {END: END})
 
@@ -175,44 +186,56 @@ def _build_pipeline_graph(nodes: dict[str, _NodeFn] | None = None) -> CompiledSt
 
 _SCOUT_ARTIFACTS = ["job-e2e-1"]
 _BID_ARTIFACTS = ["bid-e2e-1"]
-_PLAN_JSON = json.dumps({
-    "tasks": [
-        {"id": "t1", "title": "Create React project structure", "type": "code", "estimated_hours": 1},
-        {"id": "t2", "title": "Build hero component", "type": "code", "estimated_hours": 2},
-        {"id": "t3", "title": "Style with Tailwind CSS", "type": "code", "estimated_hours": 1},
-    ],
-    "total_estimated_hours": 4,
-    "phases": [{"name": "Build", "tasks": ["t1", "t2", "t3"]}],
-})
-_DEV_JSON = json.dumps({
-    "files": [
-        {"path": "src/App.tsx", "content": "export default function App() { return <div>Hello</div> }"},
-        {"path": "src/components/Hero.tsx", "content": "<section>Hero</section>"},
-    ],
-})
-_CONTENT_JSON = json.dumps({
-    "deliverables": [
-        {"type": "heading", "content": "Welcome to our platform"},
-        {"type": "body", "content": "We provide the best solutions..."},
-    ],
-})
-_DESIGN_JSON = json.dumps({
-    "specs": [
-        {"component": "hero", "colors": {"primary": "#3B82F6", "secondary": "#1E40AF"}},
-        {"component": "features", "layout": "grid-3-cols"},
-    ],
-})
+_PLAN_JSON = json.dumps(
+    {
+        "tasks": [
+            {"id": "t1", "title": "Create React project structure", "type": "code", "estimated_hours": 1},
+            {"id": "t2", "title": "Build hero component", "type": "code", "estimated_hours": 2},
+            {"id": "t3", "title": "Style with Tailwind CSS", "type": "code", "estimated_hours": 1},
+        ],
+        "total_estimated_hours": 4,
+        "phases": [{"name": "Build", "tasks": ["t1", "t2", "t3"]}],
+    }
+)
+_DEV_JSON = json.dumps(
+    {
+        "files": [
+            {"path": "src/App.tsx", "content": "export default function App() { return <div>Hello</div> }"},
+            {"path": "src/components/Hero.tsx", "content": "<section>Hero</section>"},
+        ],
+    }
+)
+_CONTENT_JSON = json.dumps(
+    {
+        "deliverables": [
+            {"type": "heading", "content": "Welcome to our platform"},
+            {"type": "body", "content": "We provide the best solutions..."},
+        ],
+    }
+)
+_DESIGN_JSON = json.dumps(
+    {
+        "specs": [
+            {"component": "hero", "colors": {"primary": "#3B82F6", "secondary": "#1E40AF"}},
+            {"component": "features", "layout": "grid-3-cols"},
+        ],
+    }
+)
 _CRITIC_APPROVE_JSON = json.dumps({"verdict": "APPROVE", "score": 0.91, "feedback": "Good quality work."})
-_CRITIC_REVISE_JSON = json.dumps({
-    "verdict": "REVISE",
-    "score": 0.65,
-    "feedback": "Hero section needs improvement.",
-    "issues": [{"severity": "medium", "description": "Missing responsive breakpoints"}],
-})
-_PACKAGER_JSON = json.dumps({
-    "archive_url": "https://storage.example.com/e2e-delivery.zip",
-    "deliverables": ["src/App.tsx", "src/components/Hero.tsx"],
-})
+_CRITIC_REVISE_JSON = json.dumps(
+    {
+        "verdict": "REVISE",
+        "score": 0.65,
+        "feedback": "Hero section needs improvement.",
+        "issues": [{"severity": "medium", "description": "Missing responsive breakpoints"}],
+    }
+)
+_PACKAGER_JSON = json.dumps(
+    {
+        "archive_url": "https://storage.example.com/e2e-delivery.zip",
+        "deliverables": ["src/App.tsx", "src/components/Hero.tsx"],
+    }
+)
 
 # All 8 agent names that produce artifacts in the happy path.
 _ALL_AGENT_NAMES = ("scout", "bid", "planner", "dev", "content", "design", "critic", "packager")
@@ -272,7 +295,11 @@ async def test_e2e_happy_path_scout_to_delivery():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["content"] = [_CONTENT_JSON]
         return {
-            **state, "next_agent": "design", "current_agent": "content", "status": "active", "artifacts": artifacts,
+            **state,
+            "next_agent": "design",
+            "current_agent": "content",
+            "status": "active",
+            "artifacts": artifacts,
         }
 
     async def mock_design(state: dict[str, Any]) -> dict[str, Any]:
@@ -308,18 +335,20 @@ async def test_e2e_happy_path_scout_to_delivery():
     async def mock_hitl_review(state: dict[str, Any]) -> dict[str, Any]:
         return state
 
-    graph = _build_pipeline_graph({
-        "scout_node": mock_scout,
-        "bid_node": mock_bid,
-        "hitl_bid_node": mock_hitl_bid,
-        "planner_node": mock_planner,
-        "dev_node": mock_dev,
-        "content_node": mock_content,
-        "design_node": mock_design,
-        "critic_node": mock_critic,
-        "packager_node": mock_packager,
-        "hitl_review_node": mock_hitl_review,
-    })
+    graph = _build_pipeline_graph(
+        {
+            "scout_node": mock_scout,
+            "bid_node": mock_bid,
+            "hitl_bid_node": mock_hitl_bid,
+            "planner_node": mock_planner,
+            "dev_node": mock_dev,
+            "content_node": mock_content,
+            "design_node": mock_design,
+            "critic_node": mock_critic,
+            "packager_node": mock_packager,
+            "hitl_review_node": mock_hitl_review,
+        }
+    )
     result = await graph.ainvoke(_make_initial_state())
 
     # Status assertions
@@ -339,7 +368,9 @@ async def test_e2e_happy_path_scout_to_delivery():
     assert result["artifacts"]["bid"] == _BID_ARTIFACTS
     assert json.loads(result["artifacts"]["planner"][0])["total_estimated_hours"] == 4
     assert json.loads(result["artifacts"]["critic"][0])["verdict"] == "APPROVE"
-    assert json.loads(result["artifacts"]["packager"][0])["archive_url"] == "https://storage.example.com/e2e-delivery.zip"
+    assert (
+        json.loads(result["artifacts"]["packager"][0])["archive_url"] == "https://storage.example.com/e2e-delivery.zip"
+    )
 
 
 async def test_e2e_critic_revision_then_approve():
@@ -360,8 +391,12 @@ async def test_e2e_critic_revision_then_approve():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["bid"] = _BID_ARTIFACTS
         return {
-            **state, "requires_hitl": True, "status": "paused", "current_agent": "bid",
-            "next_agent": None, "artifacts": artifacts,
+            **state,
+            "requires_hitl": True,
+            "status": "paused",
+            "current_agent": "bid",
+            "next_agent": None,
+            "artifacts": artifacts,
         }
 
     async def mock_hitl_bid(state: dict[str, Any]) -> dict[str, Any]:
@@ -383,7 +418,11 @@ async def test_e2e_critic_revision_then_approve():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["content"] = [_CONTENT_JSON]
         return {
-            **state, "next_agent": "design", "current_agent": "content", "status": "active", "artifacts": artifacts,
+            **state,
+            "next_agent": "design",
+            "current_agent": "content",
+            "status": "active",
+            "artifacts": artifacts,
         }
 
     async def mock_design(state: dict[str, Any]) -> dict[str, Any]:
@@ -399,39 +438,54 @@ async def test_e2e_critic_revision_then_approve():
             # First call: REVISE
             artifacts["critic"] = [_CRITIC_REVISE_JSON]
             return {
-                **state, "next_agent": "dev", "current_agent": "critic", "status": "active",
-                "requires_hitl": False, "artifacts": artifacts,
+                **state,
+                "next_agent": "dev",
+                "current_agent": "critic",
+                "status": "active",
+                "requires_hitl": False,
+                "artifacts": artifacts,
             }
         # Second call: APPROVE
         artifacts["critic"] = [_CRITIC_APPROVE_JSON]
         return {
-            **state, "next_agent": "packager", "current_agent": "critic", "status": "active",
-            "requires_hitl": False, "artifacts": artifacts,
+            **state,
+            "next_agent": "packager",
+            "current_agent": "critic",
+            "status": "active",
+            "requires_hitl": False,
+            "artifacts": artifacts,
         }
 
     async def mock_packager(state: dict[str, Any]) -> dict[str, Any]:
         artifacts = dict(state.get("artifacts") or {})
         artifacts["packager"] = [_PACKAGER_JSON]
         return {
-            **state, "requires_hitl": True, "hitl_request_id": "hitl-review-e2e-002",
-            "status": "paused", "current_agent": "packager", "next_agent": None, "artifacts": artifacts,
+            **state,
+            "requires_hitl": True,
+            "hitl_request_id": "hitl-review-e2e-002",
+            "status": "paused",
+            "current_agent": "packager",
+            "next_agent": None,
+            "artifacts": artifacts,
         }
 
     async def mock_hitl_review(state: dict[str, Any]) -> dict[str, Any]:
         return state
 
-    graph = _build_pipeline_graph({
-        "scout_node": mock_scout,
-        "bid_node": mock_bid,
-        "hitl_bid_node": mock_hitl_bid,
-        "planner_node": mock_planner,
-        "dev_node": mock_dev,
-        "content_node": mock_content,
-        "design_node": mock_design,
-        "critic_node": mock_critic,
-        "packager_node": mock_packager,
-        "hitl_review_node": mock_hitl_review,
-    })
+    graph = _build_pipeline_graph(
+        {
+            "scout_node": mock_scout,
+            "bid_node": mock_bid,
+            "hitl_bid_node": mock_hitl_bid,
+            "planner_node": mock_planner,
+            "dev_node": mock_dev,
+            "content_node": mock_content,
+            "design_node": mock_design,
+            "critic_node": mock_critic,
+            "packager_node": mock_packager,
+            "hitl_review_node": mock_hitl_review,
+        }
+    )
     result = await graph.ainvoke(_make_initial_state())
 
     # Final state
@@ -469,8 +523,13 @@ async def test_e2e_hitl_bid_rejection_ends_pipeline():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["bid"] = _BID_ARTIFACTS
         return {
-            **state, "requires_hitl": True, "hitl_request_id": "hitl-bid-e2e-reject",
-            "status": "paused", "current_agent": "bid", "next_agent": None, "artifacts": artifacts,
+            **state,
+            "requires_hitl": True,
+            "hitl_request_id": "hitl-bid-e2e-reject",
+            "status": "paused",
+            "current_agent": "bid",
+            "next_agent": None,
+            "artifacts": artifacts,
         }
 
     async def mock_hitl_bid(state: dict[str, Any]) -> dict[str, Any]:
@@ -487,13 +546,15 @@ async def test_e2e_hitl_bid_rejection_ends_pipeline():
         dev_called = True
         return state
 
-    graph = _build_pipeline_graph({
-        "scout_node": mock_scout,
-        "bid_node": mock_bid,
-        "hitl_bid_node": mock_hitl_bid,
-        "planner_node": mock_planner,
-        "dev_node": mock_dev,
-    })
+    graph = _build_pipeline_graph(
+        {
+            "scout_node": mock_scout,
+            "bid_node": mock_bid,
+            "hitl_bid_node": mock_hitl_bid,
+            "planner_node": mock_planner,
+            "dev_node": mock_dev,
+        }
+    )
     result = await graph.ainvoke(_make_initial_state())
 
     assert result["status"] == "paused"
@@ -515,8 +576,11 @@ async def test_e2e_scout_empty_results_no_bid():
 
     async def mock_scout(state: dict[str, Any]) -> dict[str, Any]:
         return {
-            **state, "next_agent": None, "current_agent": "scout",
-            "status": "active", "artifacts": {},
+            **state,
+            "next_agent": None,
+            "current_agent": "scout",
+            "status": "active",
+            "artifacts": {},
         }
 
     async def mock_bid(state: dict[str, Any]) -> dict[str, Any]:
@@ -529,11 +593,13 @@ async def test_e2e_scout_empty_results_no_bid():
         planner_called = True
         return state
 
-    graph = _build_pipeline_graph({
-        "scout_node": mock_scout,
-        "bid_node": mock_bid,
-        "planner_node": mock_planner,
-    })
+    graph = _build_pipeline_graph(
+        {
+            "scout_node": mock_scout,
+            "bid_node": mock_bid,
+            "planner_node": mock_planner,
+        }
+    )
     result = await graph.ainvoke(_make_initial_state())
 
     assert result["status"] == "active"
@@ -559,8 +625,12 @@ async def test_e2e_all_artifacts_preserved_through_revision():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["bid"] = _BID_ARTIFACTS
         return {
-            **state, "requires_hitl": True, "status": "paused", "current_agent": "bid",
-            "next_agent": None, "artifacts": artifacts,
+            **state,
+            "requires_hitl": True,
+            "status": "paused",
+            "current_agent": "bid",
+            "next_agent": None,
+            "artifacts": artifacts,
         }
 
     async def mock_hitl_bid(state: dict[str, Any]) -> dict[str, Any]:
@@ -584,7 +654,11 @@ async def test_e2e_all_artifacts_preserved_through_revision():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["content"] = [_CONTENT_JSON]
         return {
-            **state, "next_agent": "design", "current_agent": "content", "status": "active", "artifacts": artifacts,
+            **state,
+            "next_agent": "design",
+            "current_agent": "content",
+            "status": "active",
+            "artifacts": artifacts,
         }
 
     async def mock_design(state: dict[str, Any]) -> dict[str, Any]:
@@ -598,41 +672,54 @@ async def test_e2e_all_artifacts_preserved_through_revision():
         if revision_count["value"] == 1:
             artifacts["critic"] = [_CRITIC_REVISE_JSON]
             return {
-                **state, "next_agent": "dev", "current_agent": "critic", "status": "active",
-                "requires_hitl": False, "artifacts": artifacts,
+                **state,
+                "next_agent": "dev",
+                "current_agent": "critic",
+                "status": "active",
+                "requires_hitl": False,
+                "artifacts": artifacts,
             }
         artifacts["critic"] = [_CRITIC_APPROVE_JSON]
         return {
-            **state, "next_agent": "packager", "current_agent": "critic", "status": "active",
-            "requires_hitl": False, "artifacts": artifacts,
+            **state,
+            "next_agent": "packager",
+            "current_agent": "critic",
+            "status": "active",
+            "requires_hitl": False,
+            "artifacts": artifacts,
         }
 
     async def mock_packager(state: dict[str, Any]) -> dict[str, Any]:
         artifacts = dict(state.get("artifacts") or {})
         artifacts["packager"] = [_PACKAGER_JSON]
         return {
-            **state, "requires_hitl": True, "status": "paused", "current_agent": "packager",
-            "next_agent": None, "artifacts": artifacts,
+            **state,
+            "requires_hitl": True,
+            "status": "paused",
+            "current_agent": "packager",
+            "next_agent": None,
+            "artifacts": artifacts,
         }
 
-    graph = _build_pipeline_graph({
-        "scout_node": mock_scout,
-        "bid_node": mock_bid,
-        "hitl_bid_node": mock_hitl_bid,
-        "planner_node": mock_planner,
-        "dev_node": mock_dev,
-        "content_node": mock_content,
-        "design_node": mock_design,
-        "critic_node": mock_critic,
-        "packager_node": mock_packager,
-    })
+    graph = _build_pipeline_graph(
+        {
+            "scout_node": mock_scout,
+            "bid_node": mock_bid,
+            "hitl_bid_node": mock_hitl_bid,
+            "planner_node": mock_planner,
+            "dev_node": mock_dev,
+            "content_node": mock_content,
+            "design_node": mock_design,
+            "critic_node": mock_critic,
+            "packager_node": mock_packager,
+        }
+    )
     result = await graph.ainvoke(_make_initial_state())
 
     # ALL eight agents must have artifacts in the final state
     for agent_name in _ALL_AGENT_NAMES:
         assert agent_name in result["artifacts"], (
-            f"Artifacts from '{agent_name}' missing after revision loop. "
-            f"Present: {list(result['artifacts'].keys())}"
+            f"Artifacts from '{agent_name}' missing after revision loop. Present: {list(result['artifacts'].keys())}"
         )
 
     # Early pipeline artifacts (scout, bid, planner) must survive the revision loop
@@ -665,8 +752,12 @@ async def test_e2e_multiple_revision_cycles():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["bid"] = _BID_ARTIFACTS
         return {
-            **state, "requires_hitl": True, "status": "paused", "current_agent": "bid",
-            "next_agent": None, "artifacts": artifacts,
+            **state,
+            "requires_hitl": True,
+            "status": "paused",
+            "current_agent": "bid",
+            "next_agent": None,
+            "artifacts": artifacts,
         }
 
     async def mock_hitl_bid(state: dict[str, Any]) -> dict[str, Any]:
@@ -689,7 +780,11 @@ async def test_e2e_multiple_revision_cycles():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["content"] = [_CONTENT_JSON]
         return {
-            **state, "next_agent": "design", "current_agent": "content", "status": "active", "artifacts": artifacts,
+            **state,
+            "next_agent": "design",
+            "current_agent": "content",
+            "status": "active",
+            "artifacts": artifacts,
         }
 
     async def mock_design(state: dict[str, Any]) -> dict[str, Any]:
@@ -705,14 +800,22 @@ async def test_e2e_multiple_revision_cycles():
             # First two calls: REVISE
             artifacts["critic"] = [_CRITIC_REVISE_JSON]
             return {
-                **state, "next_agent": "dev", "current_agent": "critic", "status": "active",
-                "requires_hitl": False, "artifacts": artifacts,
+                **state,
+                "next_agent": "dev",
+                "current_agent": "critic",
+                "status": "active",
+                "requires_hitl": False,
+                "artifacts": artifacts,
             }
         # Third call: APPROVE
         artifacts["critic"] = [_CRITIC_APPROVE_JSON]
         return {
-            **state, "next_agent": "packager", "current_agent": "critic", "status": "active",
-            "requires_hitl": False, "artifacts": artifacts,
+            **state,
+            "next_agent": "packager",
+            "current_agent": "critic",
+            "status": "active",
+            "requires_hitl": False,
+            "artifacts": artifacts,
         }
 
     async def mock_packager(state: dict[str, Any]) -> dict[str, Any]:
@@ -720,25 +823,32 @@ async def test_e2e_multiple_revision_cycles():
         artifacts = dict(state.get("artifacts") or {})
         artifacts["packager"] = [_PACKAGER_JSON]
         return {
-            **state, "requires_hitl": True, "hitl_request_id": "hitl-review-e2e-multi",
-            "status": "paused", "current_agent": "packager", "next_agent": None, "artifacts": artifacts,
+            **state,
+            "requires_hitl": True,
+            "hitl_request_id": "hitl-review-e2e-multi",
+            "status": "paused",
+            "current_agent": "packager",
+            "next_agent": None,
+            "artifacts": artifacts,
         }
 
     async def mock_hitl_review(state: dict[str, Any]) -> dict[str, Any]:
         return state
 
-    graph = _build_pipeline_graph({
-        "scout_node": mock_scout,
-        "bid_node": mock_bid,
-        "hitl_bid_node": mock_hitl_bid,
-        "planner_node": mock_planner,
-        "dev_node": mock_dev,
-        "content_node": mock_content,
-        "design_node": mock_design,
-        "critic_node": mock_critic,
-        "packager_node": mock_packager,
-        "hitl_review_node": mock_hitl_review,
-    })
+    graph = _build_pipeline_graph(
+        {
+            "scout_node": mock_scout,
+            "bid_node": mock_bid,
+            "hitl_bid_node": mock_hitl_bid,
+            "planner_node": mock_planner,
+            "dev_node": mock_dev,
+            "content_node": mock_content,
+            "design_node": mock_design,
+            "critic_node": mock_critic,
+            "packager_node": mock_packager,
+            "hitl_review_node": mock_hitl_review,
+        }
+    )
     result = await graph.ainvoke(_make_initial_state())
 
     # Final state

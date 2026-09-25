@@ -518,9 +518,7 @@ async def test_apollo_enricher_close_cleanup():
 @pytest.mark.asyncio
 async def test_waterfall_stops_at_osint():
     """Test waterfall stops at OSINT when email found (doesn't call Hunter/Apollo)."""
-    waterfall = EnrichmentWaterfall(
-        hunter_api_key="hunter_key", apollo_api_key="apollo_key"
-    )
+    waterfall = EnrichmentWaterfall(hunter_api_key="hunter_key", apollo_api_key="apollo_key")
 
     osint_result = EnrichmentResult(
         email="found@osint.com",
@@ -529,15 +527,9 @@ async def test_waterfall_stops_at_osint():
     )
 
     with (
-        patch.object(
-            waterfall._osint, "enrich", new_callable=AsyncMock, return_value=osint_result
-        ) as mock_osint,
-        patch.object(
-            waterfall._hunter, "enrich", new_callable=AsyncMock
-        ) as mock_hunter,
-        patch.object(
-            waterfall._apollo, "enrich", new_callable=AsyncMock
-        ) as mock_apollo,
+        patch.object(waterfall._osint, "enrich", new_callable=AsyncMock, return_value=osint_result) as mock_osint,
+        patch.object(waterfall._hunter, "enrich", new_callable=AsyncMock) as mock_hunter,
+        patch.object(waterfall._apollo, "enrich", new_callable=AsyncMock) as mock_apollo,
     ):
         result = await waterfall.enrich("Test Business", "New York", domain="test.com")
 
@@ -557,28 +549,20 @@ async def test_waterfall_stops_at_osint():
 @pytest.mark.asyncio
 async def test_waterfall_falls_through_to_hunter():
     """Test waterfall falls through to Hunter when OSINT fails."""
-    waterfall = EnrichmentWaterfall(
-        hunter_api_key="hunter_key", apollo_api_key="apollo_key"
-    )
+    waterfall = EnrichmentWaterfall(hunter_api_key="hunter_key", apollo_api_key="apollo_key")
 
     osint_result = EnrichmentResult(source="osint_duckduckgo", confidence=0.0)
-    hunter_result = EnrichmentResult(
-        email="found@hunter.com", source="hunter", confidence=0.8
-    )
+    hunter_result = EnrichmentResult(email="found@hunter.com", source="hunter", confidence=0.8)
 
     with (
-        patch.object(
-            waterfall._osint, "enrich", new_callable=AsyncMock, return_value=osint_result
-        ),
+        patch.object(waterfall._osint, "enrich", new_callable=AsyncMock, return_value=osint_result),
         patch.object(
             waterfall._hunter,
             "enrich",
             new_callable=AsyncMock,
             return_value=hunter_result,
         ) as mock_hunter,
-        patch.object(
-            waterfall._apollo, "enrich", new_callable=AsyncMock
-        ) as mock_apollo,
+        patch.object(waterfall._apollo, "enrich", new_callable=AsyncMock) as mock_apollo,
     ):
         result = await waterfall.enrich("Test Business", "New York", domain="test.com")
 
@@ -597,9 +581,7 @@ async def test_waterfall_falls_through_to_hunter():
 @pytest.mark.asyncio
 async def test_waterfall_falls_through_to_apollo():
     """Test waterfall falls through to Apollo when OSINT and Hunter fail."""
-    waterfall = EnrichmentWaterfall(
-        hunter_api_key="hunter_key", apollo_api_key="apollo_key"
-    )
+    waterfall = EnrichmentWaterfall(hunter_api_key="hunter_key", apollo_api_key="apollo_key")
 
     osint_result = EnrichmentResult(source="osint_duckduckgo", confidence=0.0)
     hunter_result = EnrichmentResult(source="hunter", confidence=0.0)
@@ -610,9 +592,7 @@ async def test_waterfall_falls_through_to_apollo():
     )
 
     with (
-        patch.object(
-            waterfall._osint, "enrich", new_callable=AsyncMock, return_value=osint_result
-        ),
+        patch.object(waterfall._osint, "enrich", new_callable=AsyncMock, return_value=osint_result),
         patch.object(
             waterfall._hunter,
             "enrich",
@@ -641,22 +621,14 @@ async def test_waterfall_falls_through_to_apollo():
 @pytest.mark.asyncio
 async def test_waterfall_all_sources_fail():
     """Test waterfall returns empty result when all sources fail."""
-    waterfall = EnrichmentWaterfall(
-        hunter_api_key="hunter_key", apollo_api_key="apollo_key"
-    )
+    waterfall = EnrichmentWaterfall(hunter_api_key="hunter_key", apollo_api_key="apollo_key")
 
     empty_result = EnrichmentResult(confidence=0.0)
 
     with (
-        patch.object(
-            waterfall._osint, "enrich", new_callable=AsyncMock, return_value=empty_result
-        ),
-        patch.object(
-            waterfall._hunter, "enrich", new_callable=AsyncMock, return_value=empty_result
-        ),
-        patch.object(
-            waterfall._apollo, "enrich", new_callable=AsyncMock, return_value=empty_result
-        ),
+        patch.object(waterfall._osint, "enrich", new_callable=AsyncMock, return_value=empty_result),
+        patch.object(waterfall._hunter, "enrich", new_callable=AsyncMock, return_value=empty_result),
+        patch.object(waterfall._apollo, "enrich", new_callable=AsyncMock, return_value=empty_result),
     ):
         result = await waterfall.enrich("Test Business", "New York", domain="test.com")
 
@@ -682,9 +654,7 @@ async def test_waterfall_skips_hunter_no_api_key():
     )
 
     with (
-        patch.object(
-            waterfall._osint, "enrich", new_callable=AsyncMock, return_value=osint_result
-        ),
+        patch.object(waterfall._osint, "enrich", new_callable=AsyncMock, return_value=osint_result),
         patch.object(
             waterfall._apollo,
             "enrich",
@@ -710,9 +680,7 @@ async def test_waterfall_skips_apollo_no_api_key():
     hunter_result = EnrichmentResult(source="hunter", confidence=0.0)
 
     with (
-        patch.object(
-            waterfall._osint, "enrich", new_callable=AsyncMock, return_value=osint_result
-        ),
+        patch.object(waterfall._osint, "enrich", new_callable=AsyncMock, return_value=osint_result),
         patch.object(
             waterfall._hunter,
             "enrich",
@@ -733,19 +701,13 @@ async def test_waterfall_skips_apollo_no_api_key():
 @pytest.mark.asyncio
 async def test_waterfall_total_cost_accumulation():
     """Test waterfall accumulates costs across multiple enrichment calls."""
-    waterfall = EnrichmentWaterfall(
-        hunter_api_key="hunter_key", apollo_api_key="apollo_key"
-    )
+    waterfall = EnrichmentWaterfall(hunter_api_key="hunter_key", apollo_api_key="apollo_key")
 
     osint_result = EnrichmentResult(source="osint_duckduckgo", confidence=0.0)
-    hunter_result = EnrichmentResult(
-        email="found@hunter.com", source="hunter", confidence=0.8
-    )
+    hunter_result = EnrichmentResult(email="found@hunter.com", source="hunter", confidence=0.8)
 
     with (
-        patch.object(
-            waterfall._osint, "enrich", new_callable=AsyncMock, return_value=osint_result
-        ),
+        patch.object(waterfall._osint, "enrich", new_callable=AsyncMock, return_value=osint_result),
         patch.object(
             waterfall._hunter,
             "enrich",
@@ -771,9 +733,7 @@ async def test_waterfall_total_cost_accumulation():
 @pytest.mark.asyncio
 async def test_waterfall_close_all_enrichers():
     """Test waterfall closes all HTTP clients."""
-    waterfall = EnrichmentWaterfall(
-        hunter_api_key="hunter_key", apollo_api_key="apollo_key"
-    )
+    waterfall = EnrichmentWaterfall(hunter_api_key="hunter_key", apollo_api_key="apollo_key")
 
     # Mock all close methods
     waterfall._osint.close = AsyncMock()

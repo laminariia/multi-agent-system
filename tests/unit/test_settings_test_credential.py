@@ -11,6 +11,7 @@ The ``_test_key`` static helper uses ``httpx.AsyncClient`` as a context
 manager, which is patched via ``httpx.AsyncClient`` in the ``settings``
 module namespace.
 """
+
 from __future__ import annotations
 
 import uuid

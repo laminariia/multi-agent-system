@@ -3,6 +3,7 @@
 Tests the ``src.security.encryption`` module: key derivation, round-trip
 encrypt/decrypt for dicts and credentials, masking helpers, and error paths.
 """
+
 from __future__ import annotations
 
 import base64

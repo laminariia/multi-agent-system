@@ -622,7 +622,6 @@ class PortfolioAgent(ConstrainedAgent):
         requirements = project.get("requirements", "Project")
         project_id = project.get("project_id", "unknown")
         delivery_msg = delivery_info.get("delivery_message", "")
-        includes = delivery_info.get("includes", [])
 
         title = requirements[:100] if requirements else f"Project {project_id}"
 

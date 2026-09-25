@@ -3,6 +3,7 @@
 Tests ``src.bot.__main__`` and ``src.cli.__main__`` — module execution,
 function calls, and error handling.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch

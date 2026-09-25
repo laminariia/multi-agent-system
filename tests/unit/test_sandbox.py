@@ -146,9 +146,7 @@ class TestDockerExecutor:
     @patch("src.sandbox.docker_executor.DockerExecutor._capture_logs")
     @patch("src.sandbox.docker_executor.DockerExecutor._get_exit_code")
     @patch("src.sandbox.docker_executor.DockerExecutor._cleanup_container")
-    async def test_execute_success(
-        self, mock_cleanup, mock_exit, mock_logs, mock_run
-    ):
+    async def test_execute_success(self, mock_cleanup, mock_exit, mock_logs, mock_run):
         mock_container = MagicMock()
         mock_run.return_value = (mock_container, False)
         mock_logs.return_value = ("Hello World\n", "")
@@ -175,9 +173,7 @@ class TestDockerExecutor:
     @patch("src.sandbox.docker_executor.DockerExecutor._capture_logs")
     @patch("src.sandbox.docker_executor.DockerExecutor._get_exit_code")
     @patch("src.sandbox.docker_executor.DockerExecutor._cleanup_container")
-    async def test_execute_timeout(
-        self, mock_cleanup, mock_exit, mock_logs, mock_run
-    ):
+    async def test_execute_timeout(self, mock_cleanup, mock_exit, mock_logs, mock_run):
         mock_container = MagicMock()
         mock_run.return_value = (mock_container, True)  # timed_out=True
         mock_logs.return_value = ("partial", "")
@@ -203,9 +199,7 @@ class TestDockerExecutor:
     @patch("src.sandbox.docker_executor.DockerExecutor._capture_logs")
     @patch("src.sandbox.docker_executor.DockerExecutor._get_exit_code")
     @patch("src.sandbox.docker_executor.DockerExecutor._cleanup_container")
-    async def test_execute_nonzero_exit(
-        self, mock_cleanup, mock_exit, mock_logs, mock_run
-    ):
+    async def test_execute_nonzero_exit(self, mock_cleanup, mock_exit, mock_logs, mock_run):
         mock_container = MagicMock()
         mock_run.return_value = (mock_container, False)
         mock_logs.return_value = ("", "NameError: name 'foo' is not defined\n")
@@ -306,9 +300,7 @@ class TestE2BExecutor:
             env.pop("E2B_API_KEY", None)
             with patch.dict(os.environ, env, clear=True):
                 executor = E2BExecutor(api_key="")
-                result = await executor.execute(
-                    files=[{"path": "main.py", "content": "print(1)"}]
-                )
+                result = await executor.execute(files=[{"path": "main.py", "content": "print(1)"}])
                 assert result.exit_code == 1
                 assert "API key" in result.stderr
 
@@ -455,16 +447,12 @@ class TestSandboxManager:
     async def test_execute_code_docker_success(self, mock_docker_check):
         mock_docker_check.return_value = None
 
-        mock_exec = AsyncMock(
-            return_value=ExecutionResult(stdout="OK", exit_code=0, duration_ms=100.0)
-        )
+        mock_exec = AsyncMock(return_value=ExecutionResult(stdout="OK", exit_code=0, duration_ms=100.0))
 
         mgr = SandboxManager()
 
         with patch.object(DockerExecutor, "execute", mock_exec):
-            result = await mgr.execute_code(
-                files=[{"path": "main.py", "content": "print('OK')"}]
-            )
+            result = await mgr.execute_code(files=[{"path": "main.py", "content": "print('OK')"}])
 
         assert result.success is True
         assert result.stdout == "OK"
@@ -474,17 +462,13 @@ class TestSandboxManager:
         # Docker is available but execution fails.
         mock_docker_check.return_value = None
         docker_exec = AsyncMock(side_effect=RuntimeError("Docker exploded"))
-        e2b_exec = AsyncMock(
-            return_value=ExecutionResult(stdout="e2b ok", exit_code=0, duration_ms=200.0)
-        )
+        e2b_exec = AsyncMock(return_value=ExecutionResult(stdout="e2b ok", exit_code=0, duration_ms=200.0))
 
         mgr = SandboxManager(prefer_docker=True, e2b_api_key="test-key")
 
         with patch.object(DockerExecutor, "execute", docker_exec):
             with patch.object(E2BExecutor, "execute", e2b_exec):
-                result = await mgr.execute_code(
-                    files=[{"path": "main.py", "content": "print(1)"}]
-                )
+                result = await mgr.execute_code(files=[{"path": "main.py", "content": "print(1)"}])
 
         assert result.success is True
         assert result.stdout == "e2b ok"
@@ -493,9 +477,7 @@ class TestSandboxManager:
         """Both Docker and E2B unavailable returns error result."""
         with patch("src.sandbox.manager.SandboxManager._check_docker_available", side_effect=RuntimeError("no docker")):
             mgr = SandboxManager(prefer_docker=True, e2b_api_key="")
-            result = await mgr.execute_code(
-                files=[{"path": "main.py", "content": "print(1)"}]
-            )
+            result = await mgr.execute_code(files=[{"path": "main.py", "content": "print(1)"}])
 
         assert result.success is False
         assert "No sandbox backend available" in result.stderr

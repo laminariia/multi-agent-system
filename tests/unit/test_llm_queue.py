@@ -297,9 +297,8 @@ class TestErrorPropagation:
 
     async def test_llm_error_propagated_to_caller(self) -> None:
         """LLM exceptions should propagate to the submit() caller."""
-        from src.core.llm_queue import LLMPriority, LLMRequestQueue
-
         from src.core.exceptions import LLMException
+        from src.core.llm_queue import LLMPriority, LLMRequestQueue
 
         mock_llm = AsyncMock()
         mock_llm.call = AsyncMock(side_effect=LLMException("all providers exhausted"))
@@ -314,9 +313,8 @@ class TestErrorPropagation:
 
     async def test_one_error_does_not_affect_other_requests(self) -> None:
         """A failed request should not prevent other requests from processing."""
-        from src.core.llm_queue import LLMPriority, LLMRequestQueue
-
         from src.core.exceptions import LLMException
+        from src.core.llm_queue import LLMPriority, LLMRequestQueue
 
         call_count = 0
 

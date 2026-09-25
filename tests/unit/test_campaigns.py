@@ -86,9 +86,11 @@ class TestGetCampaign:
         """Should return campaign details when found."""
         campaign = _make_campaign()
         db = AsyncMock()
-        db.execute = AsyncMock(return_value=MagicMock(
-            scalar_one_or_none=MagicMock(return_value=campaign),
-        ))
+        db.execute = AsyncMock(
+            return_value=MagicMock(
+                scalar_one_or_none=MagicMock(return_value=campaign),
+            )
+        )
 
         ctrl = CampaignController(owner=MagicMock())
         result = await ctrl.get_campaign.fn(ctrl, db_session=db, campaign_id=str(campaign.id))
@@ -99,9 +101,11 @@ class TestGetCampaign:
     async def test_raises_404_when_not_found(self) -> None:
         """Should raise 404 when campaign doesn't exist."""
         db = AsyncMock()
-        db.execute = AsyncMock(return_value=MagicMock(
-            scalar_one_or_none=MagicMock(return_value=None),
-        ))
+        db.execute = AsyncMock(
+            return_value=MagicMock(
+                scalar_one_or_none=MagicMock(return_value=None),
+            )
+        )
 
         with pytest.raises(HTTPException) as exc_info:
             await _get_campaign_or_404(db, str(uuid.uuid4()))
@@ -156,9 +160,11 @@ class TestUpdateCampaign:
         """Should update only provided fields."""
         campaign = _make_campaign()
         db = AsyncMock()
-        db.execute = AsyncMock(return_value=MagicMock(
-            scalar_one_or_none=MagicMock(return_value=campaign),
-        ))
+        db.execute = AsyncMock(
+            return_value=MagicMock(
+                scalar_one_or_none=MagicMock(return_value=campaign),
+            )
+        )
         db.flush = AsyncMock()
         db.refresh = AsyncMock()
 
@@ -181,9 +187,11 @@ class TestDeleteCampaign:
         """Should delete campaign and return confirmation."""
         campaign = _make_campaign()
         db = AsyncMock()
-        db.execute = AsyncMock(return_value=MagicMock(
-            scalar_one_or_none=MagicMock(return_value=campaign),
-        ))
+        db.execute = AsyncMock(
+            return_value=MagicMock(
+                scalar_one_or_none=MagicMock(return_value=campaign),
+            )
+        )
         db.delete = AsyncMock()
         db.flush = AsyncMock()
 
@@ -202,9 +210,11 @@ class TestStartCampaign:
         """Should reject starting an already active campaign."""
         campaign = _make_campaign(status="active")
         db = AsyncMock()
-        db.execute = AsyncMock(return_value=MagicMock(
-            scalar_one_or_none=MagicMock(return_value=campaign),
-        ))
+        db.execute = AsyncMock(
+            return_value=MagicMock(
+                scalar_one_or_none=MagicMock(return_value=campaign),
+            )
+        )
 
         ctrl = CampaignController(owner=MagicMock())
         with pytest.raises(HTTPException) as exc_info:

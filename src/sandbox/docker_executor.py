@@ -176,10 +176,7 @@ class DockerExecutor(SandboxExecutor):
             content = file_spec.get("content", "")
 
             # Sanitise: remove traversal segments and absolute prefixes.
-            safe_parts = [
-                p for p in Path(rel_path).parts
-                if p not in ("..", "/", "\\") and not p.endswith(":")
-            ]
+            safe_parts = [p for p in Path(rel_path).parts if p not in ("..", "/", "\\") and not p.endswith(":")]
             safe_path = Path(*safe_parts) if safe_parts else Path("main.py")
             target = base / safe_path
 
@@ -341,5 +338,3 @@ class DockerExecutor(SandboxExecutor):
                     created.append(rel)
 
         return created
-
-

@@ -43,54 +43,72 @@ def mock_llm_responses() -> dict[str, str]:
     Each value is a JSON string that the agent's ``_execute`` method would parse.
     """
     return {
-        "scout": json.dumps({
-            "jobs": [{"id": "job-e2e-1", "title": "Landing page needed", "budget": 750}],
-        }),
-        "bid": json.dumps({
-            "proposal": "I will build your landing page with React and Tailwind CSS...",
-            "price": 700,
-            "timeline_days": 5,
-        }),
-        "planner": json.dumps({
-            "tasks": [
-                {"id": "t1", "title": "Create React project structure", "type": "code", "estimated_hours": 1},
-                {"id": "t2", "title": "Build hero component", "type": "code", "estimated_hours": 2},
-                {"id": "t3", "title": "Style with Tailwind CSS", "type": "code", "estimated_hours": 1},
-            ],
-            "total_estimated_hours": 4,
-            "phases": [{"name": "Build", "tasks": ["t1", "t2", "t3"]}],
-        }),
-        "dev": json.dumps({
-            "files": [
-                {"path": "src/App.tsx", "content": "export default function App() { return <div>Hello</div> }"},
-                {"path": "src/components/Hero.tsx", "content": "<section>Hero</section>"},
-            ],
-        }),
-        "content": json.dumps({
-            "deliverables": [
-                {"type": "heading", "content": "Welcome to our platform"},
-                {"type": "body", "content": "We provide the best solutions..."},
-            ],
-        }),
-        "design": json.dumps({
-            "specs": [
-                {"component": "hero", "colors": {"primary": "#3B82F6", "secondary": "#1E40AF"}},
-                {"component": "features", "layout": "grid-3-cols"},
-            ],
-        }),
-        "critic_approve": json.dumps({
-            "verdict": "APPROVE",
-            "score": 0.91,
-            "feedback": "Good quality work.",
-        }),
-        "critic_revise": json.dumps({
-            "verdict": "REVISE",
-            "score": 0.65,
-            "feedback": "Hero section needs improvement.",
-            "issues": [{"severity": "medium", "description": "Missing responsive breakpoints"}],
-        }),
-        "packager": json.dumps({
-            "archive_url": "https://storage.example.com/e2e-delivery.zip",
-            "deliverables": ["src/App.tsx", "src/components/Hero.tsx"],
-        }),
+        "scout": json.dumps(
+            {
+                "jobs": [{"id": "job-e2e-1", "title": "Landing page needed", "budget": 750}],
+            }
+        ),
+        "bid": json.dumps(
+            {
+                "proposal": "I will build your landing page with React and Tailwind CSS...",
+                "price": 700,
+                "timeline_days": 5,
+            }
+        ),
+        "planner": json.dumps(
+            {
+                "tasks": [
+                    {"id": "t1", "title": "Create React project structure", "type": "code", "estimated_hours": 1},
+                    {"id": "t2", "title": "Build hero component", "type": "code", "estimated_hours": 2},
+                    {"id": "t3", "title": "Style with Tailwind CSS", "type": "code", "estimated_hours": 1},
+                ],
+                "total_estimated_hours": 4,
+                "phases": [{"name": "Build", "tasks": ["t1", "t2", "t3"]}],
+            }
+        ),
+        "dev": json.dumps(
+            {
+                "files": [
+                    {"path": "src/App.tsx", "content": "export default function App() { return <div>Hello</div> }"},
+                    {"path": "src/components/Hero.tsx", "content": "<section>Hero</section>"},
+                ],
+            }
+        ),
+        "content": json.dumps(
+            {
+                "deliverables": [
+                    {"type": "heading", "content": "Welcome to our platform"},
+                    {"type": "body", "content": "We provide the best solutions..."},
+                ],
+            }
+        ),
+        "design": json.dumps(
+            {
+                "specs": [
+                    {"component": "hero", "colors": {"primary": "#3B82F6", "secondary": "#1E40AF"}},
+                    {"component": "features", "layout": "grid-3-cols"},
+                ],
+            }
+        ),
+        "critic_approve": json.dumps(
+            {
+                "verdict": "APPROVE",
+                "score": 0.91,
+                "feedback": "Good quality work.",
+            }
+        ),
+        "critic_revise": json.dumps(
+            {
+                "verdict": "REVISE",
+                "score": 0.65,
+                "feedback": "Hero section needs improvement.",
+                "issues": [{"severity": "medium", "description": "Missing responsive breakpoints"}],
+            }
+        ),
+        "packager": json.dumps(
+            {
+                "archive_url": "https://storage.example.com/e2e-delivery.zip",
+                "deliverables": ["src/App.tsx", "src/components/Hero.tsx"],
+            }
+        ),
     }

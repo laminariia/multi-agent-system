@@ -125,9 +125,7 @@ class TestIngestDirectory:
     """Tests for KnowledgeIngestionPipeline.ingest_directory."""
 
     @pytest.mark.asyncio
-    async def test_ingest_directory_empty_dir_returns_zero(
-        self, mock_embedding_service, mock_db_pool, tmp_path: Path
-    ):
+    async def test_ingest_directory_empty_dir_returns_zero(self, mock_embedding_service, mock_db_pool, tmp_path: Path):
         """ingest_directory with empty dir returns 0."""
         from src.knowledge.ingestion import KnowledgeIngestionPipeline
 
@@ -145,9 +143,7 @@ class TestIngestDirectory:
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_ingest_directory_filters_by_extension(
-        self, mock_embedding_service, mock_db_pool, tmp_path: Path
-    ):
+    async def test_ingest_directory_filters_by_extension(self, mock_embedding_service, mock_db_pool, tmp_path: Path):
         """ingest_directory filters by supported extensions."""
         from src.knowledge.ingestion import KnowledgeIngestionPipeline
 
@@ -161,9 +157,7 @@ class TestIngestDirectory:
         assert result == 3
 
     @pytest.mark.asyncio
-    async def test_ingest_directory_skips_unsupported_files(
-        self, mock_embedding_service, mock_db_pool, tmp_path: Path
-    ):
+    async def test_ingest_directory_skips_unsupported_files(self, mock_embedding_service, mock_db_pool, tmp_path: Path):
         """ingest_directory skips unsupported file extensions."""
         from src.knowledge.ingestion import KnowledgeIngestionPipeline
 
@@ -192,9 +186,7 @@ class TestIngestDirectory:
             assert mock_ingest.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_ingest_directory_recursive_scan(
-        self, mock_embedding_service, mock_db_pool, tmp_path: Path
-    ):
+    async def test_ingest_directory_recursive_scan(self, mock_embedding_service, mock_db_pool, tmp_path: Path):
         """ingest_directory scans subdirectories recursively."""
         from src.knowledge.ingestion import KnowledgeIngestionPipeline
 
@@ -212,9 +204,7 @@ class TestIngestJsonFile:
     """Tests for KnowledgeIngestionPipeline._ingest_json_file."""
 
     @pytest.mark.asyncio
-    async def test_ingest_json_file_array_of_entries(
-        self, mock_embedding_service, mock_db_pool, tmp_path: Path
-    ):
+    async def test_ingest_json_file_array_of_entries(self, mock_embedding_service, mock_db_pool, tmp_path: Path):
         """_ingest_json_file handles array of entries."""
         from src.knowledge.ingestion import KnowledgeIngestionPipeline
 
@@ -245,9 +235,7 @@ class TestIngestJsonFile:
         assert result == 1
 
     @pytest.mark.asyncio
-    async def test_ingest_json_file_empty_content_skipped(
-        self, mock_embedding_service, mock_db_pool, tmp_path: Path
-    ):
+    async def test_ingest_json_file_empty_content_skipped(self, mock_embedding_service, mock_db_pool, tmp_path: Path):
         """_ingest_json_file skips entries with empty content."""
         from src.knowledge.ingestion import KnowledgeIngestionPipeline
 
@@ -267,9 +255,7 @@ class TestIngestJsonFile:
         assert result == 1
 
     @pytest.mark.asyncio
-    async def test_ingest_json_file_unexpected_root_type(
-        self, mock_embedding_service, mock_db_pool, tmp_path: Path
-    ):
+    async def test_ingest_json_file_unexpected_root_type(self, mock_embedding_service, mock_db_pool, tmp_path: Path):
         """_ingest_json_file handles unexpected root types."""
         from src.knowledge.ingestion import KnowledgeIngestionPipeline
 
@@ -341,9 +327,7 @@ class TestIngestTextFile:
         assert result == 1
 
     @pytest.mark.asyncio
-    async def test_ingest_text_file_empty_file_skipped(
-        self, mock_embedding_service, mock_db_pool, tmp_path: Path
-    ):
+    async def test_ingest_text_file_empty_file_skipped(self, mock_embedding_service, mock_db_pool, tmp_path: Path):
         """_ingest_text_file skips empty files."""
         from src.knowledge.ingestion import KnowledgeIngestionPipeline
 
@@ -355,9 +339,7 @@ class TestIngestTextFile:
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_ingest_text_file_whitespace_only_skipped(
-        self, mock_embedding_service, mock_db_pool, tmp_path: Path
-    ):
+    async def test_ingest_text_file_whitespace_only_skipped(self, mock_embedding_service, mock_db_pool, tmp_path: Path):
         """_ingest_text_file skips whitespace-only files."""
         from src.knowledge.ingestion import KnowledgeIngestionPipeline
 
@@ -403,9 +385,7 @@ class TestIngestTextFile:
             assert call_kwargs["title"] == "Another Test File"
 
     @pytest.mark.asyncio
-    async def test_ingest_text_file_title_mixed_separators(
-        self, mock_embedding_service, mock_db_pool, tmp_path: Path
-    ):
+    async def test_ingest_text_file_title_mixed_separators(self, mock_embedding_service, mock_db_pool, tmp_path: Path):
         """_ingest_text_file handles mixed underscores and hyphens."""
         from src.knowledge.ingestion import KnowledgeIngestionPipeline
 

@@ -171,7 +171,7 @@ class TestM8CriticRevisionEscalation:
             patch.object(agent, "_log_review_decision", new_callable=AsyncMock),
             patch.object(agent, "_create_hitl_escalation", side_effect=_capture_hitl_creation),
         ):
-            result = await agent._execute(state)
+            await agent._execute(state)
 
         # Verify the escalation was called with revision_escalation type
         assert "reason" in captured_hitl

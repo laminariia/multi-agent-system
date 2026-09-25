@@ -123,7 +123,9 @@ def _make_adaptation_response() -> str:
             "youdo": "Создан сайт-визитка ресторана с удобной формой записи.",
             "fiverr": "I developed a sleek restaurant landing page with online booking.",
             "freelancer": "Built a responsive restaurant landing page with a booking system.",
-            "telegram": "Новый проект: лендинг ресторана с бронированием.\n\nNew project: restaurant landing with booking.",
+            "telegram": (
+                "Новый проект: лендинг ресторана с бронированием.\n\nNew project: restaurant landing with booking."
+            ),
         }
     )
 
@@ -1195,7 +1197,6 @@ class TestEdgeCases:
             loop_detector=mock_loop_detector,
         )
         state = _build_state()
-        original_artifacts = dict(state.get("artifacts", {}))
 
         with (
             patch.object(agent, "_create_hitl_entry", new_callable=AsyncMock, return_value="hitl-immut"),

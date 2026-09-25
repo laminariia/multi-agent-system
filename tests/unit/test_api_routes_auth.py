@@ -75,9 +75,7 @@ class TestRegister:
                 added_user.id = uuid.uuid4()
                 added_user.created_at = datetime.now(UTC)
 
-        mock_session.execute = AsyncMock(
-            side_effect=[mock_duplicate_result, mock_count_result]
-        )
+        mock_session.execute = AsyncMock(side_effect=[mock_duplicate_result, mock_count_result])
         mock_session.add = MagicMock(side_effect=capture_add)
         mock_session.flush = AsyncMock(side_effect=populate_user)
 
@@ -91,9 +89,7 @@ class TestRegister:
             mock_access.return_value = "access_token_123"  # noqa: S105
             mock_refresh.return_value = "refresh_token_456"  # noqa: S105
 
-            response = await controller.register.fn(
-                controller, data=data, db_session=mock_session
-            )
+            response = await controller.register.fn(controller, data=data, db_session=mock_session)
 
         # Assertions
         assert isinstance(response, Response)
@@ -134,18 +130,14 @@ class TestRegister:
         mock_count_result = MagicMock()
         mock_count_result.scalar_one.return_value = 1
 
-        mock_session.execute = AsyncMock(
-            side_effect=[mock_duplicate_result, mock_count_result]
-        )
+        mock_session.execute = AsyncMock(side_effect=[mock_duplicate_result, mock_count_result])
         mock_session.add = MagicMock()
         mock_session.flush = AsyncMock()
 
         with patch("src.api.routes.auth.hash_password") as mock_hash:
             mock_hash.return_value = "$2b$12$hashed"  # noqa: S105
 
-            response = await controller.register.fn(
-                controller, data=data, db_session=mock_session
-            )
+            response = await controller.register.fn(controller, data=data, db_session=mock_session)
 
         # Assertions
         assert isinstance(response, Response)
@@ -235,9 +227,7 @@ class TestLogin:
             mock_access.return_value = "access_abc"  # noqa: S105
             mock_refresh.return_value = "refresh_xyz"  # noqa: S105
 
-            response = await controller.login.fn(
-                controller, data=data, db_session=mock_session
-            )
+            response = await controller.login.fn(controller, data=data, db_session=mock_session)
 
         # Assertions
         assert isinstance(response, LoginResponseSchema)
@@ -294,9 +284,7 @@ class TestLogin:
             mock_verify.return_value = False
 
             with pytest.raises(NotAuthorizedException) as exc_info:
-                await controller.login.fn(
-                    controller, data=data, db_session=mock_session
-                )
+                await controller.login.fn(controller, data=data, db_session=mock_session)
 
         assert "Invalid email or password" in exc_info.value.detail
 
@@ -350,9 +338,7 @@ class TestLogin:
             mock_verify.return_value = True
 
             with pytest.raises(NotAuthorizedException) as exc_info:
-                await controller.login.fn(
-                    controller, data=data, db_session=mock_session
-                )
+                await controller.login.fn(controller, data=data, db_session=mock_session)
 
         assert "awaiting administrator approval" in exc_info.value.detail
 
@@ -381,9 +367,7 @@ class TestLogin:
             mock_verify.return_value = True
 
             with pytest.raises(NotAuthorizedException) as exc_info:
-                await controller.login.fn(
-                    controller, data=data, db_session=mock_session
-                )
+                await controller.login.fn(controller, data=data, db_session=mock_session)
 
         assert "not approved" in exc_info.value.detail
 
@@ -412,9 +396,7 @@ class TestLogin:
             mock_verify.return_value = True
 
             with pytest.raises(NotAuthorizedException) as exc_info:
-                await controller.login.fn(
-                    controller, data=data, db_session=mock_session
-                )
+                await controller.login.fn(controller, data=data, db_session=mock_session)
 
         assert "suspended" in exc_info.value.detail
 
@@ -465,9 +447,7 @@ class TestRefresh:
             mock_access.return_value = "new_access_token"  # noqa: S105
             mock_refresh.return_value = "new_refresh_token"  # noqa: S105
 
-            response = await controller.refresh.fn(
-                controller, data=data, db_session=mock_session
-            )
+            response = await controller.refresh.fn(controller, data=data, db_session=mock_session)
 
         # Assertions
         assert isinstance(response, TokenRefreshResponseSchema)
@@ -495,9 +475,7 @@ class TestRefresh:
             mock_decode.side_effect = Exception("Invalid token")
 
             with pytest.raises(NotAuthorizedException) as exc_info:
-                await controller.refresh.fn(
-                    controller, data=data, db_session=mock_session
-                )
+                await controller.refresh.fn(controller, data=data, db_session=mock_session)
 
         assert "Invalid or expired" in exc_info.value.detail
 
@@ -527,9 +505,7 @@ class TestRefresh:
             mock_decode.return_value = mock_token
 
             with pytest.raises(NotAuthorizedException) as exc_info:
-                await controller.refresh.fn(
-                    controller, data=data, db_session=mock_session
-                )
+                await controller.refresh.fn(controller, data=data, db_session=mock_session)
 
         assert "not a refresh token" in exc_info.value.detail
 
@@ -562,9 +538,7 @@ class TestRefresh:
             mock_decode.return_value = mock_token
 
             with pytest.raises(NotAuthorizedException) as exc_info:
-                await controller.refresh.fn(
-                    controller, data=data, db_session=mock_session
-                )
+                await controller.refresh.fn(controller, data=data, db_session=mock_session)
 
         assert "User not found" in exc_info.value.detail
 

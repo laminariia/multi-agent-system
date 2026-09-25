@@ -37,11 +37,13 @@ def _make_paused_email_state(
         budget=0.0,
         deadline=datetime.now(tz=UTC),
     )
-    state = dict(create_initial_state(
-        project=project,
-        first_agent="geoscout",
-        thread_id=thread_id or f"thread-hitl-{uuid.uuid4().hex[:8]}",
-    ))
+    state = dict(
+        create_initial_state(
+            project=project,
+            first_agent="geoscout",
+            thread_id=thread_id or f"thread-hitl-{uuid.uuid4().hex[:8]}",
+        )
+    )
     cid = campaign_id or str(uuid.uuid4())
     state["artifacts"] = {
         "_scan_city": "Berlin",

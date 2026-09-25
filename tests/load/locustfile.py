@@ -31,6 +31,7 @@ from locust import HttpUser, between, task
 # DashboardUser — simulates a human operator browsing the dashboard
 # ---------------------------------------------------------------------------
 
+
 class DashboardUser(HttpUser):
     """Simulates a human operator using the dashboard.
 
@@ -99,6 +100,7 @@ class DashboardUser(HttpUser):
 # APIConsumer — simulates a programmatic API consumer (bot, CLI)
 # ---------------------------------------------------------------------------
 
+
 class APIConsumer(HttpUser):
     """Simulates a programmatic API consumer (e.g., Telegram bot, CLI tool).
 
@@ -161,6 +163,7 @@ class APIConsumer(HttpUser):
 # ---------------------------------------------------------------------------
 # WebSocketUser — simulates a WebSocket connection for real-time updates
 # ---------------------------------------------------------------------------
+
 
 class WebSocketUser(HttpUser):
     """Simulates a WebSocket connection for real-time updates.

@@ -61,18 +61,20 @@ def parse_stats_csv(stats_path: Path) -> list[EndpointResult]:
             failures = int(row.get("Failure Count", 0) or 0)
             error_rate = (failures / requests * 100) if requests > 0 else 0
 
-            results.append(EndpointResult(
-                name=name,
-                requests=requests,
-                failures=failures,
-                median_ms=float(row.get("50%", 0) or 0),
-                p95_ms=float(row.get("95%", 0) or 0),
-                p99_ms=float(row.get("99%", 0) or 0),
-                avg_ms=float(row.get("Average Response Time", 0) or 0),
-                max_ms=float(row.get("Max Response Time", 0) or 0),
-                rps=float(row.get("Requests/s", 0) or 0),
-                error_rate=error_rate,
-            ))
+            results.append(
+                EndpointResult(
+                    name=name,
+                    requests=requests,
+                    failures=failures,
+                    median_ms=float(row.get("50%", 0) or 0),
+                    p95_ms=float(row.get("95%", 0) or 0),
+                    p99_ms=float(row.get("99%", 0) or 0),
+                    avg_ms=float(row.get("Average Response Time", 0) or 0),
+                    max_ms=float(row.get("Max Response Time", 0) or 0),
+                    rps=float(row.get("Requests/s", 0) or 0),
+                    error_rate=error_rate,
+                )
+            )
 
     return results
 
@@ -158,8 +160,7 @@ def validate(csv_prefix: str) -> bool:
     # 5. 5xx error check
     print(f"\n--- 5xx Errors (threshold: {MAX_5XX_COUNT}) ---")
     server_errors = [
-        f for f in failures
-        if any(code in str(f.get("Error", "")) for code in ("500", "502", "503", "504"))
+        f for f in failures if any(code in str(f.get("Error", "")) for code in ("500", "502", "503", "504"))
     ]
     if server_errors:
         all_passed = False

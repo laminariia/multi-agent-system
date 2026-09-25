@@ -2,6 +2,7 @@
 
 All browser launch, context, and session operations are mocked.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,6 +14,7 @@ from src.browser.pool import BrowserPool, PoolConfig
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_stealth_page() -> AsyncMock:
     """Create a mock StealthPage."""
@@ -52,6 +54,7 @@ def _mock_stealth_browser(page: AsyncMock | None = None) -> AsyncMock:
 # Tests: acquire / release
 # ---------------------------------------------------------------------------
 
+
 class TestAcquireRelease:
     """Test page acquisition and release lifecycle."""
 
@@ -60,8 +63,7 @@ class TestAcquireRelease:
         sm = _mock_session_manager()
         pool = BrowserPool(config=PoolConfig(max_browsers=3), session_manager=sm)
 
-        with patch("src.browser.pool.StealthBrowser") as MockBrowser, \
-             patch("src.browser.pool.StealthConfig"):
+        with patch("src.browser.pool.StealthBrowser") as MockBrowser, patch("src.browser.pool.StealthConfig"):
             mock_browser = _mock_stealth_browser()
             MockBrowser.return_value = mock_browser
 
@@ -76,8 +78,7 @@ class TestAcquireRelease:
         sm = _mock_session_manager()
         pool = BrowserPool(config=PoolConfig(max_browsers=3), session_manager=sm)
 
-        with patch("src.browser.pool.StealthBrowser") as MockBrowser, \
-             patch("src.browser.pool.StealthConfig"):
+        with patch("src.browser.pool.StealthBrowser") as MockBrowser, patch("src.browser.pool.StealthConfig"):
             MockBrowser.return_value = _mock_stealth_browser()
             page = await pool.acquire("upwork")
             await pool.release("upwork", page)
@@ -89,8 +90,7 @@ class TestAcquireRelease:
         sm = _mock_session_manager()
         pool = BrowserPool(config=PoolConfig(max_browsers=3), session_manager=sm)
 
-        with patch("src.browser.pool.StealthBrowser") as MockBrowser, \
-             patch("src.browser.pool.StealthConfig"):
+        with patch("src.browser.pool.StealthBrowser") as MockBrowser, patch("src.browser.pool.StealthConfig"):
             MockBrowser.return_value = _mock_stealth_browser()
 
             page1 = await pool.acquire("upwork")
@@ -105,6 +105,7 @@ class TestAcquireRelease:
 # Tests: max_browsers limit
 # ---------------------------------------------------------------------------
 
+
 class TestMaxBrowsers:
     """Test that the pool respects the max_browsers cap."""
 
@@ -113,8 +114,7 @@ class TestMaxBrowsers:
         sm = _mock_session_manager()
         pool = BrowserPool(config=PoolConfig(max_browsers=2), session_manager=sm)
 
-        with patch("src.browser.pool.StealthBrowser") as MockBrowser, \
-             patch("src.browser.pool.StealthConfig"):
+        with patch("src.browser.pool.StealthBrowser") as MockBrowser, patch("src.browser.pool.StealthConfig"):
             browsers = []
             for _ in range(3):
                 b = _mock_stealth_browser()
@@ -137,6 +137,7 @@ class TestMaxBrowsers:
 # Tests: proxy rotation
 # ---------------------------------------------------------------------------
 
+
 class TestProxyRotation:
     """Test automatic proxy rotation after interval."""
 
@@ -145,10 +146,11 @@ class TestProxyRotation:
         sm = _mock_session_manager()
         pool = BrowserPool(config=PoolConfig(proxy_rotation_minutes=1), session_manager=sm)
 
-        with patch("src.browser.pool.StealthBrowser") as MockBrowser, \
-             patch("src.browser.pool.StealthConfig"), \
-             patch("time.time") as mock_time:
-
+        with (
+            patch("src.browser.pool.StealthBrowser") as MockBrowser,
+            patch("src.browser.pool.StealthConfig"),
+            patch("time.time") as mock_time,
+        ):
             # First acquire at t=0.
             mock_time.return_value = 0.0
             MockBrowser.return_value = _mock_stealth_browser()
@@ -168,6 +170,7 @@ class TestProxyRotation:
 # Tests: shutdown
 # ---------------------------------------------------------------------------
 
+
 class TestShutdown:
     """Test pool shutdown."""
 
@@ -176,8 +179,7 @@ class TestShutdown:
         sm = _mock_session_manager()
         pool = BrowserPool(config=PoolConfig(max_browsers=3), session_manager=sm)
 
-        with patch("src.browser.pool.StealthBrowser") as MockBrowser, \
-             patch("src.browser.pool.StealthConfig"):
+        with patch("src.browser.pool.StealthBrowser") as MockBrowser, patch("src.browser.pool.StealthConfig"):
             browser1 = _mock_stealth_browser()
             browser2 = _mock_stealth_browser()
             MockBrowser.side_effect = [browser1, browser2]
@@ -193,8 +195,7 @@ class TestShutdown:
     async def test_context_manager(self) -> None:
         sm = _mock_session_manager()
 
-        with patch("src.browser.pool.StealthBrowser") as MockBrowser, \
-             patch("src.browser.pool.StealthConfig"):
+        with patch("src.browser.pool.StealthBrowser") as MockBrowser, patch("src.browser.pool.StealthConfig"):
             MockBrowser.return_value = _mock_stealth_browser()
 
             async with BrowserPool(session_manager=sm) as pool:
@@ -207,6 +208,7 @@ class TestShutdown:
 # ---------------------------------------------------------------------------
 # Tests: proxy URL building
 # ---------------------------------------------------------------------------
+
 
 class TestProxyUrl:
     """Test proxy URL construction from settings."""

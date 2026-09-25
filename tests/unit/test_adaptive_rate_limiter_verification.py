@@ -163,7 +163,6 @@ class TestSuccessAdaptation:
         """Interrupted streak: 4 success + failure + 4 success = no increase."""
         limiter = _make_limiter()
         state = limiter._get_state("freelancer")
-        original_rpm = state.current_rpm
 
         for _ in range(4):
             await limiter.record_success("freelancer")
@@ -870,7 +869,6 @@ class TestRetryDecoratorWithRateLimiter:
         """Retry delays must increase exponentially (backoff_factor=2.0 default)."""
         limiter = _make_limiter()
         sleep_durations: list[float] = []
-        original_sleep = __import__("asyncio").sleep
 
         async def mock_sleep(duration: float) -> None:
             sleep_durations.append(duration)

@@ -7,6 +7,7 @@ Covers:
 - UserController: list, approve, reject, role change, status change, delete
 - Schema validation: regex patterns, defaults
 """
+
 from __future__ import annotations
 
 import uuid
@@ -130,9 +131,11 @@ class TestRegistration:
 
         data = RegisterRequestSchema(email="first@test.com", password="secret123", name="First")
 
-        with patch("src.api.routes.auth.hash_password", return_value="$2b$12$hashed"), \
-             patch("src.api.routes.auth.create_access_token", return_value="access-tok"), \
-             patch("src.api.routes.auth.create_refresh_token", return_value="refresh-tok"):
+        with (
+            patch("src.api.routes.auth.hash_password", return_value="$2b$12$hashed"),
+            patch("src.api.routes.auth.create_access_token", return_value="access-tok"),
+            patch("src.api.routes.auth.create_refresh_token", return_value="refresh-tok"),
+        ):
             self_obj = object.__new__(AuthController)
             response = await _register_fn(self_obj, data=data, db_session=session)
 
@@ -228,9 +231,11 @@ class TestLoginBlocking:
 
         data = LoginRequestSchema(email=user.email, password="secret123")
 
-        with patch("src.api.routes.auth.verify_password", return_value=True), \
-             patch("src.api.routes.auth.create_access_token", return_value="at"), \
-             patch("src.api.routes.auth.create_refresh_token", return_value="rt"):
+        with (
+            patch("src.api.routes.auth.verify_password", return_value=True),
+            patch("src.api.routes.auth.create_access_token", return_value="at"),
+            patch("src.api.routes.auth.create_refresh_token", return_value="rt"),
+        ):
             self_obj = object.__new__(AuthController)
             result = await _login_fn(self_obj, data=data, db_session=session)
 
@@ -351,8 +356,10 @@ class TestGuards:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("src.api.guards.async_session_factory", return_value=mock_session), \
-             patch("src.core.database.get_valkey") as mock_get_valkey:
+        with (
+            patch("src.api.guards.async_session_factory", return_value=mock_session),
+            patch("src.core.database.get_valkey") as mock_get_valkey,
+        ):
             mock_valkey = AsyncMock()
             mock_valkey.get = AsyncMock(return_value=None)
             mock_get_valkey.return_value = mock_valkey
@@ -376,8 +383,10 @@ class TestGuards:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("src.api.guards.async_session_factory", return_value=mock_session), \
-             patch("src.core.database.get_valkey") as mock_get_valkey:
+        with (
+            patch("src.api.guards.async_session_factory", return_value=mock_session),
+            patch("src.core.database.get_valkey") as mock_get_valkey,
+        ):
             mock_valkey = AsyncMock()
             mock_valkey.get = AsyncMock(return_value=None)
             mock_get_valkey.return_value = mock_valkey
@@ -401,8 +410,10 @@ class TestGuards:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("src.api.guards.async_session_factory", return_value=mock_session), \
-             patch("src.core.database.get_valkey") as mock_get_valkey:
+        with (
+            patch("src.api.guards.async_session_factory", return_value=mock_session),
+            patch("src.core.database.get_valkey") as mock_get_valkey,
+        ):
             mock_valkey = AsyncMock()
             mock_valkey.get = AsyncMock(return_value=None)
             mock_get_valkey.return_value = mock_valkey
@@ -610,7 +621,11 @@ class TestUserController:
 
         self_obj = object.__new__(UserController)
         result = await _update_role_fn(
-            self_obj, user_id=user.id, data=data, request=request, db_session=session,
+            self_obj,
+            user_id=user.id,
+            data=data,
+            request=request,
+            db_session=session,
         )
 
         assert result.role == "moderator"
@@ -632,7 +647,11 @@ class TestUserController:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _update_role_fn(
-                self_obj, user_id=owner.id, data=data, request=request, db_session=session,
+                self_obj,
+                user_id=owner.id,
+                data=data,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 403
@@ -658,7 +677,11 @@ class TestUserController:
 
         self_obj = object.__new__(UserController)
         result = await _update_status_fn(
-            self_obj, user_id=user.id, data=data, request=request, db_session=session,
+            self_obj,
+            user_id=user.id,
+            data=data,
+            request=request,
+            db_session=session,
         )
 
         assert result.status == "suspended"
@@ -680,7 +703,11 @@ class TestUserController:
 
         self_obj = object.__new__(UserController)
         result = await _update_status_fn(
-            self_obj, user_id=user.id, data=data, request=request, db_session=session,
+            self_obj,
+            user_id=user.id,
+            data=data,
+            request=request,
+            db_session=session,
         )
 
         assert result.status == "active"
@@ -697,7 +724,11 @@ class TestUserController:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _update_status_fn(
-                self_obj, user_id=requester.id, data=data, request=request, db_session=session,
+                self_obj,
+                user_id=requester.id,
+                data=data,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 403
@@ -720,7 +751,11 @@ class TestUserController:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _update_status_fn(
-                self_obj, user_id=target_owner.id, data=data, request=request, db_session=session,
+                self_obj,
+                user_id=target_owner.id,
+                data=data,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 403
@@ -746,7 +781,10 @@ class TestUserController:
 
         self_obj = object.__new__(UserController)
         result = await _delete_user_fn(
-            self_obj, user_id=user.id, request=request, db_session=session,
+            self_obj,
+            user_id=user.id,
+            request=request,
+            db_session=session,
         )
 
         assert "deleted" in result.message.lower() or user.email in result.message
@@ -763,7 +801,10 @@ class TestUserController:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _delete_user_fn(
-                self_obj, user_id=requester.id, request=request, db_session=session,
+                self_obj,
+                user_id=requester.id,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 403
@@ -785,7 +826,10 @@ class TestUserController:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _delete_user_fn(
-                self_obj, user_id=target_owner.id, request=request, db_session=session,
+                self_obj,
+                user_id=target_owner.id,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 403
@@ -958,7 +1002,11 @@ class TestCoOwnerAccess:
 
         self_obj = object.__new__(UserController)
         result = await _update_role_fn(
-            self_obj, user_id=user.id, data=data, request=request, db_session=session,
+            self_obj,
+            user_id=user.id,
+            data=data,
+            request=request,
+            db_session=session,
         )
 
         assert result.role == "moderator"
@@ -979,7 +1027,11 @@ class TestCoOwnerAccess:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _update_role_fn(
-                self_obj, user_id=user.id, data=data, request=request, db_session=session,
+                self_obj,
+                user_id=user.id,
+                data=data,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 403
@@ -1001,7 +1053,11 @@ class TestCoOwnerAccess:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _update_role_fn(
-                self_obj, user_id=owner.id, data=data, request=request, db_session=session,
+                self_obj,
+                user_id=owner.id,
+                data=data,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 403
@@ -1022,7 +1078,11 @@ class TestCoOwnerAccess:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _update_role_fn(
-                self_obj, user_id=other.id, data=data, request=request, db_session=session,
+                self_obj,
+                user_id=other.id,
+                data=data,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 403
@@ -1043,7 +1103,11 @@ class TestCoOwnerAccess:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _update_status_fn(
-                self_obj, user_id=owner.id, data=data, request=request, db_session=session,
+                self_obj,
+                user_id=owner.id,
+                data=data,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 403
@@ -1064,7 +1128,11 @@ class TestCoOwnerAccess:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _update_status_fn(
-                self_obj, user_id=other.id, data=data, request=request, db_session=session,
+                self_obj,
+                user_id=other.id,
+                data=data,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 403
@@ -1084,7 +1152,10 @@ class TestCoOwnerAccess:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _delete_user_fn(
-                self_obj, user_id=owner.id, request=request, db_session=session,
+                self_obj,
+                user_id=owner.id,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 403
@@ -1104,7 +1175,10 @@ class TestCoOwnerAccess:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _delete_user_fn(
-                self_obj, user_id=other.id, request=request, db_session=session,
+                self_obj,
+                user_id=other.id,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 403
@@ -1125,7 +1199,11 @@ class TestCoOwnerAccess:
 
         self_obj = object.__new__(UserController)
         result = await _update_status_fn(
-            self_obj, user_id=user.id, data=data, request=request, db_session=session,
+            self_obj,
+            user_id=user.id,
+            data=data,
+            request=request,
+            db_session=session,
         )
 
         assert result.status == "suspended"
@@ -1146,7 +1224,10 @@ class TestCoOwnerAccess:
 
         self_obj = object.__new__(UserController)
         result = await _delete_user_fn(
-            self_obj, user_id=user.id, request=request, db_session=session,
+            self_obj,
+            user_id=user.id,
+            request=request,
+            db_session=session,
         )
 
         assert user.email in result.message
@@ -1196,7 +1277,10 @@ class TestOwnershipTransfer:
 
         self_obj = object.__new__(UserController)
         result = await _transfer_ownership_fn(
-            self_obj, user_id=target.id, request=request, db_session=session,
+            self_obj,
+            user_id=target.id,
+            request=request,
+            db_session=session,
         )
 
         assert "transferred" in result.message.lower()
@@ -1215,7 +1299,10 @@ class TestOwnershipTransfer:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _transfer_ownership_fn(
-                self_obj, user_id=target.id, request=request, db_session=session,
+                self_obj,
+                user_id=target.id,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 403
@@ -1232,7 +1319,10 @@ class TestOwnershipTransfer:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _transfer_ownership_fn(
-                self_obj, user_id=target.id, request=request, db_session=session,
+                self_obj,
+                user_id=target.id,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 403
@@ -1252,7 +1342,10 @@ class TestOwnershipTransfer:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _transfer_ownership_fn(
-                self_obj, user_id=owner.id, request=request, db_session=session,
+                self_obj,
+                user_id=owner.id,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 400
@@ -1273,7 +1366,10 @@ class TestOwnershipTransfer:
         self_obj = object.__new__(UserController)
         with pytest.raises(ClientException) as exc_info:
             await _transfer_ownership_fn(
-                self_obj, user_id=target.id, request=request, db_session=session,
+                self_obj,
+                user_id=target.id,
+                request=request,
+                db_session=session,
             )
 
         assert exc_info.value.status_code == 400

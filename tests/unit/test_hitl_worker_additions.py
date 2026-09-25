@@ -3,6 +3,7 @@
 Tests the three new HITL types (email_approval, final_review, job_review)
 added to ``_NEXT_ACTION_MAP`` and the ``run_pipeline_b_scan`` worker task.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch

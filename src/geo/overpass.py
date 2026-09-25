@@ -17,6 +17,7 @@ Usage::
     )
     await client.close()
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -196,12 +197,12 @@ class OverpassClient:
         # Overpass bbox order: south, west, north, east
         bb = f"{bbox.min_lat},{bbox.min_lon},{bbox.max_lat},{bbox.max_lon}"
         return (
-            f'[out:json][timeout:25];\n'
-            f'(\n'
+            f"[out:json][timeout:25];\n"
+            f"(\n"
             f'  node["amenity"~"{amenity_filter}"]["name"]({bb});\n'
             f'  node["shop"~"{shop_filter}"]["name"]({bb});\n'
-            f');\n'
-            f'out body;\n'
+            f");\n"
+            f"out body;\n"
         )
 
     # ------------------------------------------------------------------

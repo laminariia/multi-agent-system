@@ -3,6 +3,7 @@
 Tests ``src.cli.seed_data`` — deterministic UUID generation, seed data
 constants, and database seeding logic with force flag.
 """
+
 from __future__ import annotations
 
 import uuid

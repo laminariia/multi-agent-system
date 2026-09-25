@@ -327,7 +327,7 @@ class TestH17GoalsDelete:
                 new_callable=AsyncMock,
             ) as mock_publish,
         ):
-            result = await raw_fn(
+            await raw_fn(
                 controller,
                 goal_id="g_005",
                 db_session=mock_session,

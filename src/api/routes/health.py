@@ -4,6 +4,7 @@
 a structured response suitable for Docker health checks, load balancers,
 and the front-end status indicator.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

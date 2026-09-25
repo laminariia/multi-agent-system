@@ -3,6 +3,7 @@
 Tests RSS feed parsing, rate limiting, budget extraction, and error handling.
 All HTTP requests are mocked — no real network calls are made.
 """
+
 from __future__ import annotations
 
 import time
@@ -77,9 +78,7 @@ class TestParseRssEntry:
 
     def test_budget_extraction_rub(self) -> None:
         """Extract budget in rubles and convert to USD."""
-        item = _create_xml_item(
-            description="Бюджет: 50000 руб"
-        )
+        item = _create_xml_item(description="Бюджет: 50000 руб")
 
         result = FlRuClient.parse_rss_entry(item)
 
@@ -90,9 +89,7 @@ class TestParseRssEntry:
 
     def test_budget_extraction_rub_with_spaces(self) -> None:
         """Extract budget with spaces in number."""
-        item = _create_xml_item(
-            description="Бюджет: 100 000 руб"
-        )
+        item = _create_xml_item(description="Бюджет: 100 000 руб")
 
         result = FlRuClient.parse_rss_entry(item)
 
@@ -103,9 +100,7 @@ class TestParseRssEntry:
 
     def test_budget_extraction_usd(self) -> None:
         """Extract budget in USD."""
-        item = _create_xml_item(
-            description="Budget: 500 USD"
-        )
+        item = _create_xml_item(description="Budget: 500 USD")
 
         result = FlRuClient.parse_rss_entry(item)
 
@@ -115,9 +110,7 @@ class TestParseRssEntry:
 
     def test_budget_extraction_eur(self) -> None:
         """Extract budget in EUR and convert to USD."""
-        item = _create_xml_item(
-            description="100 EUR"
-        )
+        item = _create_xml_item(description="100 EUR")
 
         result = FlRuClient.parse_rss_entry(item)
 
@@ -128,9 +121,7 @@ class TestParseRssEntry:
 
     def test_budget_extraction_ruble_symbol(self) -> None:
         """Extract budget with Russian ruble notation 'р.'."""
-        item = _create_xml_item(
-            description="30000 р."
-        )
+        item = _create_xml_item(description="30000 р.")
 
         result = FlRuClient.parse_rss_entry(item)
 
@@ -141,9 +132,7 @@ class TestParseRssEntry:
 
     def test_no_budget(self) -> None:
         """Parse entry without budget information."""
-        item = _create_xml_item(
-            description="Создать сайт без указания бюджета"
-        )
+        item = _create_xml_item(description="Создать сайт без указания бюджета")
 
         result = FlRuClient.parse_rss_entry(item)
 
@@ -153,10 +142,7 @@ class TestParseRssEntry:
 
     def test_external_id_from_link(self) -> None:
         """Extract external_id from project link."""
-        item = _create_xml_item(
-            link="https://www.fl.ru/projects/99887/some-project/",
-            guid="guid-99887"
-        )
+        item = _create_xml_item(link="https://www.fl.ru/projects/99887/some-project/", guid="guid-99887")
 
         result = FlRuClient.parse_rss_entry(item)
 
@@ -164,10 +150,7 @@ class TestParseRssEntry:
 
     def test_external_id_fallback_to_guid(self) -> None:
         """Fall back to guid when link doesn't contain project ID."""
-        item = _create_xml_item(
-            link="https://www.fl.ru/some-other-page/",
-            guid="fallback-guid-12345"
-        )
+        item = _create_xml_item(link="https://www.fl.ru/some-other-page/", guid="fallback-guid-12345")
 
         result = FlRuClient.parse_rss_entry(item)
 
@@ -244,10 +227,10 @@ class TestRateLimit:
             now - 3610,  # Expired
             now - 3605,  # Expired
             now - 3601,  # Expired
-            now - 100,   # Valid
-            now - 50,    # Valid
-            now - 20,    # Valid
-            now - 5,     # Valid
+            now - 100,  # Valid
+            now - 50,  # Valid
+            now - 20,  # Valid
+            now - 5,  # Valid
         ]
 
         # Should prune 5 expired, keep 4 valid, add 1 new = 5 total
@@ -264,18 +247,20 @@ class TestFetchJobs:
         """Fetch and parse RSS feed successfully."""
         client = FlRuClient()
 
-        sample_rss = _create_rss_xml([
-            _create_xml_item(
-                title="Landing Page Project",
-                description="Бюджет: 25000 руб",
-                link="https://www.fl.ru/projects/11111/landing/",
-            ),
-            _create_xml_item(
-                title="WordPress Site",
-                description="Budget: 300 USD",
-                link="https://www.fl.ru/projects/22222/wordpress/",
-            ),
-        ])
+        sample_rss = _create_rss_xml(
+            [
+                _create_xml_item(
+                    title="Landing Page Project",
+                    description="Бюджет: 25000 руб",
+                    link="https://www.fl.ru/projects/11111/landing/",
+                ),
+                _create_xml_item(
+                    title="WordPress Site",
+                    description="Budget: 300 USD",
+                    link="https://www.fl.ru/projects/22222/wordpress/",
+                ),
+            ]
+        )
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -302,9 +287,11 @@ class TestFetchJobs:
         """Use category-specific URL when category provided."""
         client = FlRuClient(base_url="https://www.fl.ru/rss/all.xml")
 
-        sample_rss = _create_rss_xml([
-            _create_xml_item(title="Web Dev Job"),
-        ])
+        sample_rss = _create_rss_xml(
+            [
+                _create_xml_item(title="Web Dev Job"),
+            ]
+        )
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -634,9 +621,7 @@ class TestCurrencyConversion:
 
     def test_budget_uses_conversion_rate(self) -> None:
         """Budget extraction applies correct conversion rates."""
-        item = _create_xml_item(
-            description="Бюджет: 1000 руб"
-        )
+        item = _create_xml_item(description="Бюджет: 1000 руб")
 
         result = FlRuClient.parse_rss_entry(item)
 
@@ -660,9 +645,7 @@ class TestEdgeCases:
 
     def test_multiple_budgets_in_description(self) -> None:
         """Use first budget found when multiple mentioned."""
-        item = _create_xml_item(
-            description="Первая часть: 10000 руб, вторая: 20000 руб"
-        )
+        item = _create_xml_item(description="Первая часть: 10000 руб, вторая: 20000 руб")
 
         result = FlRuClient.parse_rss_entry(item)
 
@@ -671,10 +654,7 @@ class TestEdgeCases:
 
     def test_budget_in_title(self) -> None:
         """Extract budget from title when not in description."""
-        item = _create_xml_item(
-            title="Web Development - 1000 USD",
-            description="Build a website"
-        )
+        item = _create_xml_item(title="Web Development - 1000 USD", description="Build a website")
 
         result = FlRuClient.parse_rss_entry(item)
 

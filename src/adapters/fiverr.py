@@ -330,7 +330,7 @@ class FiverrAdapter:
                 if tag_text:
                     skills.append(tag_text)
         except Exception:  # noqa: BLE001
-            pass
+            self._log.debug("parse_tags_failed", exc_info=True)
 
         return {
             "external_id": external_id,

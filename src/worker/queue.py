@@ -3,6 +3,7 @@
 Simple, reliable task queue for the MAS worker. Tasks are serialized as JSON
 and processed one at a time with error handling and logging.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -37,6 +38,7 @@ class TaskQueue:
 
     def _get_valkey(self) -> Any:
         from src.core.database import get_valkey
+
         return get_valkey()
 
     async def enqueue(self, task_type: str, payload: dict[str, Any] | None = None) -> None:
@@ -47,11 +49,13 @@ class TaskQueue:
             payload: Optional task-specific data.
         """
         valkey = self._get_valkey()
-        message = json.dumps({
-            "type": task_type,
-            "payload": payload or {},
-            "retry_count": 0,
-        })
+        message = json.dumps(
+            {
+                "type": task_type,
+                "payload": payload or {},
+                "retry_count": 0,
+            }
+        )
         await valkey.rpush(self._queue_key, message)
         logger.info("task_enqueued", task_type=task_type)
 

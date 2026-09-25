@@ -62,9 +62,14 @@ def _build_auth_storage(
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 async def browser():
-    """Launch a single Chromium browser for all tests in the session."""
+    """Launch Chromium per test.
+
+    Function scope on purpose: pytest-asyncio runs each test in its own event
+    loop, and a session-scoped Playwright browser lives in another loop, so
+    every call from a test would wait forever (CI hung until the job timeout).
+    """
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=True)
         yield browser
@@ -80,6 +85,10 @@ async def context(browser) -> BrowserContext:
     )
     ctx.set_default_timeout(10_000)
     ctx.set_default_navigation_timeout(15_000)
+    # Unmocked API calls fail like an unreachable backend. Otherwise, when CI runs the real
+    # API, it answers 401 to the fake token and the app logs the test user out mid-test.
+    # Page-level mocks (mock_api / mock_auth_api) take precedence over this context route.
+    await ctx.route("**/api/v1/**", lambda route: route.abort())
     yield ctx
     await ctx.close()
 
@@ -216,6 +225,9 @@ def make_hitl_pending_response(
                 "status": "pending",
                 "priority": "normal",
                 "created_at": "2026-02-12T10:00:00Z",
+                "expires_at": None,
+                "payload": {},
+                "available_actions": ["approve", "reject", "edit"],
                 "agent": "bid",
                 "project_id": f"proj-{i + 1:03d}",
             }
@@ -235,42 +247,61 @@ def make_hitl_resolve_response() -> dict[str, Any]:
     }
 
 
-def make_agent_status_list() -> list[dict[str, Any]]:
+def make_agent_status_list() -> dict[str, Any]:
+    """GET /api/v1/agents/status body (AgentStatusList in dashboard/app/lib/types.ts)."""
     agents = ["scout", "bid", "planner", "dev", "content", "design", "critic", "packager", "geo_scout", "outreach"]
-    return [
-        {
-            "name": name,
-            "status": "running" if i < 5 else "idle",
-            "last_heartbeat": "2026-02-12T12:00:00Z",
-            "current_task": f"Processing job {i}" if i < 5 else None,
-            "uptime_seconds": 3600 + i * 100,
-        }
-        for i, name in enumerate(agents)
-    ]
+    return {
+        "system_health": "healthy",
+        "last_check": "2026-02-12T12:00:00Z",
+        "agents": [
+            {
+                "name": name,
+                "display_name": None,
+                "pipeline": "B" if name in ("geo_scout", "outreach") else "A",
+                "status": "working" if i < 5 else "idle",
+                "last_heartbeat": "2026-02-12T12:00:00Z",
+                "current_task": f"Processing job {i}" if i < 5 else None,
+                "restart_count": 0,
+                "error_message": None,
+                "uptime_seconds": 3600 + i * 100,
+            }
+            for i, name in enumerate(agents)
+        ],
+    }
 
 
 def make_job_list_response(count: int = 5) -> dict[str, Any]:
-    items = []
-    for i in range(count):
-        items.append(
-            {
-                "id": f"job-{i + 1:03d}",
-                "title": f"Test Job {i + 1}",
-                "platform": ["freelancer", "upwork", "fl_ru"][i % 3],
-                "status": ["active", "completed", "pending"][i % 3],
-                "budget": 500 + i * 200,
-                "created_at": "2026-02-12T08:00:00Z",
-            }
-        )
-    return {"items": items, "total": count}
+    """GET /api/v1/jobs body (JobListResponse in dashboard/app/lib/types.ts)."""
+    jobs = [
+        {
+            "id": f"job-{i + 1:03d}",
+            "platform": ["freelancer", "upwork", "fl_ru"][i % 3],
+            "external_id": f"ext-{i + 1}",
+            "title": f"Test Job {i + 1}",
+            "description": None,
+            "budget_min": 500 + i * 200,
+            "budget_max": None,
+            "budget_type": "fixed",
+            "currency": "USD",
+            "client_info": None,
+            "skills_required": [],
+            "deadline": None,
+            "status": "new",
+            "score": None,
+            "disqualify_reason": None,
+            "discovered_at": "2026-02-12T08:00:00Z",
+            "url": None,
+            "bids": [],
+        }
+        for i in range(count)
+    ]
+    return {"jobs": jobs, "total": count}
 
 
 def make_hitl_stats() -> dict[str, Any]:
+    """GET /api/v1/hitl/stats body (HITLStatsSchema / HITLStats)."""
     return {
-        "total": 25,
-        "pending": 3,
-        "approved": 15,
-        "rejected": 5,
-        "modified": 2,
-        "avg_resolution_time_seconds": 120,
+        "today": {"pending": 3, "resolved": 15, "expired": 0},
+        "avg_resolution_time_minutes": 2.0,
+        "by_type": {"bid_approval": {"pending": 1, "resolved": 5}},
     }

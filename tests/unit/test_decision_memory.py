@@ -184,7 +184,7 @@ class TestFindSimilar:
 
         memory = DecisionMemory(ingestion=MagicMock(), retriever=mock_retriever)
 
-        results = await memory.find_similar("Build a React landing page")
+        await memory.find_similar("Build a React landing page")
 
         mock_retriever.search.assert_called_once()
         call_kwargs = mock_retriever.search.call_args

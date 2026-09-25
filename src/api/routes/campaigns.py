@@ -186,11 +186,13 @@ class CampaignController(Controller):
                 )
             )
             if existing.scalar_one_or_none() is None:
-                db_session.add(CampaignLead(
-                    campaign_id=campaign.id,
-                    lead_id=lead.id,
-                    status="pending",
-                ))
+                db_session.add(
+                    CampaignLead(
+                        campaign_id=campaign.id,
+                        lead_id=lead.id,
+                        status="pending",
+                    )
+                )
 
         campaign.status = "active"
         campaign.started_at = datetime.now(UTC)
@@ -258,11 +260,7 @@ class CampaignController(Controller):
         result = await db_session.execute(query)
         rows = result.all()
 
-        count_query = (
-            select(func.count())
-            .select_from(CampaignLead)
-            .where(CampaignLead.campaign_id == campaign_uuid)
-        )
+        count_query = select(func.count()).select_from(CampaignLead).where(CampaignLead.campaign_id == campaign_uuid)
         if status:
             count_query = count_query.where(CampaignLead.status == status)
         total = (await db_session.execute(count_query)).scalar() or 0
@@ -292,13 +290,9 @@ async def _get_campaign_or_404(db_session: AsyncSession, campaign_id: str) -> Em
     try:
         campaign_uuid = uuid.UUID(campaign_id)
     except (ValueError, TypeError) as exc:
-        raise HTTPException(
-            status_code=400, detail=f"Invalid campaign ID format: {campaign_id}"
-        ) from exc
+        raise HTTPException(status_code=400, detail=f"Invalid campaign ID format: {campaign_id}") from exc
 
-    result = await db_session.execute(
-        select(EmailCampaign).where(EmailCampaign.id == campaign_uuid)
-    )
+    result = await db_session.execute(select(EmailCampaign).where(EmailCampaign.id == campaign_uuid))
     campaign = result.scalar_one_or_none()
 
     if campaign is None:

@@ -240,11 +240,13 @@ def test_parse_non_dict_items_filtered(
         adapters={},
     )
 
-    data = json.dumps([
-        {"title": "Good", "match_score": 0.8, "recommendation": "bid"},
-        "not a dict",
-        42,
-    ])
+    data = json.dumps(
+        [
+            {"title": "Good", "match_score": 0.8, "recommendation": "bid"},
+            "not a dict",
+            42,
+        ]
+    )
     result = agent._parse_scored_response(data, expected_count=3)
     assert len(result) == 1
 
@@ -299,9 +301,9 @@ async def test_mixed_classification(
     raw_jobs = JobFactory.create_batch(3)
 
     scored = [
-        {**raw_jobs[0], "match_score": 0.85, "recommendation": "bid"},     # qualified
-        {**raw_jobs[1], "match_score": 0.55, "recommendation": "review"},   # review
-        {**raw_jobs[2], "match_score": 0.20, "recommendation": "skip"},     # rejected
+        {**raw_jobs[0], "match_score": 0.85, "recommendation": "bid"},  # qualified
+        {**raw_jobs[1], "match_score": 0.55, "recommendation": "review"},  # review
+        {**raw_jobs[2], "match_score": 0.20, "recommendation": "skip"},  # rejected
     ]
 
     mock_llm_client.call = AsyncMock(return_value=_make_llm_response(json.dumps(scored)))

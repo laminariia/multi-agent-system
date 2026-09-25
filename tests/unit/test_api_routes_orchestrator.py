@@ -204,8 +204,10 @@ class TestGetStatus:
     @pytest.mark.anyio()
     async def test_status_runner_dead(self, svc: OrchestratorService) -> None:
         session = _FakeSession()
-        with patch(f"{PARSERS}.is_runner_alive", return_value=(False, None)), \
-             patch(f"{PARSERS}.parse_health_report", return_value={}):
+        with (
+            patch(f"{PARSERS}.is_runner_alive", return_value=(False, None)),
+            patch(f"{PARSERS}.parse_health_report", return_value={}),
+        ):
             result = await svc.get_status(session)
 
         assert result["alive"] is False
@@ -227,11 +229,13 @@ class TestGetStatus:
         mock_stat = MagicMock()
         mock_stat.st_mtime = 1000.0
 
-        with patch(f"{PARSERS}.is_runner_alive", return_value=(True, 1234)), \
-             patch(f"{PARSERS}.parse_health_report", return_value={"overall_grade": "A", "score": 93}), \
-             patch(f"{PARSERS}.get_runner_log_path", return_value=mock_path), \
-             patch(f"{PARSERS}.tail_file", return_value=["[2026-02-11] Mode: self-direct"]), \
-             patch(f"{PARSERS}.PID_FILE") as mock_pid:
+        with (
+            patch(f"{PARSERS}.is_runner_alive", return_value=(True, 1234)),
+            patch(f"{PARSERS}.parse_health_report", return_value={"overall_grade": "A", "score": 93}),
+            patch(f"{PARSERS}.get_runner_log_path", return_value=mock_path),
+            patch(f"{PARSERS}.tail_file", return_value=["[2026-02-11] Mode: self-direct"]),
+            patch(f"{PARSERS}.PID_FILE") as mock_pid,
+        ):
             mock_pid.stat.return_value = mock_stat
             result = await svc.get_status(session)
 
@@ -247,9 +251,11 @@ class TestGetStatus:
     @pytest.mark.anyio()
     async def test_status_no_log_path(self, svc: OrchestratorService) -> None:
         session = _FakeSession()
-        with patch(f"{PARSERS}.is_runner_alive", return_value=(True, 5678)), \
-             patch(f"{PARSERS}.parse_health_report", return_value={}), \
-             patch(f"{PARSERS}.get_runner_log_path", return_value=None):
+        with (
+            patch(f"{PARSERS}.is_runner_alive", return_value=(True, 5678)),
+            patch(f"{PARSERS}.parse_health_report", return_value={}),
+            patch(f"{PARSERS}.get_runner_log_path", return_value=None),
+        ):
             result = await svc.get_status(session)
 
         assert result["alive"] is True
@@ -267,6 +273,7 @@ class TestStartRunner:
 
     def test_start_success(self, svc: OrchestratorService) -> None:
         import subprocess as _sp
+
         mock_proc = MagicMock()
         mock_proc.pid = 9999
 
@@ -281,11 +288,13 @@ class TestStartRunner:
             _sp.CREATE_NEW_PROCESS_GROUP = 0x00000200
 
         try:
-            with patch(f"{PARSERS}.is_runner_alive", return_value=(False, None)), \
-                 patch(f"{PARSERS}.RUNNER_SCRIPT") as mock_script, \
-                 patch(f"{PARSERS}.ORCH_DIR") as mock_dir, \
-                 patch(f"{PARSERS}.PID_FILE") as mock_pid, \
-                 patch("subprocess.Popen", return_value=mock_proc):
+            with (
+                patch(f"{PARSERS}.is_runner_alive", return_value=(False, None)),
+                patch(f"{PARSERS}.RUNNER_SCRIPT") as mock_script,
+                patch(f"{PARSERS}.ORCH_DIR") as mock_dir,
+                patch(f"{PARSERS}.PID_FILE") as mock_pid,
+                patch("subprocess.Popen", return_value=mock_proc),
+            ):
                 mock_script.exists.return_value = True
                 mock_dir.mkdir = MagicMock()
                 mock_pid.write_text = MagicMock()
@@ -307,8 +316,10 @@ class TestStartRunner:
                 svc.start_runner()
 
     def test_start_script_missing(self, svc: OrchestratorService) -> None:
-        with patch(f"{PARSERS}.is_runner_alive", return_value=(False, None)), \
-             patch(f"{PARSERS}.RUNNER_SCRIPT") as mock_script:
+        with (
+            patch(f"{PARSERS}.is_runner_alive", return_value=(False, None)),
+            patch(f"{PARSERS}.RUNNER_SCRIPT") as mock_script,
+        ):
             mock_script.exists.return_value = False
 
             with pytest.raises(FileNotFoundError, match="Runner script not found"):
@@ -324,9 +335,11 @@ class TestStopRunner:
     """Tests for OrchestratorService.stop_runner()."""
 
     def test_stop_success(self, svc: OrchestratorService) -> None:
-        with patch(f"{PARSERS}.is_runner_alive", return_value=(True, 4321)), \
-             patch("subprocess.run") as mock_run, \
-             patch(f"{PARSERS}.PID_FILE") as mock_pid:
+        with (
+            patch(f"{PARSERS}.is_runner_alive", return_value=(True, 4321)),
+            patch("subprocess.run") as mock_run,
+            patch(f"{PARSERS}.PID_FILE") as mock_pid,
+        ):
             mock_pid.unlink = MagicMock()
             result = svc.stop_runner()
 
@@ -335,8 +348,7 @@ class TestStopRunner:
         mock_run.assert_called_once()
 
     def test_stop_not_running(self, svc: OrchestratorService) -> None:
-        with patch(f"{PARSERS}.is_runner_alive", return_value=(False, None)), \
-             patch(f"{PARSERS}.PID_FILE") as mock_pid:
+        with patch(f"{PARSERS}.is_runner_alive", return_value=(False, None)), patch(f"{PARSERS}.PID_FILE") as mock_pid:
             mock_pid.unlink = MagicMock()
 
             with pytest.raises(RuntimeError, match="not running"):
@@ -345,9 +357,11 @@ class TestStopRunner:
     def test_stop_taskkill_fails(self, svc: OrchestratorService) -> None:
         import subprocess
 
-        with patch(f"{PARSERS}.is_runner_alive", return_value=(True, 1111)), \
-             patch("subprocess.run", side_effect=subprocess.SubprocessError("kill failed")), \
-             patch(f"{PARSERS}.PID_FILE"):
+        with (
+            patch(f"{PARSERS}.is_runner_alive", return_value=(True, 1111)),
+            patch("subprocess.run", side_effect=subprocess.SubprocessError("kill failed")),
+            patch(f"{PARSERS}.PID_FILE"),
+        ):
             with pytest.raises(RuntimeError, match="Failed to stop"):
                 svc.stop_runner()
 
@@ -539,8 +553,10 @@ class TestGetLogs:
             "Plain log line without timestamp",
         ]
 
-        with patch(f"{PARSERS}.get_runner_log_path", return_value=mock_path), \
-             patch(f"{PARSERS}.tail_file", return_value=raw_lines):
+        with (
+            patch(f"{PARSERS}.get_runner_log_path", return_value=mock_path),
+            patch(f"{PARSERS}.tail_file", return_value=raw_lines),
+        ):
             result = svc.get_logs(n=20)
 
         assert result["total"] == 4
@@ -574,8 +590,10 @@ class TestGetLogs:
         mock_path.exists.return_value = True
         mock_path.name = "runner_2026-02-10.log"
 
-        with patch(f"{PARSERS}.get_runner_log_path", return_value=mock_path) as mock_get, \
-             patch(f"{PARSERS}.tail_file", return_value=["line1"]):
+        with (
+            patch(f"{PARSERS}.get_runner_log_path", return_value=mock_path) as mock_get,
+            patch(f"{PARSERS}.tail_file", return_value=["line1"]),
+        ):
             result = svc.get_logs(n=10, date="2026-02-10")
 
         mock_get.assert_called_once_with(date="2026-02-10")
@@ -587,8 +605,10 @@ class TestGetLogs:
         mock_path.exists.return_value = True
         mock_path.name = "runner.log"
 
-        with patch(f"{PARSERS}.get_runner_log_path", return_value=mock_path), \
-             patch(f"{PARSERS}.tail_file", return_value=[]) as mock_tail:
+        with (
+            patch(f"{PARSERS}.get_runner_log_path", return_value=mock_path),
+            patch(f"{PARSERS}.tail_file", return_value=[]) as mock_tail,
+        ):
             svc.get_logs(n=200)
 
         mock_tail.assert_called_once_with(mock_path, 200)
@@ -612,11 +632,17 @@ class TestSchemaConstruction:
         ]
         session = _FakeSession(goals)
 
-        with patch(f"{PARSERS}.is_runner_alive", return_value=(True, 100)), \
-             patch(f"{PARSERS}.parse_health_report", return_value={
-                 "overall_grade": "A", "score": 93,
-             }), \
-             patch(f"{PARSERS}.get_runner_log_path", return_value=None):
+        with (
+            patch(f"{PARSERS}.is_runner_alive", return_value=(True, 100)),
+            patch(
+                f"{PARSERS}.parse_health_report",
+                return_value={
+                    "overall_grade": "A",
+                    "score": 93,
+                },
+            ),
+            patch(f"{PARSERS}.get_runner_log_path", return_value=None),
+        ):
             data = await svc.get_status(session)
 
         schema = OrchestratorStatusSchema(**data)
@@ -691,10 +717,15 @@ class TestSchemaConstruction:
         mock_path.exists.return_value = True
         mock_path.name = "runner.log"
 
-        with patch(f"{PARSERS}.get_runner_log_path", return_value=mock_path), \
-             patch(f"{PARSERS}.tail_file", return_value=[
-                 "[2026-02-11 10:00:00] [INFO] Test line",
-             ]):
+        with (
+            patch(f"{PARSERS}.get_runner_log_path", return_value=mock_path),
+            patch(
+                f"{PARSERS}.tail_file",
+                return_value=[
+                    "[2026-02-11 10:00:00] [INFO] Test line",
+                ],
+            ),
+        ):
             data = svc.get_logs(n=10)
 
         schema = LogResponseSchema(
@@ -723,11 +754,13 @@ class TestSchemaConstruction:
             _sp.CREATE_NEW_PROCESS_GROUP = 0x00000200
 
         try:
-            with patch(f"{PARSERS}.is_runner_alive", return_value=(False, None)), \
-                 patch(f"{PARSERS}.RUNNER_SCRIPT") as mock_script, \
-                 patch(f"{PARSERS}.ORCH_DIR") as mock_dir, \
-                 patch(f"{PARSERS}.PID_FILE") as mock_pid, \
-                 patch("subprocess.Popen", return_value=mock_proc):
+            with (
+                patch(f"{PARSERS}.is_runner_alive", return_value=(False, None)),
+                patch(f"{PARSERS}.RUNNER_SCRIPT") as mock_script,
+                patch(f"{PARSERS}.ORCH_DIR") as mock_dir,
+                patch(f"{PARSERS}.PID_FILE") as mock_pid,
+                patch("subprocess.Popen", return_value=mock_proc),
+            ):
                 mock_script.exists.return_value = True
                 mock_dir.mkdir = MagicMock()
                 mock_pid.write_text = MagicMock()
@@ -745,9 +778,11 @@ class TestSchemaConstruction:
     def test_stop_response_schema(self, svc: OrchestratorService) -> None:
         from src.api.schemas import OrchestratorStopResponseSchema
 
-        with patch(f"{PARSERS}.is_runner_alive", return_value=(True, 4321)), \
-             patch("subprocess.run"), \
-             patch(f"{PARSERS}.PID_FILE") as mock_pid:
+        with (
+            patch(f"{PARSERS}.is_runner_alive", return_value=(True, 4321)),
+            patch("subprocess.run"),
+            patch(f"{PARSERS}.PID_FILE") as mock_pid,
+        ):
             mock_pid.unlink = MagicMock()
             data = svc.stop_runner()
 

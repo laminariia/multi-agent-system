@@ -39,7 +39,8 @@ class TestSentryDSNConfiguration:
         with patch("src.monitoring.sentry_config.logger") as mock_logger:
             init_sentry(None)
             mock_logger.info.assert_called_with(
-                "sentry_disabled", reason="no DSN configured",
+                "sentry_disabled",
+                reason="no DSN configured",
             )
 
     def test_sentry_disabled_when_dsn_is_empty(self) -> None:
@@ -48,7 +49,8 @@ class TestSentryDSNConfiguration:
         with patch("src.monitoring.sentry_config.logger") as mock_logger:
             init_sentry("")
             mock_logger.info.assert_called_with(
-                "sentry_disabled", reason="no DSN configured",
+                "sentry_disabled",
+                reason="no DSN configured",
             )
 
     def test_sentry_enabled_with_valid_dsn(self) -> None:
@@ -154,7 +156,8 @@ class TestTransactionTracing:
                 pass
 
             mock_sdk.start_transaction.assert_called_once_with(
-                op="agent", name="scout",
+                op="agent",
+                name="scout",
             )
 
     def test_transaction_tags_set(self) -> None:

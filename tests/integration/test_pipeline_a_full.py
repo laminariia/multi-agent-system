@@ -18,6 +18,7 @@ artifact data.  The test validates:
 - Packager produces archive_url
 - Final state pauses at HITL for delivery review
 """
+
 from __future__ import annotations
 
 import json
@@ -123,8 +124,7 @@ DEV_CODE = {
         {
             "path": "src/components/Hero.tsx",
             "content": (
-                "export default function Hero() { return "
-                '<section className="hero"><h1>Welcome</h1></section>; }'
+                'export default function Hero() { return <section className="hero"><h1>Welcome</h1></section>; }'
             ),
             "language": "typescript",
         },
@@ -209,11 +209,13 @@ def _make_project() -> ProjectContext:
 
 
 def _make_initial_state() -> dict[str, Any]:
-    return dict(create_initial_state(
-        project=_make_project(),
-        first_agent="scout",
-        thread_id=f"thread-golden-{uuid.uuid4().hex[:8]}",
-    ))
+    return dict(
+        create_initial_state(
+            project=_make_project(),
+            first_agent="scout",
+            thread_id=f"thread-golden-{uuid.uuid4().hex[:8]}",
+        )
+    )
 
 
 def _build_golden_graph() -> CompiledStateGraph:
@@ -401,7 +403,8 @@ def _build_golden_graph() -> CompiledStateGraph:
     graph.add_conditional_edges("scout_node", route_scout, {"bid_node": "bid_node", END: END})
     graph.add_conditional_edges("bid_node", route_bid, {"hitl_bid_node": "hitl_bid_node", END: END})
     graph.add_conditional_edges(
-        "hitl_bid_node", route_hitl_bid,
+        "hitl_bid_node",
+        route_hitl_bid,
         {"bid_submission_node": "bid_submission_node", "planner_node": "planner_node", END: END},
     )
     graph.add_conditional_edges("bid_submission_node", route_bid_submission, {"planner_node": "planner_node", END: END})
@@ -410,7 +413,8 @@ def _build_golden_graph() -> CompiledStateGraph:
     graph.add_conditional_edges("content_node", route_content, {"design_node": "design_node", END: END})
     graph.add_conditional_edges("design_node", route_design, {"critic_node": "critic_node", END: END})
     graph.add_conditional_edges(
-        "critic_node", route_critic,
+        "critic_node",
+        route_critic,
         {"packager_node": "packager_node", "dev_node": "dev_node", "hitl_review_node": "hitl_review_node", END: END},
     )
     graph.add_conditional_edges("packager_node", route_packager, {"hitl_review_node": "hitl_review_node", END: END})

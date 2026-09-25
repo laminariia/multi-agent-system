@@ -113,10 +113,7 @@ def extract_json(raw: str, expected_type: type = dict) -> Any:
         except json.JSONDecodeError:
             pass
 
-    raise ValueError(
-        f"Failed to extract JSON from LLM response (length={len(raw)}): "
-        f"{raw[:200]!r}..."
-    )
+    raise ValueError(f"Failed to extract JSON from LLM response (length={len(raw)}): {raw[:200]!r}...")
 
 
 def extract_and_validate(raw: str, model: type[T]) -> T:  # noqa: UP047

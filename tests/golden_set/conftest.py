@@ -16,9 +16,7 @@ from tests.golden_set.outreach_agent_golden import CASES as outreach_cases
 from tests.golden_set.planner_agent_golden import CASES as planner_cases
 from tests.golden_set.scout_agent_golden import CASES as scout_cases
 
-ALL_CASES: list[GoldenCase] = (
-    scout_cases + bid_cases + content_cases + planner_cases + critic_cases + outreach_cases
-)
+ALL_CASES: list[GoldenCase] = scout_cases + bid_cases + content_cases + planner_cases + critic_cases + outreach_cases
 
 
 @pytest.fixture(params=ALL_CASES, ids=lambda c: f"{c.agent}-{c.name}")

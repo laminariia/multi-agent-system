@@ -3,6 +3,7 @@
 Tests ``src.worker.__main__`` — signal handlers, graceful shutdown, scheduler
 and queue task management.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -78,8 +79,10 @@ class TestMain:
         mock_scheduler.stop = AsyncMock()
 
         mock_queue = MagicMock()
+
         async def mock_process_loop(event):
             await event.wait()
+
         mock_queue.process_loop = mock_process_loop
 
         with (
@@ -87,9 +90,11 @@ class TestMain:
             patch("src.worker.queue.TaskQueue", return_value=mock_queue),
             patch("src.monitoring.sentry_config.init_sentry"),
         ):
+
             async def trigger_shutdown():
                 await asyncio.sleep(0.01)
                 from src.worker import __main__
+
                 if __main__._shutdown_event:
                     __main__._shutdown_event.set()
 
@@ -107,8 +112,10 @@ class TestMain:
         mock_scheduler.stop = AsyncMock()
 
         mock_queue = MagicMock()
+
         async def mock_process_loop(event):
             await event.wait()
+
         mock_queue.process_loop = mock_process_loop
 
         with (
@@ -116,9 +123,11 @@ class TestMain:
             patch("src.worker.queue.TaskQueue", return_value=mock_queue),
             patch("src.monitoring.sentry_config.init_sentry"),
         ):
+
             async def trigger_shutdown():
                 await asyncio.sleep(0.01)
                 from src.worker import __main__
+
                 if __main__._shutdown_event:
                     __main__._shutdown_event.set()
 
@@ -139,10 +148,12 @@ class TestMain:
 
         mock_queue = MagicMock()
         process_loop_called = False
+
         async def mock_process_loop(event):
             nonlocal process_loop_called
             process_loop_called = True
             await event.wait()
+
         mock_queue.process_loop = mock_process_loop
 
         with (
@@ -150,9 +161,11 @@ class TestMain:
             patch("src.worker.queue.TaskQueue", return_value=mock_queue),
             patch("src.monitoring.sentry_config.init_sentry"),
         ):
+
             async def trigger_shutdown():
                 await asyncio.sleep(0.01)
                 from src.worker import __main__
+
                 if __main__._shutdown_event:
                     __main__._shutdown_event.set()
 
@@ -172,8 +185,10 @@ class TestMain:
         mock_scheduler.stop = AsyncMock()
 
         mock_queue = MagicMock()
+
         async def mock_process_loop(event):
             await event.wait()
+
         mock_queue.process_loop = mock_process_loop
 
         with (
@@ -181,9 +196,11 @@ class TestMain:
             patch("src.worker.queue.TaskQueue", return_value=mock_queue),
             patch("src.monitoring.sentry_config.init_sentry"),
         ):
+
             async def trigger_shutdown():
                 await asyncio.sleep(0.01)
                 from src.worker import __main__
+
                 if __main__._shutdown_event:
                     __main__._shutdown_event.set()
 
@@ -204,8 +221,10 @@ class TestMain:
         mock_scheduler.stop = AsyncMock()
 
         mock_queue = MagicMock()
+
         async def mock_process_loop(event):
             await event.wait()
+
         mock_queue.process_loop = mock_process_loop
 
         with (
@@ -213,9 +232,11 @@ class TestMain:
             patch("src.worker.queue.TaskQueue", return_value=mock_queue),
             patch("src.monitoring.sentry_config.init_sentry"),
         ):
+
             async def trigger_shutdown():
                 await asyncio.sleep(0.01)
                 from src.worker import __main__
+
                 if __main__._shutdown_event:
                     __main__._shutdown_event.set()
 
@@ -235,6 +256,7 @@ class TestMain:
         mock_scheduler.stop = AsyncMock()
 
         mock_queue = MagicMock()
+
         # Create a task that can be cancelled
         async def mock_process_loop(event):
             try:
@@ -249,9 +271,11 @@ class TestMain:
             patch("src.worker.queue.TaskQueue", return_value=mock_queue),
             patch("src.monitoring.sentry_config.init_sentry"),
         ):
+
             async def trigger_shutdown():
                 await asyncio.sleep(0.01)
                 from src.worker import __main__
+
                 if __main__._shutdown_event:
                     __main__._shutdown_event.set()
 
@@ -271,6 +295,7 @@ class TestMain:
         mock_scheduler.stop = AsyncMock()
 
         mock_queue = MagicMock()
+
         async def mock_process_loop(event):
             raise asyncio.CancelledError()
 
@@ -281,9 +306,11 @@ class TestMain:
             patch("src.worker.queue.TaskQueue", return_value=mock_queue),
             patch("src.monitoring.sentry_config.init_sentry"),
         ):
+
             async def trigger_shutdown():
                 await asyncio.sleep(0.01)
                 from src.worker import __main__
+
                 if __main__._shutdown_event:
                     __main__._shutdown_event.set()
 
@@ -303,8 +330,10 @@ class TestMain:
         mock_scheduler.stop = AsyncMock()
 
         mock_queue = MagicMock()
+
         async def mock_process_loop(event):
             await event.wait()
+
         mock_queue.process_loop = mock_process_loop
 
         mock_init_sentry = MagicMock()
@@ -314,9 +343,11 @@ class TestMain:
             patch("src.worker.queue.TaskQueue", return_value=mock_queue),
             patch("src.monitoring.sentry_config.init_sentry", mock_init_sentry),
         ):
+
             async def trigger_shutdown():
                 await asyncio.sleep(0.01)
                 from src.worker import __main__
+
                 if __main__._shutdown_event:
                     __main__._shutdown_event.set()
 
@@ -336,8 +367,10 @@ class TestMain:
         mock_scheduler.stop = AsyncMock()
 
         mock_queue = MagicMock()
+
         async def mock_process_loop(event):
             await event.wait()
+
         mock_queue.process_loop = mock_process_loop
 
         mock_logger = MagicMock()
@@ -348,9 +381,11 @@ class TestMain:
             patch("src.monitoring.sentry_config.init_sentry"),
             patch("src.worker.__main__.logger", mock_logger),
         ):
+
             async def trigger_shutdown():
                 await asyncio.sleep(0.01)
                 from src.worker import __main__
+
                 if __main__._shutdown_event:
                     __main__._shutdown_event.set()
 

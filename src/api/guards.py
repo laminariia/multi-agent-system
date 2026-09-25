@@ -7,6 +7,7 @@ on every authenticated request using the JWT ``sub`` claim (user UUID).
 Password utilities use ``bcrypt`` directly (via ``passlib`` context)
 as specified in ``docs/auth_specification.md``.
 """
+
 from __future__ import annotations
 
 import uuid

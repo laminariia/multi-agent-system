@@ -89,12 +89,16 @@ class TestMASMetrics:
         )
 
         calls_value = metrics.llm_calls_total.labels(
-            agent_name="dev", model="anthropic/claude-opus-4.6", status="success",
+            agent_name="dev",
+            model="anthropic/claude-opus-4.6",
+            status="success",
         )._value.get()
         assert calls_value == 1.0
 
         input_tokens = metrics.llm_tokens_total.labels(
-            agent_name="dev", model="anthropic/claude-opus-4.6", direction="input",
+            agent_name="dev",
+            model="anthropic/claude-opus-4.6",
+            direction="input",
         )._value.get()
         assert input_tokens == 500.0
 

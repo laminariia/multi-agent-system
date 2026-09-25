@@ -4,6 +4,7 @@ Tests cover:
 - h3_scanner.py: BoundingBox, geocode_city, generate_hexagons, hex_to_bbox
 - overpass.py: OverpassClient query building, parsing, rate limiting
 """
+
 from __future__ import annotations
 
 import time

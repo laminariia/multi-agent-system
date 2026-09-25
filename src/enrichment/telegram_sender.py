@@ -141,7 +141,9 @@ class TelegramDMSender:
             logger.error("telegram_dm_connect_error", exc_info=True)
 
     async def send_dm(
-        self, user_identifier: str | int, message_text: str,
+        self,
+        user_identifier: str | int,
+        message_text: str,
     ) -> bool | str:
         """Send a direct message to a Telegram user.
 

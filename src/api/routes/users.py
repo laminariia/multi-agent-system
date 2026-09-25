@@ -4,6 +4,7 @@ Provides CRUD operations for user accounts including approval of
 pending registrations, role changes, account suspension, and
 ownership transfer.
 """
+
 from __future__ import annotations
 
 import uuid

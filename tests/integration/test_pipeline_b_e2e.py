@@ -44,11 +44,13 @@ def _make_pipeline_b_state(city: str = "Berlin", thread_id: str | None = None) -
         budget=0.0,
         deadline=datetime.now(tz=UTC),
     )
-    state = dict(create_initial_state(
-        project=project,
-        first_agent="geoscout",
-        thread_id=thread_id or f"thread-e2e-{uuid.uuid4().hex[:8]}",
-    ))
+    state = dict(
+        create_initial_state(
+            project=project,
+            first_agent="geoscout",
+            thread_id=thread_id or f"thread-e2e-{uuid.uuid4().hex[:8]}",
+        )
+    )
     state["artifacts"] = {"_scan_city": city}
     return state
 
@@ -128,9 +130,12 @@ async def _outreach_enriches_and_drafts(state: dict[str, Any]) -> dict[str, Any]
 
 async def test_e2e_full_pipeline_to_hitl_pause():
     """E2E: GeoScout stores leads -> Outreach enriches + drafts -> HITL pause."""
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_with_leads), \
-         patch("src.core.graph.outreach_node", side_effect=_outreach_enriches_and_drafts):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_with_leads),
+        patch("src.core.graph.outreach_node", side_effect=_outreach_enriches_and_drafts),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_pipeline_b_state())
 
@@ -161,9 +166,12 @@ async def test_e2e_full_pipeline_to_hitl_pause():
 
 async def test_e2e_artifacts_accumulate_through_pipeline():
     """E2E: All artifacts from all agents are preserved in final state."""
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_with_leads), \
-         patch("src.core.graph.outreach_node", side_effect=_outreach_enriches_and_drafts):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_with_leads),
+        patch("src.core.graph.outreach_node", side_effect=_outreach_enriches_and_drafts),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_pipeline_b_state())
 
@@ -185,9 +193,12 @@ async def test_e2e_artifacts_accumulate_through_pipeline():
 
 async def test_e2e_campaign_id_in_artifacts():
     """E2E: Verify campaign_id is stored in artifacts (regression test for bug fix)."""
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_with_leads), \
-         patch("src.core.graph.outreach_node", side_effect=_outreach_enriches_and_drafts):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_with_leads),
+        patch("src.core.graph.outreach_node", side_effect=_outreach_enriches_and_drafts),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_pipeline_b_state())
 
@@ -217,9 +228,12 @@ async def test_e2e_geo_scout_failure_stops_pipeline():
         outreach_called = True
         return state
 
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_fails), \
-         patch("src.core.graph.outreach_node", side_effect=_tracking_outreach):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_fails),
+        patch("src.core.graph.outreach_node", side_effect=_tracking_outreach),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_pipeline_b_state())
 
@@ -249,9 +263,12 @@ async def test_e2e_no_enriched_leads_completes_without_hitl():
             "next_agent": None,
         }
 
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_with_leads), \
-         patch("src.core.graph.outreach_node", side_effect=_outreach_no_emails):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_with_leads),
+        patch("src.core.graph.outreach_node", side_effect=_outreach_no_emails),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_pipeline_b_state())
 
@@ -287,11 +304,14 @@ async def test_e2e_message_dispatch_after_hitl_approval():
             "status": "completed",
         }
 
-    with patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_with_leads), \
-         patch("src.core.graph.outreach_node", side_effect=_outreach_enriches_and_drafts), \
-         patch("src.core.graph.hitl_outreach_node", side_effect=_hitl_outreach_approves), \
-         patch("src.core.graph.message_dispatch_node", side_effect=_message_dispatch_succeeds):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_geo_scout_with_leads),
+        patch("src.core.graph.outreach_node", side_effect=_outreach_enriches_and_drafts),
+        patch("src.core.graph.hitl_outreach_node", side_effect=_hitl_outreach_approves),
+        patch("src.core.graph.message_dispatch_node", side_effect=_message_dispatch_succeeds),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_pipeline_b_state())
 
@@ -305,24 +325,31 @@ async def test_e2e_state_transitions_tracked():
     nodes_visited: list[dict[str, Any]] = []
 
     async def _tracking_geo(state: dict[str, Any]) -> dict[str, Any]:
-        nodes_visited.append({
-            "node": "geo_scout",
-            "status": state["status"],
-            "agent": state["current_agent"],
-        })
+        nodes_visited.append(
+            {
+                "node": "geo_scout",
+                "status": state["status"],
+                "agent": state["current_agent"],
+            }
+        )
         return await _geo_scout_with_leads(state)
 
     async def _tracking_outreach(state: dict[str, Any]) -> dict[str, Any]:
-        nodes_visited.append({
-            "node": "outreach",
-            "status": state["status"],
-            "agent": state.get("current_agent"),
-        })
+        nodes_visited.append(
+            {
+                "node": "outreach",
+                "status": state["status"],
+                "agent": state.get("current_agent"),
+            }
+        )
         return await _outreach_enriches_and_drafts(state)
 
-    with patch("src.core.graph.geo_scout_node", side_effect=_tracking_geo), \
-         patch("src.core.graph.outreach_node", side_effect=_tracking_outreach):
+    with (
+        patch("src.core.graph.geo_scout_node", side_effect=_tracking_geo),
+        patch("src.core.graph.outreach_node", side_effect=_tracking_outreach),
+    ):
         from src.core.graph import build_pipeline_b_graph
+
         graph = build_pipeline_b_graph()
         result = await _run_graph(graph, _make_pipeline_b_state())
 

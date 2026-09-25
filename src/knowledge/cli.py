@@ -90,7 +90,9 @@ def _build_parser() -> argparse.ArgumentParser:
     ingest_p = sub.add_parser("ingest", help="Ingest documents from a directory")
     ingest_p.add_argument("--dir", required=True, help="Directory to scan for documents")
     ingest_p.add_argument(
-        "--type", default="proposal_template", help="Knowledge base type (default: proposal_template)",
+        "--type",
+        default="proposal_template",
+        help="Knowledge base type (default: proposal_template)",
     )
 
     # -- search ---

@@ -1,4 +1,5 @@
 """Tests for ScoutAgent DB methods: _deduplicate, _store_jobs, _create_hitl_review, _log_decision_summary."""
+
 from __future__ import annotations
 
 import uuid
@@ -14,23 +15,34 @@ pytestmark = pytest.mark.asyncio
 
 def _agent(llm, hb, ld, adapters=None):
     return ScoutAgent(
-        llm_client=llm, heartbeat=hb, loop_detector=ld, adapters=adapters or {},
+        llm_client=llm,
+        heartbeat=hb,
+        loop_detector=ld,
+        adapters=adapters or {},
     )
 
 
 def _job(**kw: Any) -> dict[str, Any]:
     defaults = {
-        "platform": "freelancer", "external_id": "ext-1",
-        "title": "Build page", "description": "React page",
-        "budget_min": 200, "budget_max": 500, "currency": "USD",
-        "skills_required": ["react"], "match_score": 0.85,
-        "recommendation": "bid", "reasoning": "Good match", "url": "https://x.com",
+        "platform": "freelancer",
+        "external_id": "ext-1",
+        "title": "Build page",
+        "description": "React page",
+        "budget_min": 200,
+        "budget_max": 500,
+        "currency": "USD",
+        "skills_required": ["react"],
+        "match_score": 0.85,
+        "recommendation": "bid",
+        "reasoning": "Good match",
+        "url": "https://x.com",
     }
     defaults.update(kw)
     return defaults
 
 
 # ===== _deduplicate ===========================================================
+
 
 @patch("src.agents.scout.get_db_session")
 async def test_deduplicate_empty(mock_db, mock_llm_client, mock_heartbeat, mock_loop_detector):
@@ -74,6 +86,7 @@ async def test_deduplicate_filters_existing(mock_db, mock_llm_client, mock_heart
 
 
 # ===== _store_jobs ============================================================
+
 
 @patch("src.agents.scout.get_db_session")
 async def test_store_jobs_empty(mock_db, mock_llm_client, mock_heartbeat, mock_loop_detector):
@@ -135,6 +148,7 @@ async def test_store_jobs_optional_fields(mock_db, mock_llm_client, mock_heartbe
 
 # ===== _create_hitl_review ====================================================
 
+
 @patch("src.agents.scout.get_db_session")
 async def test_create_hitl_review(mock_db, mock_llm_client, mock_heartbeat, mock_loop_detector):
     mock_session = AsyncMock()
@@ -150,6 +164,7 @@ async def test_create_hitl_review(mock_db, mock_llm_client, mock_heartbeat, mock
 
 
 # ===== _log_decision_summary ==================================================
+
 
 @patch("src.agents.scout.get_db_session")
 async def test_log_decision_summary(mock_db, mock_llm_client, mock_heartbeat, mock_loop_detector):

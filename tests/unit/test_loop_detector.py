@@ -64,10 +64,10 @@ async def test_check_different_steps_resets_consecutive():
     detector = LoopDetector(max_iterations=100, max_identical_steps=2)
 
     await detector.check(THREAD, "scout")
-    await detector.check(THREAD, "scout")   # 2nd consecutive -- at limit
-    await detector.check(THREAD, "bid")     # different step -- resets consecutive
-    await detector.check(THREAD, "scout")   # 1st consecutive again
-    await detector.check(THREAD, "scout")   # 2nd consecutive -- at limit, still ok
+    await detector.check(THREAD, "scout")  # 2nd consecutive -- at limit
+    await detector.check(THREAD, "bid")  # different step -- resets consecutive
+    await detector.check(THREAD, "scout")  # 1st consecutive again
+    await detector.check(THREAD, "scout")  # 2nd consecutive -- at limit, still ok
 
     # The 3rd consecutive (without interruption) should raise.
     with pytest.raises(LoopDetectedError):

@@ -294,12 +294,24 @@ def test_semgrep_blocked_default_rule_ids():
 def test_all_exceptions_are_mas_exception():
     """All custom exceptions should be subclasses of MASException."""
     exception_classes = [
-        AgentException, HeartbeatTimeoutError, LoopDetectedError,
-        HITLRequiredError, LLMException, LLMRateLimitError,
-        LLMTimeoutError, LLMContextOverflowError, LLMInvalidResponseError,
-        CacheException, CheckpointException, PlatformException,
-        PlatformAPIError, PlatformRateLimitError, PlatformBannedError,
-        SecurityException, CaptchaDetectedError, CloudflareBlockError,
+        AgentException,
+        HeartbeatTimeoutError,
+        LoopDetectedError,
+        HITLRequiredError,
+        LLMException,
+        LLMRateLimitError,
+        LLMTimeoutError,
+        LLMContextOverflowError,
+        LLMInvalidResponseError,
+        CacheException,
+        CheckpointException,
+        PlatformException,
+        PlatformAPIError,
+        PlatformRateLimitError,
+        PlatformBannedError,
+        SecurityException,
+        CaptchaDetectedError,
+        CloudflareBlockError,
         SemgrepBlockedError,
     ]
     for cls in exception_classes:

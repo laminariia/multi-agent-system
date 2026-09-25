@@ -7,6 +7,7 @@ Usage::
 Starts the APScheduler-based scheduler and Valkey task queue consumer.
 Handles graceful shutdown on SIGINT / SIGTERM.
 """
+
 from __future__ import annotations
 
 import asyncio

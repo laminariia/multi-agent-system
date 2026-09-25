@@ -39,19 +39,21 @@ def _build_state(**overrides: Any) -> AgentState:
 
 def _make_dev_artifacts() -> dict[str, list[str]]:
     """Build a minimal set of dev artifacts for the critic to review."""
-    code_data = json.dumps({
-        "files": [
-            {
-                "path": "src/components/Hero.tsx",
-                "content": "export default function Hero() { return <div>Hero</div>; }",
-                "language": "typescript",
-            }
-        ],
-        "dependencies": ["react", "tailwindcss"],
-        "build_commands": ["npm install", "npm run build"],
-        "test_commands": ["npm test"],
-        "deployment_notes": "Deploy to Vercel.",
-    })
+    code_data = json.dumps(
+        {
+            "files": [
+                {
+                    "path": "src/components/Hero.tsx",
+                    "content": "export default function Hero() { return <div>Hero</div>; }",
+                    "language": "typescript",
+                }
+            ],
+            "dependencies": ["react", "tailwindcss"],
+            "build_commands": ["npm install", "npm run build"],
+            "test_commands": ["npm test"],
+            "deployment_notes": "Deploy to Vercel.",
+        }
+    )
     return {"dev": ["artifact-id-001", code_data]}
 
 
@@ -62,15 +64,17 @@ def _make_review_response(
     revision_type: str = "none",
 ) -> str:
     """Build a critic review JSON response string."""
-    return json.dumps({
-        "verdict": verdict,
-        "score": score,
-        "revision_type": revision_type,
-        "issues": issues or [],
-        "passed_checks": ["compiles", "tests_pass", "security"],
-        "failed_checks": [],
-        "revision_instructions": "" if verdict == "approve" else "Fix the reported issues.",
-    })
+    return json.dumps(
+        {
+            "verdict": verdict,
+            "score": score,
+            "revision_type": revision_type,
+            "issues": issues or [],
+            "passed_checks": ["compiles", "tests_pass", "security"],
+            "failed_checks": [],
+            "revision_instructions": "" if verdict == "approve" else "Fix the reported issues.",
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -85,10 +89,12 @@ async def test_critic_approves_high_score(
 ):
     """When verdict='approve' and score >= 0.85, next_agent should be 'packager'."""
     review_response = _make_review_response(verdict="approve", score=0.92)
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,
@@ -126,10 +132,12 @@ async def test_critic_requests_revision(
             }
         ],
     )
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,
@@ -175,10 +183,12 @@ async def test_critic_rejects_low_score(
             },
         ],
     )
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,
@@ -212,10 +222,12 @@ async def test_critic_max_revisions_escalates(
     """When revision_count >= 3, requires_hitl=True regardless of verdict."""
     # Even though verdict is "revise" with a decent score, max revisions override.
     review_response = _make_review_response(verdict="revise", score=0.75)
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,
@@ -274,14 +286,16 @@ def test_critic_parse_review_response_valid(
         loop_detector=mock_loop_detector,
     )
 
-    valid_json = json.dumps({
-        "verdict": "approve",
-        "score": 0.88,
-        "issues": [{"severity": "minor", "category": "code", "description": "Unused import"}],
-        "passed_checks": ["security", "tests"],
-        "failed_checks": [],
-        "revision_instructions": "",
-    })
+    valid_json = json.dumps(
+        {
+            "verdict": "approve",
+            "score": 0.88,
+            "issues": [{"severity": "minor", "category": "code", "description": "Unused import"}],
+            "passed_checks": ["security", "tests"],
+            "failed_checks": [],
+            "revision_instructions": "",
+        }
+    )
 
     result = agent._parse_review_response(valid_json)
     assert result is not None
@@ -357,10 +371,12 @@ async def test_critic_approve_boundary_score(
 ):
     """Score exactly at the approve threshold (0.85) should route to packager."""
     review_response = _make_review_response(verdict="approve", score=0.85)
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,
@@ -401,10 +417,12 @@ async def test_critic_major_revision_routes_to_planner(
             }
         ],
     )
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,
@@ -442,10 +460,12 @@ async def test_critic_scope_creep_escalates_to_hitl(
             }
         ],
     )
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,
@@ -491,10 +511,12 @@ async def test_critic_minor_revision_routes_to_dev(
             }
         ],
     )
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,
@@ -525,33 +547,39 @@ def test_critic_parse_revision_type_normalisation(
     )
 
     # Invalid revision_type with revise verdict → defaults to "minor"
-    bad_type = json.dumps({
-        "verdict": "revise",
-        "score": 0.72,
-        "revision_type": "unknown_type",
-        "issues": [],
-    })
+    bad_type = json.dumps(
+        {
+            "verdict": "revise",
+            "score": 0.72,
+            "revision_type": "unknown_type",
+            "issues": [],
+        }
+    )
     result = agent._parse_review_response(bad_type)
     assert result is not None
     assert result["revision_type"] == "minor"
 
     # Invalid revision_type with approve verdict → defaults to "none"
-    bad_type_approve = json.dumps({
-        "verdict": "approve",
-        "score": 0.92,
-        "revision_type": "invalid",
-        "issues": [],
-    })
+    bad_type_approve = json.dumps(
+        {
+            "verdict": "approve",
+            "score": 0.92,
+            "revision_type": "invalid",
+            "issues": [],
+        }
+    )
     result = agent._parse_review_response(bad_type_approve)
     assert result is not None
     assert result["revision_type"] == "none"
 
     # Missing revision_type → defaults to "none"
-    no_type = json.dumps({
-        "verdict": "approve",
-        "score": 0.90,
-        "issues": [],
-    })
+    no_type = json.dumps(
+        {
+            "verdict": "approve",
+            "score": 0.90,
+            "issues": [],
+        }
+    )
     result = agent._parse_review_response(no_type)
     assert result is not None
     assert result["revision_type"] == "none"
@@ -563,18 +591,22 @@ async def test_critic_default_revision_type_when_missing(
     mock_loop_detector: Any,
 ):
     """When LLM returns revise verdict without revision_type, should default to minor → dev."""
-    review_response = json.dumps({
-        "verdict": "revise",
-        "score": 0.75,
-        "issues": [{"severity": "minor", "category": "code", "description": "Small fix needed"}],
-        "passed_checks": ["security"],
-        "failed_checks": ["style"],
-        "revision_instructions": "Fix style issues.",
-    })
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    review_response = json.dumps(
+        {
+            "verdict": "revise",
+            "score": 0.75,
+            "issues": [{"severity": "minor", "category": "code", "description": "Small fix needed"}],
+            "passed_checks": ["security"],
+            "failed_checks": ["style"],
+            "revision_instructions": "Fix style issues.",
+        }
+    )
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,

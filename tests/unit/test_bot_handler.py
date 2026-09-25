@@ -109,9 +109,7 @@ class TestCreateBotApplication:
         create_bot_application()
 
         # Count CommandHandler instances
-        command_handlers = [
-            h for h in mock_app._added_handlers if isinstance(h, CommandHandler)
-        ]
+        command_handlers = [h for h in mock_app._added_handlers if isinstance(h, CommandHandler)]
         assert len(command_handlers) == 15
 
     def test_command_names_are_correct(self, mock_settings, mock_application):
@@ -122,16 +120,26 @@ class TestCreateBotApplication:
         create_bot_application()
 
         # Extract command names (commands is a frozenset)
-        command_handlers = [
-            h for h in mock_app._added_handlers if isinstance(h, CommandHandler)
-        ]
+        command_handlers = [h for h in mock_app._added_handlers if isinstance(h, CommandHandler)]
         all_commands = set()
         for h in command_handlers:
             all_commands.update(h.commands)
 
         expected_commands = {
-            "start", "status", "pending", "stats", "approve", "skip",
-            "run", "stop", "orch", "goals", "health", "milestones", "logs", "add_goal",
+            "start",
+            "status",
+            "pending",
+            "stats",
+            "approve",
+            "skip",
+            "run",
+            "stop",
+            "orch",
+            "goals",
+            "health",
+            "milestones",
+            "logs",
+            "add_goal",
             "scan",
         }
         assert all_commands == expected_commands
@@ -144,9 +152,7 @@ class TestCreateBotApplication:
         create_bot_application()
 
         # Find CallbackQueryHandler
-        callback_handlers = [
-            h for h in mock_app._added_handlers if isinstance(h, CallbackQueryHandler)
-        ]
+        callback_handlers = [h for h in mock_app._added_handlers if isinstance(h, CallbackQueryHandler)]
         assert len(callback_handlers) == 2
 
     def test_total_seventeen_handlers_registered(self, mock_settings, mock_application):
@@ -174,9 +180,7 @@ class TestCreateBotApplication:
         mock_app, _ = mock_application
         create_bot_application()
 
-        command_handlers = [
-            h for h in mock_app._added_handlers if isinstance(h, CommandHandler)
-        ]
+        command_handlers = [h for h in mock_app._added_handlers if isinstance(h, CommandHandler)]
         start_handlers = [h for h in command_handlers if "start" in h.commands]
         assert len(start_handlers) == 1
 
@@ -187,9 +191,7 @@ class TestCreateBotApplication:
         mock_app, _ = mock_application
         create_bot_application()
 
-        command_handlers = [
-            h for h in mock_app._added_handlers if isinstance(h, CommandHandler)
-        ]
+        command_handlers = [h for h in mock_app._added_handlers if isinstance(h, CommandHandler)]
         status_handlers = [h for h in command_handlers if "status" in h.commands]
         assert len(status_handlers) == 1
 
@@ -200,9 +202,7 @@ class TestCreateBotApplication:
         mock_app, _ = mock_application
         create_bot_application()
 
-        command_handlers = [
-            h for h in mock_app._added_handlers if isinstance(h, CommandHandler)
-        ]
+        command_handlers = [h for h in mock_app._added_handlers if isinstance(h, CommandHandler)]
         pending_handlers = [h for h in command_handlers if "pending" in h.commands]
         assert len(pending_handlers) == 1
 
@@ -213,9 +213,7 @@ class TestCreateBotApplication:
         mock_app, _ = mock_application
         create_bot_application()
 
-        command_handlers = [
-            h for h in mock_app._added_handlers if isinstance(h, CommandHandler)
-        ]
+        command_handlers = [h for h in mock_app._added_handlers if isinstance(h, CommandHandler)]
         stats_handlers = [h for h in command_handlers if "stats" in h.commands]
         assert len(stats_handlers) == 1
 
@@ -226,9 +224,7 @@ class TestCreateBotApplication:
         mock_app, _ = mock_application
         create_bot_application()
 
-        command_handlers = [
-            h for h in mock_app._added_handlers if isinstance(h, CommandHandler)
-        ]
+        command_handlers = [h for h in mock_app._added_handlers if isinstance(h, CommandHandler)]
         approve_handlers = [h for h in command_handlers if "approve" in h.commands]
         assert len(approve_handlers) == 1
 
@@ -239,9 +235,7 @@ class TestCreateBotApplication:
         mock_app, _ = mock_application
         create_bot_application()
 
-        command_handlers = [
-            h for h in mock_app._added_handlers if isinstance(h, CommandHandler)
-        ]
+        command_handlers = [h for h in mock_app._added_handlers if isinstance(h, CommandHandler)]
         skip_handlers = [h for h in command_handlers if "skip" in h.commands]
         assert len(skip_handlers) == 1
 
@@ -252,9 +246,7 @@ class TestCreateBotApplication:
         mock_app, _ = mock_application
         create_bot_application()
 
-        callback_handlers = [
-            h for h in mock_app._added_handlers if isinstance(h, CallbackQueryHandler)
-        ]
+        callback_handlers = [h for h in mock_app._added_handlers if isinstance(h, CallbackQueryHandler)]
         # Verify the handler has a callback
         assert callback_handlers[0].callback is not None
 

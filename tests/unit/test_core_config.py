@@ -16,6 +16,12 @@ pytestmark = pytest.mark.filterwarnings("ignore::RuntimeWarning")
 class TestSettings:
     """Test Settings class field defaults and computed properties."""
 
+    @pytest.fixture(autouse=True)
+    def _no_settings_env(self, monkeypatch):
+        """Defaults must not pick up DATABASE_URL, secrets etc. from the shell (CI sets them)."""
+        for name in Settings.model_fields:
+            monkeypatch.delenv(name, raising=False)
+
     def test_default_database_url(self):
         """Settings uses default PostgreSQL URL."""
         settings = Settings(_env_file=None, DEBUG=True)

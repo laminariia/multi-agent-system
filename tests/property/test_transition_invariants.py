@@ -107,7 +107,7 @@ class TestInvalidTransitions:
         try:
             sm.transition(to_state, reason="test", actor="hypothesis")
             # If we get here, the transition was unexpectedly valid
-            assert False, f"Expected InvalidTransitionError for {from_state} -> {to_state}"
+            raise AssertionError(f"Expected InvalidTransitionError for {from_state} -> {to_state}")
         except InvalidTransitionError as exc:
             assert exc.from_state == from_state
             assert exc.to_state == to_state

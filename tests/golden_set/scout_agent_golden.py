@@ -16,13 +16,13 @@ CASES: list[GoldenCase] = [
             "description": "Modern responsive landing with animations, pricing table, testimonials.",
         },
         expected_output=(
-            '```json\n'
+            "```json\n"
             '{"job_id": "freelancer_react_landi", "platform": "freelancer",'
             ' "title": "React landing page for SaaS product",'
             ' "match_score": 0.92, "recommendation": "bid",'
             ' "reasoning": "Strong match: React + Tailwind in our core stack, fair budget, proven client.",'
             ' "skills_match": ["React", "Tailwind", "Next.js"]}\n'
-            '```'
+            "```"
         ),
         validators=[
             ValidationRule("value_in", {"field": "recommendation", "values": ["bid"]}),
@@ -63,10 +63,10 @@ CASES: list[GoldenCase] = [
             "description": "Need someone to copy data from 200 PDF invoices into Excel.",
         },
         expected_output=(
-            '```json\n'
+            "```json\n"
             '{"match_score": 0.15, "recommendation": "skip",'
             ' "reasoning": "Data entry is not in our capability matrix."}\n'
-            '```'
+            "```"
         ),
         validators=[
             ValidationRule("value_equals", {"field": "recommendation", "value": "skip"}),

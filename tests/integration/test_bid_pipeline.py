@@ -62,9 +62,9 @@ async def test_scout_to_bid_pipeline_hitl_required(
     """
     # -- Setup qualified jobs --
     qualified_jobs = JobFactory.create_batch(2, match_score=0.88, recommendation="bid")
-    scored_response = json.dumps([
-        {**j, "match_score": 0.88, "recommendation": "bid"} for j in qualified_jobs
-    ], default=str)
+    scored_response = json.dumps(
+        [{**j, "match_score": 0.88, "recommendation": "bid"} for j in qualified_jobs], default=str
+    )
 
     # -- LLM responses: first call for scout scoring, second for bid proposal --
     proposal = ProposalFactory.create(bid_amount=400, delivery_days=5)
@@ -132,9 +132,7 @@ async def test_scout_to_bid_pipeline_hitl_required(
         patch.object(bid_agent, "_load_jobs", new_callable=AsyncMock, return_value=loaded_jobs),
         patch.object(bid_agent, "_fetch_similar_bids", new_callable=AsyncMock, return_value=[]),
         patch.object(bid_agent, "_store_bid", new_callable=AsyncMock, side_effect=["bid-a", "bid-b"]),
-        patch.object(
-            bid_agent, "_create_hitl_entry", new_callable=AsyncMock, side_effect=["hitl-a", "hitl-b"]
-        ),
+        patch.object(bid_agent, "_create_hitl_entry", new_callable=AsyncMock, side_effect=["hitl-a", "hitl-b"]),
         patch.object(bid_agent, "_log_bid_generated", new_callable=AsyncMock),
     ):
         bid_result = await bid_agent._execute(bid_input)  # type: ignore[arg-type]

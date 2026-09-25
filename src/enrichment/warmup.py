@@ -48,7 +48,7 @@ BOUNCE_RED_LINE: float = 0.05  # 5% -- stop & review threshold
 PRODUCTION_DAILY_LIMIT: int = 50
 
 
-class WarmupStage(str, enum.Enum):
+class WarmupStage(enum.StrEnum):
     """Warmup phases from spec (6 weeks + production)."""
 
     WEEK_1 = "week_1"

@@ -113,6 +113,7 @@ def _build_test_app(
 
     # If no custom user retriever, build one that returns None (401)
     if retrieve_user is None:
+
         async def retrieve_user(token: Token, connection: Any) -> User | None:
             return None
 

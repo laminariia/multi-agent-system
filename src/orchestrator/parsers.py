@@ -71,8 +71,8 @@ def is_runner_alive() -> tuple[bool, int | None]:
             # check via `ps` to filter them out.
             import subprocess as _sp
 
-            stat = _sp.run(
-                ["ps", "-p", str(pid), "-o", "stat="],
+            stat = _sp.run(  # noqa: S603
+                ["ps", "-p", str(pid), "-o", "stat="],  # noqa: S607
                 capture_output=True,
                 text=True,
             ).stdout.strip()

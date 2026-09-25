@@ -3,6 +3,7 @@
 Tests ``src.cli.create_user`` — argparse CLI and async user insertion with
 duplicate email detection.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -265,11 +266,16 @@ class TestMain:
         from src.cli.create_user import main
 
         with (
-            patch("sys.argv", [
-                "create_user",
-                "--email", "user@test.com",
-                "--password", "secret",  # noqa: S106
-            ]),
+            patch(
+                "sys.argv",
+                [
+                    "create_user",
+                    "--email",
+                    "user@test.com",
+                    "--password",
+                    "secret",  # noqa: S106
+                ],
+            ),
             patch("asyncio.run") as mock_run,
         ):
             main()
@@ -294,12 +300,18 @@ class TestMain:
         from src.cli.create_user import main
 
         with (
-            patch("sys.argv", [
-                "create_user",
-                "--email", "user@test.com",
-                "--password", "secret",  # noqa: S106
-                "--role", "viewer",
-            ]),
+            patch(
+                "sys.argv",
+                [
+                    "create_user",
+                    "--email",
+                    "user@test.com",
+                    "--password",
+                    "secret",  # noqa: S106
+                    "--role",
+                    "viewer",
+                ],
+            ),
             patch("asyncio.run"),
         ):
             main()
@@ -309,11 +321,16 @@ class TestMain:
         from src.cli.create_user import main
 
         with (
-            patch("sys.argv", [
-                "create_user",
-                "--email", "user@test.com",
-                "--password", "secret",  # noqa: S106
-            ]),
+            patch(
+                "sys.argv",
+                [
+                    "create_user",
+                    "--email",
+                    "user@test.com",
+                    "--password",
+                    "secret",  # noqa: S106
+                ],
+            ),
             patch("asyncio.run"),
         ):
             main()
@@ -323,10 +340,14 @@ class TestMain:
         from src.cli.create_user import main
 
         with (
-            patch("sys.argv", [
-                "create_user",
-                "--password", "secret",  # noqa: S106
-            ]),
+            patch(
+                "sys.argv",
+                [
+                    "create_user",
+                    "--password",
+                    "secret",  # noqa: S106
+                ],
+            ),
             patch("sys.stderr"),
             pytest.raises(SystemExit) as exc_info,
         ):
@@ -339,10 +360,14 @@ class TestMain:
         from src.cli.create_user import main
 
         with (
-            patch("sys.argv", [
-                "create_user",
-                "--email", "user@test.com",
-            ]),
+            patch(
+                "sys.argv",
+                [
+                    "create_user",
+                    "--email",
+                    "user@test.com",
+                ],
+            ),
             patch("sys.stderr"),
             pytest.raises(SystemExit) as exc_info,
         ):

@@ -123,15 +123,18 @@ async def test_checkpoint_valkey_miss_postgres_fallback(mock_valkey: AsyncMock, 
         mock_valkey.get = AsyncMock(return_value=None)
 
         # ---- PostgreSQL returns the checkpoint ----
-        pg_state_data = json.dumps({
-            "id": checkpoint_id,
-            "parent_id": None,
-            "_metadata": {"source": "pg_test"},
-            "current_agent": "bid",
-            "status": "paused",
-            "requires_hitl": True,
-            "artifacts": {"scout": ["job-x"], "bid": ["bid-y"]},
-        }, default=str)
+        pg_state_data = json.dumps(
+            {
+                "id": checkpoint_id,
+                "parent_id": None,
+                "_metadata": {"source": "pg_test"},
+                "current_agent": "bid",
+                "status": "paused",
+                "requires_hitl": True,
+                "artifacts": {"scout": ["job-x"], "bid": ["bid-y"]},
+            },
+            default=str,
+        )
 
         pg_row = {
             "thread_id": thread_id,

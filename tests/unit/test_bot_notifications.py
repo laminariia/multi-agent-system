@@ -274,11 +274,13 @@ class TestTelegramNotifierSendMessage:
     async def test_send_message_http_error_returns_none(self, notifier: TelegramNotifier) -> None:
         """Returns None on HTTP error."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(side_effect=httpx.HTTPStatusError(
-            "404 Not Found",
-            request=MagicMock(),
-            response=MagicMock(),
-        ))
+        mock_client.post = AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "404 Not Found",
+                request=MagicMock(),
+                response=MagicMock(),
+            )
+        )
 
         with patch("httpx.AsyncClient", return_value=mock_client) as mock_async_client:
             mock_async_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)

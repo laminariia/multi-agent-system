@@ -2,6 +2,7 @@
 
 All LLM calls and database operations are mocked.
 """
+
 from __future__ import annotations
 
 import json
@@ -32,7 +33,9 @@ def _build_state(**overrides: Any) -> AgentState:
         "deadline": datetime(2026, 3, 15, tzinfo=UTC),
     }
     state = create_initial_state(
-        project=project, first_agent="packager", thread_id="thread-packager-test",
+        project=project,
+        first_agent="packager",
+        thread_id="thread-packager-test",
     )
     state.update(overrides)  # type: ignore[typeddict-item]
     return state
@@ -69,10 +72,12 @@ async def test_packager_assembles_artifacts_creates_hitl(
 ):
     """Given artifacts in state -> requires_hitl=True, status='paused'."""
     delivery_json = _make_delivery_json()
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=delivery_json),
-        CallMetrics(agent_name="packager", model_id="claude-haiku-4-5", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=delivery_json),
+            CallMetrics(agent_name="packager", model_id="claude-haiku-4-5", provider="anthropic"),
+        )
+    )
 
     agent = PackagerAgent(
         llm_client=mock_llm_client,
@@ -80,10 +85,12 @@ async def test_packager_assembles_artifacts_creates_hitl(
         loop_detector=mock_loop_detector,
     )
 
-    state = _build_state(artifacts={
-        "dev": ["artifact-dev-1", "artifact-dev-2"],
-        "content": ["artifact-content-1"],
-    })
+    state = _build_state(
+        artifacts={
+            "dev": ["artifact-dev-1", "artifact-dev-2"],
+            "content": ["artifact-content-1"],
+        }
+    )
 
     with (
         patch.object(agent, "_create_hitl_entry", new_callable=AsyncMock, return_value="hitl-pkg-001"),
@@ -117,11 +124,13 @@ async def test_packager_no_artifacts_handles_gracefully(
     )
 
     # State with no execution agent artifacts (only scout/bid/planner present).
-    state = _build_state(artifacts={
-        "scout": ["job-id-1"],
-        "bid": ["bid-id-1"],
-        "planner": ["plan-json-1"],
-    })
+    state = _build_state(
+        artifacts={
+            "scout": ["job-id-1"],
+            "bid": ["bid-id-1"],
+            "planner": ["plan-json-1"],
+        }
+    )
 
     with patch.object(agent, "_log_packaging_action", new_callable=AsyncMock):
         result = await agent._execute(state)
@@ -150,10 +159,12 @@ async def test_packager_always_requires_hitl(
         "quality_notes": "",
         "requires_hitl": False,  # LLM tries to bypass HITL
     }
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=json.dumps(delivery)),
-        CallMetrics(agent_name="packager", model_id="claude-haiku-4-5", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=json.dumps(delivery)),
+            CallMetrics(agent_name="packager", model_id="claude-haiku-4-5", provider="anthropic"),
+        )
+    )
 
     agent = PackagerAgent(
         llm_client=mock_llm_client,
@@ -184,10 +195,12 @@ async def test_packager_llm_failure_uses_fallback(
     mock_loop_detector: Any,
 ):
     """When LLM returns garbage, the packager should fall back to a basic delivery."""
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content="I cannot generate that for you."),
-        CallMetrics(agent_name="packager", model_id="claude-haiku-4-5", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content="I cannot generate that for you."),
+            CallMetrics(agent_name="packager", model_id="claude-haiku-4-5", provider="anthropic"),
+        )
+    )
 
     agent = PackagerAgent(
         llm_client=mock_llm_client,
@@ -220,10 +233,12 @@ async def test_packager_creates_hitl_entry(
 ):
     """_create_hitl_entry should be called exactly once with correct parameters."""
     delivery_json = _make_delivery_json()
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=delivery_json),
-        CallMetrics(agent_name="packager", model_id="claude-haiku-4-5", provider="anthropic"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=delivery_json),
+            CallMetrics(agent_name="packager", model_id="claude-haiku-4-5", provider="anthropic"),
+        )
+    )
 
     agent = PackagerAgent(
         llm_client=mock_llm_client,
@@ -261,17 +276,19 @@ def test_packager_parse_delivery_valid_json(
         loop_detector=mock_loop_detector,
     )
 
-    raw = json.dumps({
-        "delivery_id": "del-001",
-        "project_id": "proj-001",
-        "files_count": 10,
-        "includes": ["source_code", "docs"],
-        "delivery_message": "Project delivered.",
-        "readme_content": "# README",
-        "missing_artifacts": [],
-        "quality_notes": "All good.",
-        "requires_hitl": True,
-    })
+    raw = json.dumps(
+        {
+            "delivery_id": "del-001",
+            "project_id": "proj-001",
+            "files_count": 10,
+            "includes": ["source_code", "docs"],
+            "delivery_message": "Project delivered.",
+            "readme_content": "# README",
+            "missing_artifacts": [],
+            "quality_notes": "All good.",
+            "requires_hitl": True,
+        }
+    )
 
     result = agent._parse_delivery_response(raw)
 
@@ -310,13 +327,15 @@ def test_packager_parse_delivery_code_fenced_json(
         loop_detector=mock_loop_detector,
     )
 
-    inner = json.dumps({
-        "delivery_id": "del-fenced",
-        "project_id": "proj-fenced",
-        "files_count": 3,
-        "includes": ["source_code"],
-        "delivery_message": "Ready.",
-    })
+    inner = json.dumps(
+        {
+            "delivery_id": "del-fenced",
+            "project_id": "proj-fenced",
+            "files_count": 3,
+            "includes": ["source_code"],
+            "delivery_message": "Ready.",
+        }
+    )
     fenced = f"```json\n{inner}\n```"
 
     result = agent._parse_delivery_response(fenced)

@@ -11,6 +11,7 @@ Dev/Planner/HITL receives correct feedback. Tests cover:
 All LLM calls and DB operations are mocked; the focus is on state transitions
 and correct routing through the revision loop logic.
 """
+
 from __future__ import annotations
 
 import json
@@ -58,16 +59,18 @@ def _build_state(**overrides: Any) -> AgentState:
 
 def _make_dev_artifacts() -> dict[str, list[str]]:
     """Build minimal dev artifacts for the critic to review."""
-    code_data = json.dumps({
-        "files": [
-            {
-                "path": "src/components/Hero.tsx",
-                "content": "export default function Hero() { return <div>Hero</div>; }",
-                "language": "typescript",
-            }
-        ],
-        "dependencies": ["react"],
-    })
+    code_data = json.dumps(
+        {
+            "files": [
+                {
+                    "path": "src/components/Hero.tsx",
+                    "content": "export default function Hero() { return <div>Hero</div>; }",
+                    "language": "typescript",
+                }
+            ],
+            "dependencies": ["react"],
+        }
+    )
     return {"dev": ["artifact-id-001", code_data]}
 
 
@@ -79,15 +82,17 @@ def _make_review_response(
     revision_instructions: str = "",
 ) -> str:
     """Build a critic review JSON response string."""
-    return json.dumps({
-        "verdict": verdict,
-        "score": score,
-        "revision_type": revision_type,
-        "issues": issues or [],
-        "passed_checks": ["compiles", "tests_pass", "security"],
-        "failed_checks": [],
-        "revision_instructions": revision_instructions,
-    })
+    return json.dumps(
+        {
+            "verdict": verdict,
+            "score": score,
+            "revision_type": revision_type,
+            "issues": issues or [],
+            "passed_checks": ["compiles", "tests_pass", "security"],
+            "failed_checks": [],
+            "revision_instructions": revision_instructions,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -102,10 +107,12 @@ async def test_approve_first_pass_routes_to_packager(
 ) -> None:
     """Clean code approved on first review routes directly to packager."""
     review_response = _make_review_response(verdict="approve", score=0.92)
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,
@@ -152,19 +159,23 @@ async def test_minor_revision_loop_increments_count(
         verdict="revise",
         score=0.72,
         revision_type="minor",
-        issues=[{
-            "severity": "minor",
-            "category": "accessibility",
-            "description": "Missing alt attribute on <img>",
-            "location": "src/components/Hero.tsx:5",
-            "suggestion": "Add descriptive alt text",
-        }],
+        issues=[
+            {
+                "severity": "minor",
+                "category": "accessibility",
+                "description": "Missing alt attribute on <img>",
+                "location": "src/components/Hero.tsx:5",
+                "suggestion": "Add descriptive alt text",
+            }
+        ],
         revision_instructions="Add alt attribute to the <img> tag.",
     )
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_pass1),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_pass1),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,
@@ -188,10 +199,12 @@ async def test_minor_revision_loop_increments_count(
 
     # --- Pass 2: Critic approves the revised code ---
     review_pass2 = _make_review_response(verdict="approve", score=0.90)
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_pass2),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_pass2),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     # Simulate dev producing revised artifacts (state carries revision count forward).
     state_pass2 = _build_state(artifacts=result_pass1["artifacts"])
@@ -220,10 +233,12 @@ async def test_three_revisions_escalates_to_hitl(
         score=0.75,
         revision_type="minor",
     )
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,
@@ -270,19 +285,23 @@ async def test_major_revision_routes_to_planner(
         verdict="revise",
         score=0.65,
         revision_type="major",
-        issues=[{
-            "severity": "major",
-            "category": "architecture",
-            "description": "Component hierarchy needs restructuring",
-            "location": "src/",
-            "suggestion": "Split into smaller components with proper state management",
-        }],
+        issues=[
+            {
+                "severity": "major",
+                "category": "architecture",
+                "description": "Component hierarchy needs restructuring",
+                "location": "src/",
+                "suggestion": "Split into smaller components with proper state management",
+            }
+        ],
         revision_instructions="Restructure the component hierarchy.",
     )
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     agent = CriticAgent(
         llm_client=mock_llm_client,
@@ -325,10 +344,12 @@ async def test_semgrep_warnings_reduce_score(
 
     # LLM gives 0.90 (would normally approve), but Semgrep finds 2 warnings.
     review_response = _make_review_response(verdict="approve", score=0.90)
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     # Semgrep returns non-blocked result with 2 warnings.
     scan_result_with_warnings = ScanResult(
@@ -390,10 +411,12 @@ async def test_semgrep_critical_penalty_exceeds_threshold(
 
     # LLM gives 0.88 (would approve), but 1 critical finding.
     review_response = _make_review_response(verdict="approve", score=0.88)
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=review_response),
-        CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
-    ))
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=review_response),
+            CallMetrics(agent_name="critic", model_id="gpt-4o", provider="openai"),
+        )
+    )
 
     scan_result_critical = ScanResult(
         findings=[
@@ -451,20 +474,26 @@ async def test_dev_build_revision_prompt_includes_critic_feedback(
 
     # State with critic artifacts (revision scenario).
     artifacts = _make_dev_artifacts()
-    artifacts["critic"] = [json.dumps({
-        "verdict": "revise",
-        "score": 0.72,
-        "revision_type": "minor",
-        "issues": [{
-            "severity": "minor",
-            "category": "accessibility",
-            "description": "Missing alt attribute on <img>",
-            "location": "src/components/Hero.tsx:5",
-            "suggestion": "Add descriptive alt text",
-        }],
-        "revision_instructions": "Add alt attribute to the <img> tag.",
-        "failed_checks": ["accessibility"],
-    })]
+    artifacts["critic"] = [
+        json.dumps(
+            {
+                "verdict": "revise",
+                "score": 0.72,
+                "revision_type": "minor",
+                "issues": [
+                    {
+                        "severity": "minor",
+                        "category": "accessibility",
+                        "description": "Missing alt attribute on <img>",
+                        "location": "src/components/Hero.tsx:5",
+                        "suggestion": "Add descriptive alt text",
+                    }
+                ],
+                "revision_instructions": "Add alt attribute to the <img> tag.",
+                "failed_checks": ["accessibility"],
+            }
+        )
+    ]
     artifacts["_critic_revision_count"] = ["1"]
 
     state = _build_state(artifacts=artifacts)

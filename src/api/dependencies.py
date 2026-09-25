@@ -10,6 +10,7 @@ Example usage in a route handler::
     async def example(db_session: AsyncSession, valkey: Redis, settings: Settings) -> dict:
         ...
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator

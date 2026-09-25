@@ -1,4 +1,5 @@
 """Unit tests for src/worker/queue.py - TaskQueue with Valkey backend."""
+
 from __future__ import annotations
 
 import asyncio
@@ -159,10 +160,12 @@ class TestProcessLoop:
         """Should call dispatch_task with dequeued task."""
         task_data = {"type": "scout_cycle", "payload": {}, "retry_count": 0}
         mock_valkey = AsyncMock()
-        mock_valkey.blpop = AsyncMock(side_effect=[
-            (QUEUE_KEY, json.dumps(task_data)),
-            None,  # Second call returns None to exit loop
-        ])
+        mock_valkey.blpop = AsyncMock(
+            side_effect=[
+                (QUEUE_KEY, json.dumps(task_data)),
+                None,  # Second call returns None to exit loop
+            ]
+        )
 
         shutdown_event = asyncio.Event()
 
@@ -195,10 +198,12 @@ class TestProcessLoop:
         """Failed task should be re-enqueued with retry_count+1."""
         task_data = {"type": "scout_cycle", "payload": {}, "retry_count": 0}
         mock_valkey = AsyncMock()
-        mock_valkey.blpop = AsyncMock(side_effect=[
-            (QUEUE_KEY, json.dumps(task_data)),
-            None,  # Second call returns None to exit loop
-        ])
+        mock_valkey.blpop = AsyncMock(
+            side_effect=[
+                (QUEUE_KEY, json.dumps(task_data)),
+                None,  # Second call returns None to exit loop
+            ]
+        )
         mock_valkey.rpush = AsyncMock(return_value=1)
 
         shutdown_event = asyncio.Event()
@@ -236,10 +241,12 @@ class TestProcessLoop:
         """Task should move to dead letter queue after MAX_RETRIES failures."""
         task_data = {"type": "scout_cycle", "payload": {}, "retry_count": MAX_RETRIES}
         mock_valkey = AsyncMock()
-        mock_valkey.blpop = AsyncMock(side_effect=[
-            (QUEUE_KEY, json.dumps(task_data)),
-            None,
-        ])
+        mock_valkey.blpop = AsyncMock(
+            side_effect=[
+                (QUEUE_KEY, json.dumps(task_data)),
+                None,
+            ]
+        )
         mock_valkey.rpush = AsyncMock(return_value=1)
 
         shutdown_event = asyncio.Event()
@@ -302,10 +309,12 @@ class TestProcessLoop:
     async def test_handles_general_exceptions_without_crashing(self) -> None:
         """General exceptions should be logged but not crash the loop."""
         mock_valkey = AsyncMock()
-        mock_valkey.blpop = AsyncMock(side_effect=[
-            Exception("Random error"),
-            None,  # Second call returns None to allow clean exit
-        ])
+        mock_valkey.blpop = AsyncMock(
+            side_effect=[
+                Exception("Random error"),
+                None,  # Second call returns None to allow clean exit
+            ]
+        )
 
         shutdown_event = asyncio.Event()
 

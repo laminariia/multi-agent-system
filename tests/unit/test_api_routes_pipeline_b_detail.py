@@ -3,6 +3,7 @@
 Tests the ``PipelineBController.get_lead`` and ``list_leads`` (search param)
 route handlers with mocked database dependencies.
 """
+
 from __future__ import annotations
 
 import uuid

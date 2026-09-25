@@ -8,6 +8,7 @@ Tests ``src.core.credential_loader``:
 All database and encryption operations are mocked so tests never touch real
 services.
 """
+
 from __future__ import annotations
 
 import uuid

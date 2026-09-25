@@ -89,13 +89,13 @@ async def test_scout_qualified_jobs_routes_to_bid(
         "freelancer": MagicMock(fetch_jobs=AsyncMock(return_value=raw_jobs)),
     }
 
-    scored_response = _make_scored_json([
-        {**j, "match_score": 0.85, "recommendation": "bid"} for j in raw_jobs
-    ])
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=scored_response),
-        CallMetrics(agent_name="scout", model_id="gemini-3-flash", provider="google"),
-    ))
+    scored_response = _make_scored_json([{**j, "match_score": 0.85, "recommendation": "bid"} for j in raw_jobs])
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=scored_response),
+            CallMetrics(agent_name="scout", model_id="gemini-3-flash", provider="google"),
+        )
+    )
 
     agent = ScoutAgent(
         llm_client=mock_llm_client,
@@ -154,13 +154,17 @@ async def test_scout_borderline_creates_hitl_review(
         "freelancer": MagicMock(fetch_jobs=AsyncMock(return_value=raw_jobs)),
     }
 
-    scored_response = _make_scored_json([
-        {**raw_jobs[0], "match_score": 0.6, "recommendation": "review"},
-    ])
-    mock_llm_client.call = AsyncMock(return_value=(
-        AIMessage(content=scored_response),
-        CallMetrics(agent_name="scout", model_id="gemini-3-flash", provider="google"),
-    ))
+    scored_response = _make_scored_json(
+        [
+            {**raw_jobs[0], "match_score": 0.6, "recommendation": "review"},
+        ]
+    )
+    mock_llm_client.call = AsyncMock(
+        return_value=(
+            AIMessage(content=scored_response),
+            CallMetrics(agent_name="scout", model_id="gemini-3-flash", provider="google"),
+        )
+    )
 
     agent = ScoutAgent(
         llm_client=mock_llm_client,
@@ -197,10 +201,12 @@ def test_scout_parse_scored_response_valid_json(
         adapters={},
     )
 
-    valid_json = json.dumps([
-        {"title": "Job A", "match_score": 0.9, "recommendation": "bid"},
-        {"title": "Job B", "match_score": 0.3, "recommendation": "skip"},
-    ])
+    valid_json = json.dumps(
+        [
+            {"title": "Job A", "match_score": 0.9, "recommendation": "bid"},
+            {"title": "Job B", "match_score": 0.3, "recommendation": "skip"},
+        ]
+    )
 
     result = agent._parse_scored_response(valid_json, expected_count=2)
     assert len(result) == 2

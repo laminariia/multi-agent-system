@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 from playwright.async_api import Page, expect
@@ -40,7 +41,7 @@ class TestHITLQueue:
         # The tab filters should be visible
         await expect(self.page.get_by_text("All")).to_be_visible()
         await expect(self.page.get_by_text("Bids")).to_be_visible()
-        await expect(self.page.get_by_text("Reviews")).to_be_visible()
+        await expect(self.page.get_by_text("Dev Launch")).to_be_visible()
 
     async def test_hitl_items_displayed(self):
         """HITL cards render for each pending item."""
@@ -94,7 +95,7 @@ class TestHITLQueue:
         await self.page.wait_for_load_state("networkidle")
 
         # Find and click the first Approve button
-        approve_btn = self.page.get_by_role("button", name="Approve").first
+        approve_btn = self.page.get_by_role("button", name=re.compile(r"^approve$", re.IGNORECASE)).first
         if await approve_btn.count() > 0:
             await approve_btn.click()
             # Wait for API call
@@ -118,7 +119,7 @@ class TestHITLQueue:
         await self.page.goto("/hitl")
         await self.page.wait_for_load_state("networkidle")
 
-        reject_btn = self.page.get_by_role("button", name="Reject").first
+        reject_btn = self.page.get_by_role("button", name=re.compile(r"^reject$", re.IGNORECASE)).first
         if await reject_btn.count() > 0:
             await reject_btn.click()
             await self.page.wait_for_timeout(1000)

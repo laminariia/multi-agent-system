@@ -1,4 +1,5 @@
 """Unit tests for Pipeline B -- GeoScout, Outreach, routing, and API."""
+
 from __future__ import annotations
 
 import json
@@ -322,11 +323,13 @@ async def test_geo_scout_node():
 
     # Mock GeoScoutAgent directly
     mock_agent = AsyncMock()
-    mock_agent.invoke = AsyncMock(return_value={
-        **state,
-        "status": "active",
-        "next_agent": "outreach",
-    })
+    mock_agent.invoke = AsyncMock(
+        return_value={
+            **state,
+            "status": "active",
+            "next_agent": "outreach",
+        }
+    )
     mock_agent._overpass = MagicMock()  # noqa: SLF001
     mock_agent._overpass.close = AsyncMock()  # noqa: SLF001
 
@@ -814,10 +817,12 @@ async def test_outreach_node():
 
     # Mock OutreachAgent directly
     mock_agent = AsyncMock()
-    mock_agent.invoke = AsyncMock(return_value={
-        **state,
-        "status": "completed",
-    })
+    mock_agent.invoke = AsyncMock(
+        return_value={
+            **state,
+            "status": "completed",
+        }
+    )
     mock_agent._waterfall = None  # noqa: SLF001
 
     with (
@@ -1084,10 +1089,12 @@ async def test_pipeline_b_scan_stats():
     mock_session = AsyncMock()
 
     # Mock status counts: [(status, count), ...]
-    mock_session.execute = AsyncMock(side_effect=[
-        [("new", 10), ("enriched", 5), ("no_contact", 2)],
-        [("Berlin", 12), ("Munich", 5)],
-    ])
+    mock_session.execute = AsyncMock(
+        side_effect=[
+            [("new", 10), ("enriched", 5), ("no_contact", 2)],
+            [("Berlin", 12), ("Munich", 5)],
+        ]
+    )
 
     result = await PipelineBController.scan_stats.fn(
         self=None,
