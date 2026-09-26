@@ -61,7 +61,7 @@ title = "Gitleaks config for Multi-Agent Service"
 [[rules]]
   id = "fernet-key"
   description = "Fernet encryption key"
-  regex = '''[A-Za-z0-9+/=]{44}'''
+  regex = '''\b[A-Za-z0-9_\-]{43}='''  # 32 bytes, url-safe base64: 43 chars + one '=' pad
   tags = ["secret", "fernet"]
 
   [rules.allowlist]
