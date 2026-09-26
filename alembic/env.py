@@ -41,6 +41,21 @@ if config.config_file_name is not None:
 # Target metadata for autogenerate
 target_metadata = Base.metadata
 
+# DB objects that migrations create but models cannot or do not describe:
+# the DiskANN index is raw SQL (pgvectorscale), telegram_notifications is a
+# legacy table filled by the seed script only.
+_UNMAPPED_TABLES = {"telegram_notifications"}
+_UNMAPPED_INDEXES = {"idx_knowledge_embedding_diskann"}
+
+
+def include_object(obj, name, type_, reflected, compare_to):  # noqa: ANN001, ANN201
+    """Keep unmapped DB objects out of autogenerate and ``alembic check``."""
+    if type_ == "table" and name in _UNMAPPED_TABLES:
+        return False
+    if type_ == "index" and (name in _UNMAPPED_INDEXES or obj.table.name in _UNMAPPED_TABLES):
+        return False
+    return True
+
 
 # ---------------------------------------------------------------------------
 # Offline mode (generates SQL scripts without a live DB connection)
@@ -56,6 +71,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        include_object=include_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
@@ -74,6 +90,7 @@ def do_run_migrations(connection) -> None:  # noqa: ANN001
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
+        include_object=include_object,
         compare_type=True,
     )
 

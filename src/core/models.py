@@ -79,7 +79,6 @@ class SoftDeleteMixin:
         DateTime(timezone=True),
         nullable=True,
         default=None,
-        index=True,
     )
 
 
@@ -244,6 +243,7 @@ class Bid(Base):
         UniqueConstraint("job_id", "account_id", name="uq_bids_job_account"),
         Index("idx_bids_status", "status"),
         Index("idx_bids_job", "job_id"),
+        Index("idx_bids_platform_bid_id", "platform_bid_id"),
     )
 
 
@@ -459,6 +459,7 @@ class HITLQueue(SoftDeleteMixin, Base):
     __table_args__ = (
         Index("idx_hitl_status", "status", "priority", "created_at"),
         Index("idx_hitl_type", "type", "status"),
+        Index("idx_hitl_queue_deleted_at", "deleted_at", postgresql_where=text("deleted_at IS NOT NULL")),
     )
 
 
@@ -584,19 +585,20 @@ class Lead(Base):
 
     # Scoring (pipeline-b-spec)
     lead_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    temperature: Mapped[str | None] = mapped_column(String(10), nullable=True)  # hot/warm/cold
+    temperature: Mapped[str | None] = mapped_column(String(20), nullable=True)  # hot/warm/cold
 
     # Touch tracking
     touch_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    channel_used: Mapped[str | None] = mapped_column(String(20), nullable=True)  # email/telegram/platform
+    channel_used: Mapped[str | None] = mapped_column(String(50), nullable=True)  # email/telegram/platform
 
     # External data
     google_rating: Mapped[Decimal | None] = mapped_column(Numeric(2, 1), nullable=True)
     review_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Source
-    source: Mapped[str | None] = mapped_column(String(30), nullable=True)  # geo_scanner/web_search/telegram
+    source: Mapped[str | None] = mapped_column(String(100), nullable=True)  # geo_scanner/web_search/telegram
+    company_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     osm_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
     discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -694,6 +696,8 @@ class CampaignLead(Base):
     campaign: Mapped[EmailCampaign] = relationship(back_populates="campaign_leads")
     lead: Mapped[Lead] = relationship(back_populates="campaign_links")
 
+    __table_args__ = (Index("idx_campaign_leads_channel", "channel_type"),)
+
 
 # ---------------------------------------------------------------------------
 # 12. agent_logs
@@ -737,6 +741,7 @@ class AgentLog(SoftDeleteMixin, Base):
         Index("idx_agent_logs_agent", "agent_name", "created_at"),
         Index("idx_agent_logs_project", "project_id", "created_at"),
         Index("idx_agent_logs_event", "event_type", "created_at"),
+        Index("idx_agent_logs_deleted_at", "deleted_at", postgresql_where=text("deleted_at IS NOT NULL")),
     )
 
 
@@ -902,7 +907,10 @@ class ABTestResult(SoftDeleteMixin, Base):
     job: Mapped[Job | None] = relationship(back_populates="ab_test_results")
     bid: Mapped[Bid | None] = relationship(back_populates="ab_test_results")
 
-    __table_args__ = (Index("idx_ab_test", "test_name", "variant_id"),)
+    __table_args__ = (
+        Index("idx_ab_test", "test_name", "variant_id"),
+        Index("idx_ab_test_results_deleted_at", "deleted_at", postgresql_where=text("deleted_at IS NOT NULL")),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1064,6 +1072,7 @@ class ScheduledMessage(SoftDeleteMixin, Base):
     __table_args__ = (
         Index("idx_scheduled_messages_status_send_at", "status", "send_at"),
         Index("idx_scheduled_messages_thread", "thread_id"),
+        Index("idx_scheduled_messages_deleted_at", "deleted_at", postgresql_where=text("deleted_at IS NOT NULL")),
     )
 
 
