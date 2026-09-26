@@ -21,10 +21,12 @@
 ![Remix](https://img.shields.io/badge/Remix-shadcn/ui-121212?style=flat-square&logo=remix&logoColor=white)
 ![Telegram](https://img.shields.io/badge/Telegram-HITL_bot-26A5E4?style=flat-square&logo=telegram&logoColor=white)
 <br/>
+[![CI](https://img.shields.io/github/actions/workflow/status/laminariia/multi-agent-system/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/laminariia/multi-agent-system/actions/workflows/ci.yml)
 ![Tests](https://img.shields.io/badge/tests-5414_passed-2EA44F?style=flat-square)
 ![Coverage](https://img.shields.io/badge/coverage-86%25-2EA44F?style=flat-square)
 ![Agents](https://img.shields.io/badge/AI_agents-11-7C3AED?style=flat-square)
 ![HITL](https://img.shields.io/badge/HITL_gates-9-7C3AED?style=flat-square)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
 [Задача](#задача) · [Архитектура](#архитектура) · [Пайплайны](#пайплайны) · [Агенты](#агенты) · [Контроль качества](#контроль-качества) · [Инженерные решения](#инженерные-решения) · [Интерфейс](#интерфейс) · [Запуск](#быстрый-старт) · [Статус](#статус-реализации)
 
@@ -347,12 +349,12 @@ ruff check src/ tests/
 - GDPR-модуль (удаление данных, выгрузка по запросу, согласия): контроллер пока не зарегистрирован в приложении;
 - Pydantic-схемы ответов агентов: сейчас их применяют только тесты golden set.
 
-**Известные ограничения.** CI в GitHub Actions прогоняет линтер и проверку типов, юнит-, интеграционные, golden- и E2E-тесты (Playwright), Semgrep, Trivy и gitleaks, собирает Docker-образы. Красной остаётся одна проверка, и по делу: `alembic check` находит расхождения моделей с миграциями — например, у таблицы `email_suppression_list` нет миграции. Нагрузочный тест на Locust и деплой в Railway в CI выключены и включаются переменными репозитория.
+**CI.** GitHub Actions на каждый PR прогоняет линтер и проверку типов, юнит-, интеграционные, golden- и E2E-тесты (Playwright), `alembic check`, Semgrep, Trivy и gitleaks и собирает Docker-образы. Нагрузочный тест на Locust в CI пока выключен — он ещё ни разу не проходил; деплой в Railway из CI включается переменной репозитория.
 
 **Дальше:**
 - [ ] связать скаутинг с заявкой и добавить чекпоинтер в Pipeline B — это замкнёт оба пайплайна;
 - [ ] подключить Negotiation Engine, rate limiter, семантический кэш и готовые адаптеры;
-- [ ] свести модели с миграциями Alembic — последняя красная проверка CI;
+- [ ] починить нагрузочный тест на Locust и включить его в CI;
 - [ ] измерить качество агентов на размеченных данных: точность скоринга Scout, долю правок от Critic, конверсию заявок;
 - [ ] Pipeline C (сопровождение клиентов после сдачи) — пока только в спецификациях.
 
@@ -362,6 +364,10 @@ ruff check src/ tests/
 - **AI-assisted разработка.** Код генерировал Claude Code; моя часть — спецификации и архитектура, разбивка на этапы, настройка субагентов с зонами ответственности ([`.claude/agents`](.claude/agents)) и правил проекта ([`.claude/rules`](.claude/rules)), ревью, отладка и приёмка по тестам. Крупные этапы шли волнами параллельных агентов с разделением файлов, затем сквозными ревью. Цена скорости — модули, которые написаны и протестированы, но не подключены к рантайму; их список ведётся в разделе «Статус реализации».
 - **Сверка кода со спецификациями.** [Аудит от 17 марта](docs/plans/2026-03-17-full-spec-gap-analysis.md) нашёл 58 расхождений со спецификациями, [пять сквозных ревью](docs/plans/2026-03-19-review-fixes-plan.md) — 84 замечания; по ним составлялись планы исправлений в [`docs/plans/`](docs/plans/).
 - **Тесты как контракт.** Этап закрывался только при зелёном прогоне тестов. Около 150 коммитов за шесть недель, с февраля по март 2026 года.
+
+## Лицензия
+
+[MIT](LICENSE).
 
 ## Контакты
 

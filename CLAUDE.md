@@ -91,15 +91,14 @@ docker/         — Dockerfile, docker-compose.yml
 - Upwork auto-submit is **FORBIDDEN** (ToS violation)
 - Email warm-up 6 weeks before production outreach
 
-## Current Status (Mar 2026)
+## Current Status (Sep 2026)
 
-- **2490+ tests** passing, grade A+ (99)
-- **Pipeline A**: fully implemented — Scout, Bid, HITL (dev_launch), Planner, Dev, Content, Design, Critic, HITL (final_review), Packager
-- **Pipeline B**: fully implemented — GeoScout, Outreach, HITL, Email
-- **3 HITL gates**: bid_approval, dev_launch (safety gate), final_review
-- **Dashboard**: Remix + shadcn/ui, all CRUD pages, WebSocket real-time, Settings with encrypted credentials
-- **Deploy**: Railway (API + Dashboard as separate services)
-- **Last major change**: hitl_dev_launch safety gate + LLM model registry sync with 6-tier system
+- **Source of truth**: README «Статус реализации» — what runs in runtime vs. implemented and tested but not wired yet
+- **Tests**: ~5,400 unit/integration/property/golden + 44 Playwright E2E; GitHub Actions CI runs all of them, plus Semgrep, Trivy, gitleaks and `alembic check`
+- **Pipeline A in runtime**: Scout cycle; Dev Cycle Engine (Planner → Dev/Content/Design → Critic → Packager → final_review HITL). Bid generation and submission are implemented but not wired
+- **Pipeline B in runtime**: GeoScout → Outreach → outreach-approval HITL; sending approved emails is not wired
+- **Dashboard + Telegram bot**: Remix + shadcn/ui, WebSocket updates; HITL cards in Telegram
+- **Deploy**: Railway (API + Dashboard as separate services); the CI deploy job is opt-in via the `RAILWAY_DEPLOY` repo variable
 
 ## Documentation Index
 
